@@ -1,4 +1,4 @@
-You are continuing an existing implementation task.
+You are either starting or continuing an existing implementation task.
 
 Before doing anything:
 
@@ -31,3 +31,4 @@ If context is becoming constrained, do not begin another substantial task.
 Finish the current coherent unit of work, update STATE.md, and stop.
 
 Do not claim work is complete unless the relevant tests or verification have actually passed.
+Once it is actually complete though, please update the status to reflect this.
