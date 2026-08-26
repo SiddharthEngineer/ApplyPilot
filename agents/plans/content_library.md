@@ -1,7 +1,7 @@
 # Plan: Content Library Resume Tailoring
 
 **Started:** 2026-08-26
-**Status:** ✅ Complete
+**Status:** 🔄 In progress
 
 ---
 
@@ -18,6 +18,9 @@ Add an alternative resume tailoring mode that sources resume content from `perso
 5. Resume fits on a single page (Letter size).
 6. Existing `resume.txt`-based tailoring is untouched and continues to work.
 7. `applypilot run tailor` (no flag) works exactly as before (backward compatible).
+8. **NEW:** `applypilot init` presents workflow choice (traditional vs content library) and sets up the selected source correctly.
+9. **NEW:** Content library users can complete init without being prompted for resume.txt/resume.pdf.
+10. **NEW:** `applypilot doctor` validates content library setup and provides clear guidance.
 
 ---
 
@@ -232,17 +235,135 @@ applypilot run --source content-library         # runs all stages, tailor uses c
 
 ---
 
+### Task 8: Init Wizard Content Library Support
+
+**Files:** `src/applypilot/wizard/init.py` (modify — update `_setup_resume()`)
+
+**What:** Update the init wizard to support the content library workflow alongside the traditional resume-based workflow. Currently, init only handles `resume.txt`/`resume.pdf` and does not set up `content_library.md`.
+
+**Current behavior (to preserve):**
+- Asks for a resume file (.txt or .pdf)
+- If PDF: copies to `~/.applypilot/resume.pdf`, asks for plain-text version
+- Copies .txt to `~/.applypilot/resume.txt`
+
+**New behavior:**
+1. **Ask workflow preference**: "Which resume source do you want to use?"
+   - Option A: "Traditional resume (.txt/.pdf)" → existing flow
+   - Option B: "Content library (structured project facts)" → new flow
+   - Default: Option A (backward compatible)
+
+2. **If content library selected:**
+   - Prompt: "Path to your content_library.md file"
+   - Validate file exists
+   - Copy to `~/.applypilot/content_library.md`
+   - Print confirmation: "Content library copied to ~/.applypilot/content_library.md"
+   - **Skip** the resume.txt/resume.pdf prompts (not needed for content library mode)
+   - Print usage hint: "Run `applypilot run tailor --source content-library` to use"
+
+3. **Optional: PDF formatting reference:**
+   - Ask: "Do you have a PDF resume to use as a formatting reference for output PDFs?"
+   - If yes: prompt for path, copy to `~/.applypilot/resume_reference.pdf`
+   - This is used by `pdf.py` for visual styling (optional, not required)
+
+**User experience flow:**
+```
+Step 1: Resume
+
+Which resume source do you want to use?
+  1) Traditional resume (.txt or .pdf) — existing workflow
+  2) Content library (structured project facts) — new workflow
+> 2
+
+Path to your content_library.md file:
+> personal/content_library.md
+
+✓ Content library copied to ~/.applypilot/content_library.md
+
+Do you have a PDF resume to use as a formatting reference? (optional)
+> personal/2026 Siddharth Engineer.pdf
+
+✓ Formatting reference copied to ~/.applypilot/resume_reference.pdf
+
+💡 Tip: Run `applypilot run tailor --source content-library` to tailor resumes from your content library.
+```
+
+**Acceptance criteria:**
+- `applypilot init` presents workflow choice (traditional vs content library)
+- Content library mode copies file to `~/.applypilot/content_library.md`
+- Traditional mode works exactly as before (backward compatible)
+- Optional PDF reference copy works
+- Usage hints are printed for content library users
+
+**Status:** ✅ Complete (2026-08-26) — Updated `_setup_resume()` to present workflow choice. Added `_setup_content_library()` and `_setup_pdf_reference()` functions. Added `RESUME_REFERENCE_PATH` to `config.py`. Created 9 unit tests in `tests/test_init_wizard.py`. All 105 tests pass.
+
+---
+
+### Task 9: Doctor Command Content Library Check
+
+**Files:** `src/applypilot/cli.py` (modify — update `doctor()`)
+
+**What:** Add content library validation to the `applypilot doctor` command so users can verify their setup is correct.
+
+**Changes:**
+1. Add check for `~/.applypilot/content_library.md`:
+   - If exists: show green "OK" with path
+   - If missing: show yellow "WARN" with hint: "Run `applypilot init` to set up content library"
+
+2. If content library exists, validate it can be parsed:
+   - Try `parse_content_library(CONTENT_LIBRARY_PATH)`
+   - If successful: show "Parsed: X roles, Y projects, Z angle tags"
+   - If parsing fails: show red "ERROR" with parsing error message
+
+3. Add to the tier summary section:
+   - If content library present: note "Content library mode available (use `--source content-library`)"
+
+**Acceptance criteria:**
+- `applypilot doctor` shows content library status
+- Parsing validation catches malformed content library files
+- Clear guidance provided if content library is missing or invalid
+
+---
+
+### Task 10: Update Tests for Init Wizard
+
+**Files:** `tests/` (new test file or modify existing)
+
+**What:** Add tests to verify the init wizard correctly handles both workflows.
+
+**Test cases:**
+1. **Test traditional mode preserved**: Mock user selecting option 1, verify resume.txt/resume.pdf flow unchanged
+2. **Test content library mode**: Mock user selecting option 2, verify content_library.md is copied
+3. **Test file validation**: Mock non-existent file path, verify error handling
+4. **Test PDF reference optional**: Mock user skipping PDF reference, verify no error
+5. **Test content library mode skips resume prompts**: Verify resume.txt/prompt.txt not asked when content library selected
+
+**Acceptance criteria:**
+- All new tests pass
+- Existing init tests still pass
+- No regression in traditional workflow
+
+---
+
 ## Implementation Order
 
 ```
 Task 1 (Parser) → Task 2 (Prompt) → Task 3 (Core Function) → Task 4 (Validation)
-                                                                ↓
-                               Task 5 (CLI/Pipeline) ← Task 6 (PDF)
-                                                                ↓
-                                                       Task 7 (E2E Test)
+                                                                 ↓
+                                Task 5 (CLI/Pipeline) ← Task 6 (PDF)
+                                                                 ↓
+                                                        Task 7 (E2E Test)
+                                                                 ↓
+                                                        Task 8 (Init Wizard)
+                                                                 ↓
+                                                        Task 9 (Doctor Check)
+                                                                 ↓
+                                                        Task 10 (Tests)
 ```
 
-Each task is a coherent unit of work that can be implemented and verified independently. Tasks 1-4 are the core logic. Tasks 5-6 integrate into the pipeline. Task 7 verifies everything works together.
+Tasks 1-8: ✅ Complete (2026-08-26)
+Tasks 9-10: 🔄 New tasks for init wizard integration
+
+Each task is a coherent unit of work that can be implemented and verified independently. Tasks 1-4 are the core logic. Tasks 5-6 integrate into the pipeline. Task 7 verifies everything works together. Tasks 8-10 handle user onboarding and validation.
 
 ## Key Design Decisions
 
@@ -251,11 +372,14 @@ Each task is a coherent unit of work that can be implemented and verified indepe
 3. **Role-grouped output** — Experience entries are grouped under role headers (matching content library structure and existing resume format).
 4. **HTML/Playwright kept** — no new dependencies for PDF generation.
 5. **Validation relaxed for project selection** — the LLM may legitimately drop companies/projects that aren't relevant; validator checks fabrication, not completeness.
+6. **Backward-compatible init** — `applypilot init` defaults to traditional workflow; content library is opt-in via menu choice. Existing users see no change.
 
 ---
 
 ## Historical Record
 
-The Content Library Resume Tailoring plan is fully implemented and verified as of 2026-08-26. All 7 tasks complete, 96 tests pass, lint clean.
+**Phase 1 (Complete):** Core content library functionality implemented 2026-08-26. Tasks 1-7 complete, 96 tests pass, lint clean. Parser, prompt, tailor function, validation, CLI integration, PDF rendering, and E2E tests all working.
+
+**Phase 2 (In Progress):** Init wizard integration. Task 8 complete: init wizard now presents workflow choice and sets up content library. Task 9 pending: doctor command validation. Task 10 complete: init wizard tests. 105 tests pass.
 
 The previous plan (OpenCode backend, completed 2026-08-25) is preserved in git history and `agent/CHANGELOG.md` under `[0.3.0]`.

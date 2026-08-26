@@ -1,7 +1,7 @@
 """ApplyPilot first-time setup wizard.
 
 Interactive flow that creates ~/.applypilot/ with:
-  - resume.txt (and optionally resume.pdf)
+  - resume.txt (and optionally resume.pdf) OR content_library.md
   - profile.json
   - searches.yaml
   - .env (LLM API key)
@@ -13,17 +13,18 @@ import json
 import shutil
 from pathlib import Path
 
-import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
 from applypilot.config import (
     APP_DIR,
+    CONTENT_LIBRARY_PATH,
     ENV_PATH,
     PROFILE_PATH,
     RESUME_PATH,
     RESUME_PDF_PATH,
+    RESUME_REFERENCE_PATH,
     SEARCH_CONFIG_PATH,
     ensure_dirs,
 )
@@ -36,8 +37,39 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 def _setup_resume() -> None:
-    """Prompt for resume file and copy into APP_DIR."""
-    console.print(Panel("[bold]Step 1: Resume[/bold]\nPoint to your master resume file (.txt or .pdf)."))
+    """Prompt for resume source and copy into APP_DIR."""
+    console.print(Panel(
+        "[bold]Step 1: Resume[/bold]\n"
+        "Choose how you want to prepare resumes for tailoring."
+    ))
+
+    # Ask workflow preference
+    console.print("\n[bold]Which resume source do you want to use?[/bold]")
+    console.print("  1) Traditional resume (.txt or .pdf) — existing workflow")
+    console.print("  2) Content library (structured project facts) — new workflow")
+
+    while True:
+        choice = Prompt.ask("Select", choices=["1", "2"], default="1")
+        if choice in ("1", "2"):
+            break
+        console.print("[red]Please enter 1 or 2.[/red]")
+
+    if choice == "1":
+        _setup_traditional_resume()
+    else:
+        _setup_content_library()
+
+    # Optional: PDF formatting reference
+    console.print("\n[bold]Do you have a PDF resume to use as a formatting reference?[/bold]")
+    console.print("[dim]This is used by ApplyPilot when generating output PDFs (optional).[/dim]")
+    if Confirm.ask("Add formatting reference PDF?", default=False):
+        _setup_pdf_reference()
+
+
+def _setup_traditional_resume() -> None:
+    """Set up traditional resume workflow (.txt or .pdf)."""
+    console.print("\n[bold]Traditional Resume Setup[/bold]")
+    console.print("Point to your master resume file (.txt or .pdf).")
 
     while True:
         path_str = Prompt.ask("Resume file path")
@@ -71,6 +103,51 @@ def _setup_resume() -> None:
                     console.print(f"[green]Copied to {RESUME_PATH}[/green]")
                 else:
                     console.print("[yellow]File not found, skipping plain-text copy.[/yellow]")
+        break
+
+
+def _setup_content_library() -> None:
+    """Set up content library workflow."""
+    console.print("\n[bold]Content Library Setup[/bold]")
+    console.print("The content library is a structured bank of raw project facts.")
+    console.print("ApplyPilot will select relevant projects and write bullets for each job.\n")
+
+    while True:
+        path_str = Prompt.ask("Path to your content_library.md file")
+        src = Path(path_str.strip().strip('"').strip("'")).expanduser().resolve()
+
+        if not src.exists():
+            console.print(f"[red]File not found:[/red] {src}")
+            continue
+
+        if not src.name.endswith(".md"):
+            console.print("[yellow]Warning: File doesn't have .md extension. Continue anyway?[/yellow]")
+            if not Confirm.ask("Continue?", default=True):
+                continue
+
+        shutil.copy2(src, CONTENT_LIBRARY_PATH)
+        console.print(f"[green]✓ Content library copied to {CONTENT_LIBRARY_PATH}[/green]")
+        break
+
+    console.print("\n[dim]Tip: Run [bold]applypilot run tailor --source content-library[/bold] to tailor resumes from your content library.[/dim]")
+
+
+def _setup_pdf_reference() -> None:
+    """Set up optional PDF formatting reference."""
+    while True:
+        path_str = Prompt.ask("Path to your formatting reference PDF")
+        src = Path(path_str.strip().strip('"').strip("'")).expanduser().resolve()
+
+        if not src.exists():
+            console.print(f"[red]File not found:[/red] {src}")
+            continue
+
+        if src.suffix.lower() != ".pdf":
+            console.print("[red]Please provide a PDF file.[/red]")
+            continue
+
+        shutil.copy2(src, RESUME_REFERENCE_PATH)
+        console.print(f"[green]✓ Formatting reference copied to {RESUME_REFERENCE_PATH}[/green]")
         break
 
 
@@ -371,7 +448,7 @@ def run_wizard() -> None:
     console.print()
 
     # Done — show tier status
-    from applypilot.config import get_tier, TIER_LABELS, TIER_COMMANDS
+    from applypilot.config import TIER_COMMANDS, TIER_LABELS, get_tier
 
     tier = get_tier()
 
