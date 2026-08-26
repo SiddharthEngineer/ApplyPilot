@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from typing import Optional
 
 import typer
@@ -10,6 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 from applypilot import __version__
+
+VALID_BACKENDS = ("claude", "opencode")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,7 +150,8 @@ def apply(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications to submit."),
     workers: int = typer.Option(1, "--workers", "-w", help="Number of parallel browser workers."),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for job selection."),
-    model: str = typer.Option("haiku", "--model", "-m", help="Claude model name."),
+    model: str = typer.Option("haiku", "--model", "-m", help="Claude model name (Claude) or provider/model (OpenCode)."),
+    backend: str = typer.Option("claude", "--backend", "-b", help="Agent backend: 'claude' (Claude Code CLI) or 'opencode' (OpenCode CLI)."),
     continuous: bool = typer.Option(False, "--continuous", "-c", help="Run forever, polling for new jobs."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview actions without submitting."),
     headless: bool = typer.Option(False, "--headless", help="Run browsers in headless mode."),
@@ -160,6 +164,14 @@ def apply(
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
+
+    # Validate backend
+    if backend not in VALID_BACKENDS:
+        console.print(
+            f"[red]Invalid --backend value:[/red] '{backend}'. "
+            f"Choose from: {', '.join(VALID_BACKENDS)}"
+        )
+        raise typer.Exit(code=1)
 
     from applypilot.config import check_tier, PROFILE_PATH as _profile_path
     from applypilot.database import get_connection
@@ -186,8 +198,22 @@ def apply(
 
     # --- Full apply mode ---
 
-    # Check 1: Tier 3 required (Claude Code CLI + Chrome)
+    # Check 1: Tier 3 required (Claude Code CLI or OpenCode CLI + Chrome)
     check_tier(3, "auto-apply")
+
+    # Check 2: Backend CLI is available
+    if backend == "opencode" and not shutil.which("opencode"):
+        console.print(
+            "[red]OpenCode CLI not found.[/red]\n"
+            "Install from [bold]https://opencode.ai[/bold] or use [bold]--backend claude[/bold]."
+        )
+        raise typer.Exit(code=1)
+    elif backend == "claude" and not shutil.which("claude"):
+        console.print(
+            "[red]Claude Code CLI not found.[/red]\n"
+            "Install from [bold]https://claude.ai/code[/bold] or use [bold]--backend opencode[/bold]."
+        )
+        raise typer.Exit(code=1)
 
     # Check 2: Profile exists
     if not _profile_path.exists():
@@ -211,7 +237,7 @@ def apply(
             raise typer.Exit(code=1)
 
     if gen:
-        from applypilot.apply.launcher import gen_prompt, BASE_CDP_PORT
+        from applypilot.apply.launcher import gen_prompt
         target = url or ""
         if not target:
             console.print("[red]--gen requires --url to specify which job.[/red]")
@@ -222,12 +248,19 @@ def apply(
             raise typer.Exit(code=1)
         mcp_path = _profile_path.parent / ".mcp-apply-0.json"
         console.print(f"[green]Wrote prompt to:[/green] {prompt_file}")
-        console.print(f"\n[bold]Run manually:[/bold]")
-        console.print(
-            f"  claude --model {model} -p "
-            f"--mcp-config {mcp_path} "
-            f"--permission-mode bypassPermissions < {prompt_file}"
-        )
+        console.print("\n[bold]Run manually:[/bold]")
+        if backend == "opencode":
+            console.print(
+                f"  opencode run --model {model} --auto --format json "
+                f"--dir {_profile_path.parent / 'apply-workers' / 'worker-0'} "
+                f"\"$(cat {prompt_file})\""
+            )
+        else:
+            console.print(
+                f"  claude --model {model} -p "
+                f"--mcp-config {mcp_path} "
+                f"--permission-mode bypassPermissions < {prompt_file}"
+            )
         return
 
     from applypilot.apply.launcher import main as apply_main
@@ -235,6 +268,7 @@ def apply(
     effective_limit = limit if limit is not None else (0 if continuous else 1)
 
     console.print("\n[bold blue]Launching Auto-Apply[/bold blue]")
+    console.print(f"  Backend:  {backend}")
     console.print(f"  Limit:    {'unlimited' if continuous else effective_limit}")
     console.print(f"  Workers:  {workers}")
     console.print(f"  Model:    {model}")
@@ -253,6 +287,7 @@ def apply(
         dry_run=dry_run,
         continuous=continuous,
         workers=workers,
+        backend=backend,
     )
 
 
@@ -402,7 +437,29 @@ def doctor() -> None:
         results.append(("Claude Code CLI", ok_mark, claude_bin))
     else:
         results.append(("Claude Code CLI", fail_mark,
-                        "Install from https://claude.ai/code (needed for auto-apply)"))
+                        "Install from https://claude.ai/code"))
+
+    # OpenCode CLI
+    opencode_bin = shutil.which("opencode")
+    if opencode_bin:
+        results.append(("OpenCode CLI", ok_mark, opencode_bin))
+    else:
+        results.append(("OpenCode CLI", fail_mark,
+                        "Install from https://opencode.ai"))
+
+    # Agent CLI status
+    has_agent = claude_bin or opencode_bin
+    if has_agent:
+        agent_names = []
+        if claude_bin:
+            agent_names.append("Claude Code")
+        if opencode_bin:
+            agent_names.append("OpenCode")
+        results.append(("Agent CLI (Tier 3)", ok_mark,
+                        f"{'/'.join(agent_names)} available (use --backend to choose)"))
+    else:
+        results.append(("Agent CLI (Tier 3)", fail_mark,
+                        "Install Claude Code or OpenCode (one required for auto-apply)"))
 
     # Chrome
     try:
@@ -446,9 +503,9 @@ def doctor() -> None:
 
     if tier == 1:
         console.print("[dim]  → Tier 2 unlocks: scoring, tailoring, cover letters (needs LLM API key)[/dim]")
-        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code CLI + Chrome + Node.js)[/dim]")
+        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code or OpenCode CLI + Chrome + Node.js)[/dim]")
     elif tier == 2:
-        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code CLI + Chrome + Node.js)[/dim]")
+        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code or OpenCode CLI + Chrome + Node.js)[/dim]")
 
     console.print()
 

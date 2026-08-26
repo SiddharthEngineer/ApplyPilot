@@ -280,25 +280,35 @@ def _setup_ai_features() -> None:
 # ---------------------------------------------------------------------------
 
 def _setup_auto_apply() -> None:
-    """Configure autonomous job application (requires Claude Code CLI)."""
+    """Configure autonomous job application (requires Claude Code or OpenCode CLI)."""
     console.print(Panel(
         "[bold]Step 5: Auto-Apply (optional)[/bold]\n"
         "ApplyPilot can autonomously fill and submit job applications\n"
-        "using Claude Code as the browser agent."
+        "using Claude Code or OpenCode as the browser agent."
     ))
 
     if not Confirm.ask("Enable autonomous job applications?", default=True):
         console.print("[dim]You can apply manually using the tailored resumes ApplyPilot generates.[/dim]")
         return
 
-    # Check for Claude Code CLI
-    if shutil.which("claude"):
+    # Check for both CLIs
+    has_claude = shutil.which("claude") is not None
+    has_opencode = shutil.which("opencode") is not None
+
+    if has_claude and has_opencode:
+        console.print("[green]Both Claude Code and OpenCode CLI detected.[/green]")
+        console.print("[dim]You can choose which to use with --backend flag (default: claude).[/dim]")
+    elif has_claude:
         console.print("[green]Claude Code CLI detected.[/green]")
+        console.print("[dim]OpenCode is also available as an alternative (https://opencode.ai).[/dim]")
+    elif has_opencode:
+        console.print("[green]OpenCode CLI detected.[/green]")
     else:
         console.print(
-            "[yellow]Claude Code CLI not found on PATH.[/yellow]\n"
-            "Install it from: [bold]https://claude.ai/code[/bold]\n"
-            "Auto-apply won't work until Claude Code is installed."
+            "[yellow]Neither Claude Code nor OpenCode CLI found on PATH.[/yellow]\n"
+            "Install Claude Code from: [bold]https://claude.ai/code[/bold]\n"
+            "Or install OpenCode from: [bold]https://opencode.ai[/bold]\n"
+            "Auto-apply won't work until one is installed."
         )
 
     # Optional: CapSolver for CAPTCHAs
@@ -380,7 +390,7 @@ def run_wizard() -> None:
     if tier == 1:
         unlock_hint = "\n[dim]To unlock Tier 2: configure an LLM API key (re-run [bold]applypilot init[/bold]).[/dim]"
     elif tier == 2:
-        unlock_hint = "\n[dim]To unlock Tier 3: install Claude Code CLI + Chrome.[/dim]"
+        unlock_hint = "\n[dim]To unlock Tier 3: install Claude Code or OpenCode CLI + Chrome.[/dim]"
 
     console.print(
         Panel.fit(

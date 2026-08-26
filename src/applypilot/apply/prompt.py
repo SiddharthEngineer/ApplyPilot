@@ -1,8 +1,9 @@
 """Prompt builder for the autonomous job application agent.
 
-Constructs the full instruction prompt that tells Claude Code / the AI agent
-how to fill out a job application form using Playwright MCP tools. All
-personal data is loaded from the user's profile -- nothing is hardcoded.
+Constructs the full instruction prompt that tells the AI agent (Claude Code
+or OpenCode) how to fill out a job application form using Playwright MCP
+tools. All personal data is loaded from the user's profile -- nothing is
+hardcoded.
 """
 
 import logging

@@ -202,7 +202,7 @@ def get_tier() -> int:
 
     Tier 1 (Discovery):            Python + pip
     Tier 2 (AI Scoring & Tailoring): + LLM API key
-    Tier 3 (Full Auto-Apply):       + Claude Code CLI + Chrome
+    Tier 3 (Full Auto-Apply):       + (Claude Code CLI or OpenCode CLI) + Chrome
     """
     load_env()
 
@@ -211,13 +211,16 @@ def get_tier() -> int:
         return 1
 
     has_claude = shutil.which("claude") is not None
+    has_opencode = shutil.which("opencode") is not None
+    has_agent = has_claude or has_opencode
+
     try:
         get_chrome_path()
         has_chrome = True
     except FileNotFoundError:
         has_chrome = False
 
-    if has_claude and has_chrome:
+    if has_agent and has_chrome:
         return 3
 
     return 2
@@ -241,8 +244,13 @@ def check_tier(required: int, feature: str) -> None:
     if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
         missing.append("LLM API key — run [bold]applypilot init[/bold] or set GEMINI_API_KEY")
     if required >= 3:
-        if not shutil.which("claude"):
-            missing.append("Claude Code CLI — install from [bold]https://claude.ai/code[/bold]")
+        has_claude = shutil.which("claude") is not None
+        has_opencode = shutil.which("opencode") is not None
+        if not has_claude and not has_opencode:
+            missing.append(
+                "Agent CLI (one required) — install Claude Code from [bold]https://claude.ai/code[/bold]\n"
+                "                                  or install OpenCode from [bold]https://opencode.ai[/bold]"
+            )
         try:
             get_chrome_path()
         except FileNotFoundError:

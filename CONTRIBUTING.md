@@ -144,6 +144,19 @@ ApplyPilot/
 └── pyproject.toml        # Package configuration
 ```
 
+## Apply Backends (Stage 6)
+
+The auto-apply stage supports two agent backends via the `--backend` flag:
+
+| Backend | CLI | Config format | Cost |
+|---------|-----|---------------|------|
+| `claude` (default) | `claude -p` | MCP config JSON passed via `--mcp-config` | Anthropic API |
+| `opencode` | `opencode run` | `opencode.json` in worker directory | Free (own API keys) |
+
+Each backend has its own command builder (`_build_claude_cmd` / `_build_opencode_cmd`), MCP config generator (`_make_mcp_config` / `_make_opencode_config`), and output parser (`_parse_claude_output` / `_parse_opencode_output`) in `apply/launcher.py`.
+
+When adding new MCP tools or changing tool permissions, update **both** backend paths. The prompt in `apply/prompt.py` uses backend-agnostic tool names (e.g. `browser_navigate`) and works with both.
+
 ## License
 
 By contributing to ApplyPilot, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).

@@ -5,6 +5,48 @@ All notable changes to ApplyPilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Completed
+- **OpenCode backend plan fully implemented** (2026-08-25) — All items from the "Add OpenCode as an Alternative Agent Backend" plan are complete and verified. The plan is preserved in git history; see `agent/PLAN.md` for the cleared version.
+
+## [0.3.0] - 2026-08-25
+
+### Added
+- **OpenCode as alternative agent backend** — `applypilot apply --backend opencode` uses
+  OpenCode CLI instead of Claude Code for autonomous browser-based job applications.
+  OpenCode is free (bring your own models/API keys) vs Claude Code (Anthropic API).
+- **`--backend` CLI flag** — choose between `claude` (default) and `opencode` backends
+  on `applypilot apply`. Passes through to launcher, worker loop, and job execution.
+- **OpenCode command builder** (`_build_opencode_cmd`) — constructs the `opencode run`
+  command with `--model`, `--auto`, `--format json`, and `--dir` flags. Prompt is passed
+  as a positional argument (not stdin).
+- **OpenCode MCP config generator** (`_make_opencode_config`) — generates per-worker
+  `opencode.json` with Playwright and Gmail MCP servers, plus permission rules to
+  block Gmail tools and allow Playwright tools.
+- **OpenCode output parser** (`_parse_opencode_output`) — parses OpenCode's `--format json`
+  event stream (assistant messages, tool usage, usage stats) into the same structured
+  format as the Claude parser for downstream compatibility.
+- **Dual backend detection in `doctor()`** — checks for both Claude Code and OpenCode
+  CLI on PATH, reports availability of each, and shows combined Tier 3 status.
+- **Dual backend detection in `init` wizard** — detects both CLIs during auto-apply
+  setup, reports which are found, and suggests the alternative when only one is present.
+
+### Changed
+- **Tier 3 now accepts either backend** — `get_tier()` returns Tier 3 when Chrome +
+  LLM key + at least one agent CLI (Claude Code or OpenCode) is available.
+- **`check_tier()` error messages** — when Tier 3 is missing, lists both CLIs and
+  says "install one of" with links to both.
+- **`run_job()` refactored** — command building extracted into `_build_claude_cmd()`
+  and `_build_opencode_cmd()`. Backend dispatch selects the correct builder, config
+  generator, and output parser based on the `backend` parameter.
+- **`worker_loop()` and `main()` accept `backend` parameter** — plumbed through from
+  `cli.py` `--backend` flag to job execution.
+- **Log filenames include backend name** — job logs are now prefixed with `{backend}_`
+  instead of hardcoded `claude_`.
+- **Documentation updated** — README, CONTRIBUTING (added "Apply Backends" section), PLAN reflect both backends.
+- **`.gitignore`** — added `.opencode/` alongside `.claude/`.
+
 ## [0.2.0] - 2026-02-17
 
 ### Added
