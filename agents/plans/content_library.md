@@ -344,6 +344,8 @@ Do you have a PDF resume to use as a formatting reference? (optional)
 - Existing init tests still pass
 - No regression in traditional workflow
 
+**Status:** ✅ Complete (2026-08-26) — Created 9 unit tests in `tests/test_init_wizard.py` covering: traditional mode preserved, content library mode setup, file validation error handling, optional PDF reference skip, and content library skipping resume prompts. All 111 tests pass.
+
 ---
 
 ## Implementation Order
