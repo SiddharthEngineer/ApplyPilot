@@ -2,9 +2,9 @@ You are continuing an existing implementation task.
 
 Before doing anything:
 
-1. Read AGENTS.md.
-2. Read PLAN.md.
-3. Read STATE.md.
+1. Read @AGENTS.md.
+2. Read the specified plan in @agents/plans/**
+3. Read @agents/STATE.md
 4. Inspect git status and recent commits.
 5. Determine the highest-priority unfinished unit of work.
 
@@ -14,7 +14,7 @@ Then:
 - Do not redo work marked complete in STATE.md.
 - Run the relevant tests after implementation.
 - Fix failures caused by your changes.
-- Update STATE.md with:
+- Update @agents/STATE.md with:
   - what was completed
   - what remains
   - current task
@@ -22,8 +22,8 @@ Then:
   - important decisions
   - blockers
   - exact recommended next step
-- Update CHANGELOG.md with a concise historical entry.
-- Update README/CONTRIBUTING/etc. when the implementation makes them inaccurate.
+- Update @agents/CHANGELOG.md with a concise historical entry.
+- Update @README.md / @CONTRIBUTING.md / etc. when the implementation makes them inaccurate.
 - Leave the repository in a clean, coherent state.
 - Commit the completed work.
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Completed
 - **OpenCode backend plan fully implemented** (2026-08-25) — All items from the "Add OpenCode as an Alternative Agent Backend" plan are complete and verified. The plan is preserved in git history; see `agent/PLAN.md` for the cleared version.
+- **Content Library Parser (Task 1)** (2026-08-26) — Created `src/applypilot/scoring/content_library.py` with `Project`, `RoleSection`, `ContentLibrary` dataclasses and `parse_content_library()` function. Parses all 19 projects from `personal/content_library.md` with correct angle tag extraction. 26 unit tests pass.
 
 ## [0.3.0] - 2026-08-25
 
