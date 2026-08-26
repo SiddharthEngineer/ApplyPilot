@@ -27,8 +27,7 @@ ApplyPilot is a 6-stage autonomous job application pipeline. It discovers jobs a
 Three commands. That's it.
 
 ```bash
-pip install applypilot
-pip install --no-deps python-jobspy && pip install pydantic tls-client requests markdownify regex
+uv pip install applypilot python-jobspy --no-deps
 applypilot init          # one-time setup: resume, profile, preferences, API keys
 applypilot doctor        # verify your setup — shows what's installed and what's missing
 applypilot run           # discover > enrich > score > tailor > cover letters
@@ -38,7 +37,15 @@ applypilot apply -w 3    # parallel apply (3 Chrome instances)
 applypilot apply --dry-run  # fill forms without submitting
 ```
 
-> **Why two install commands?** `python-jobspy` pins an exact numpy version in its metadata that conflicts with pip's resolver, but works fine at runtime with any modern numpy. The `--no-deps` flag bypasses the resolver; the second command installs jobspy's actual runtime dependencies. Everything except `python-jobspy` installs normally.
+### Local install (from repo)
+```bash
+git clone https://github.com/Pickle-Pixel/ApplyPilot.git
+cd ApplyPilot
+uv pip install -e ".[dev]" python-jobspy --no-deps
+playwright install chromium
+```
+
+> **Why `--no-deps`?** `python-jobspy` pins an exact numpy version (`1.26.3`) in its metadata that conflicts with pip's resolver. The `--no-deps` flag bypasses this; uv will install the latest compatible numpy and jobspy's other dependencies automatically. Using `uv` (via `uvx` or `uv pip`) is recommended for faster and more reliable resolution.
 
 ---
 

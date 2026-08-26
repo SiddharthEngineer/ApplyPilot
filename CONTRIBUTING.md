@@ -14,7 +14,7 @@ Thank you for your interest in contributing to ApplyPilot. This guide covers eve
 ```bash
 git clone https://github.com/Pickle-Pixel/ApplyPilot.git
 cd ApplyPilot
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 playwright install chromium
 ```
 
