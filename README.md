@@ -141,6 +141,8 @@ AI scores every job 1-10 against your profile. 9-10 = strong match, 7-8 = good, 
 ### Tailor
 Generates a custom resume per job: reorders experience, emphasizes relevant skills, incorporates keywords from the job description. Your `resume_facts` (companies, projects, metrics) are preserved exactly. The AI reorganizes but never fabricates.
 
+**Content Library mode** (`--source content-library`): Instead of rewriting an existing resume, the LLM selects 5-7 relevant projects from a structured `content_library.md` bank of raw facts and writes fresh bullets from scratch. Angle tags on each project guide selection, and every bullet traces to a fact in the library.
+
 ### Cover Letter
 Writes a targeted cover letter per job referencing the specific company, role, and how your experience maps to their requirements.
 
@@ -173,6 +175,8 @@ applypilot run --workers 4              # Parallel discovery/enrichment
 applypilot run --stream                 # Concurrent stages (streaming mode)
 applypilot run --min-score 8            # Override score threshold
 applypilot run --dry-run                # Preview without executing
+applypilot run --source resume           # Tailor from resume.txt (default)
+applypilot run --source content-library  # Tailor from content_library.md
 applypilot run --validation lenient     # Relax validation (recommended for Gemini free tier)
 applypilot run --validation strict      # Strictest validation (retries on any banned word)
 applypilot apply                        # Launch auto-apply (default: Claude Code backend)
