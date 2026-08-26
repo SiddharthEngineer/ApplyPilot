@@ -13,20 +13,18 @@ Plan file: `agents/plans/content_library.md`
 | Task 1: Content Library Parser | ✅ Complete |
 | Task 2: Content Library Tailoring Prompt | ✅ Complete |
 | Task 3: Content Library Tailor Function | ✅ Complete |
-| Task 4: Validation Updates | Pending |
+| Task 4: Validation Updates | ✅ Complete |
 | Task 5: CLI & Pipeline Integration | Pending |
 | Task 6: PDF Rendering Update | Pending |
 | Task 7: Batch Entry & End-to-End Test | Pending |
 
 ### Current Task
 
-Task 4: Validation Updates — relax preserved-companies check for content-library mode, update judge prompt, add `source` parameter.
+Task 5: CLI & Pipeline Integration — add `--source` flag, update `run_tailoring()`, pass source through pipeline.
 
 ### Completed This Session
 
-- **Task 1: Content Library Parser** — Created `src/applypilot/scoring/content_library.py` with `Project`, `RoleSection`, `ContentLibrary` dataclasses and `parse_content_library()` function. All 19 projects from `personal/content_library.md` parse correctly. 26 unit tests pass, linting clean.
-- **Task 2: Content Library Tailoring Prompt** — Added `_build_content_library_tailor_prompt(profile, content_library)` to `src/applypilot/scoring/tailor.py`. The prompt formats all projects grouped by role, includes angle tags, skills boundary, banned words, and a 5-step selection process. 16 unit tests pass (13 unit + 3 real-library integration tests).
-- **Task 3: Content Library Tailor Function** — Added `tailor_from_content_library()` and `judge_content_library_resume()` to `src/applypilot/scoring/tailor.py`. The function mirrors `tailor_resume()` structure (retry loop, validation, judge) but uses the content library as input. The judge uses a content-library-aware prompt that understands projects were selected from a library. 19 unit tests pass.
+- **Task 4: Validation Updates** — Added `source` parameter to `validate_json_fields()` and `validate_tailored_resume()` in `src/applypilot/scoring/validator.py`. When `source="content-library"`, preserved-companies and preserved-projects checks are relaxed. Fabrication detection, banned words, required sections, and LLM self-talk checks remain fully enforced. Updated `tailor_from_content_library()` to pass `source="content-library"` to validation. 14 unit tests pass, linting clean.
 
 ### Test Results
 
@@ -34,7 +32,8 @@ Task 4: Validation Updates — relax preserved-companies check for content-libra
 tests/test_content_library.py — 26 passed
 tests/test_content_library_tailor_prompt.py — 16 passed
 tests/test_content_library_tailor.py — 19 passed
-Total: 61 passed
+tests/test_validator_source.py — 14 passed
+Total: 75 passed
 ruff check — all pre-existing warnings, no new issues
 ```
 
@@ -47,6 +46,8 @@ ruff check — all pre-existing warnings, no new issues
 - Prompt uses same JSON output schema as existing tailor prompt for downstream compatibility.
 - `tailor_from_content_library()` adds `"source": "content-library"` to the report dict for traceability.
 - Judge prompt for content-library mode omits the "preserve companies" rule — the LLM decides which roles/projects are relevant.
+- Validation `source` parameter defaults to `"resume"` for backward compatibility.
+- Content-library mode relaxes preserved-companies/projects checks but keeps all other validation (fabrication, banned words, sections).
 
 ### Blockers
 
@@ -54,7 +55,7 @@ None.
 
 ### Recommended Next Step
 
-Implement Task 4: Validation Updates in `src/applypilot/scoring/validator.py` — relax preserved-companies check for content-library mode, add `source` parameter passthrough.
+Implement Task 5: CLI & Pipeline Integration in `src/applypilot/cli.py`, `src/applypilot/scoring/tailor.py`, `src/applypilot/pipeline.py`, and `src/applypilot/config.py` — add `--source` flag, update `run_tailoring()` to accept source parameter, pass source through pipeline.
 
 ## Project Overview
 

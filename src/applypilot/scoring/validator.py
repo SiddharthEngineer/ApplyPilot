@@ -96,7 +96,9 @@ def sanitize_text(text: str) -> str:
 
 # ── JSON Field Validation ─────────────────────────────────────────────────
 
-def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dict:
+def validate_json_fields(
+    data: dict, profile: dict, mode: str = "normal", source: str = "resume",
+) -> dict:
     """Validate individual JSON fields from an LLM-generated tailored resume.
 
     Args:
@@ -106,6 +108,9 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
                  strict  → banned words are errors (trigger retries)
                  normal  → banned words are warnings (no retry)
                  lenient → banned words ignored entirely
+        source:  Content source — "resume" (default) or "content-library".
+                 When "content-library", preserved-companies check is relaxed
+                 (the LLM may legitimately drop irrelevant roles/companies).
 
     Returns:
         {"passed": bool, "errors": list[str], "warnings": list[str]}
@@ -132,18 +137,20 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
             if fake in skills_text:
                 errors.append(f"Fabricated skill: '{fake}'")
 
-    # Experience: preserved companies must be present (always enforced)
+    # Experience: preserved companies must be present (resume mode only)
+    # In content-library mode, the LLM may legitimately drop irrelevant roles/companies.
     resume_facts = profile.get("resume_facts", {})
     preserved_companies = resume_facts.get("preserved_companies", [])
 
     if isinstance(data["experience"], list):
-        for company in preserved_companies:
-            has_company = any(
-                company.lower() in str(e.get("header", "")).lower()
-                for e in data["experience"]
-            )
-            if not has_company:
-                errors.append(f"Company '{company}' missing from experience")
+        if source != "content-library":
+            for company in preserved_companies:
+                has_company = any(
+                    company.lower() in str(e.get("header", "")).lower()
+                    for e in data["experience"]
+                )
+                if not has_company:
+                    errors.append(f"Company '{company}' missing from experience")
         for entry in data["experience"]:
             for b in entry.get("bullets", []):
                 all_text_parts.append(b)
@@ -184,13 +191,18 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
 
 # ── Full Resume Text Validation ───────────────────────────────────────────
 
-def validate_tailored_resume(text: str, profile: dict, original_text: str = "") -> dict:
+def validate_tailored_resume(
+    text: str, profile: dict, original_text: str = "", source: str = "resume",
+) -> dict:
     """Programmatic validation of a tailored resume against the user's profile.
 
     Args:
         text: The tailored resume text to validate.
         profile: User profile dict from load_profile().
         original_text: The original base resume text (for fabrication comparison).
+        source: Content source — "resume" (default) or "content-library".
+                When "content-library", preserved-companies and preserved-projects
+                checks are relaxed (the LLM may legitimately drop irrelevant items).
 
     Returns:
         {"passed": bool, "errors": list[str], "warnings": list[str]}
@@ -219,15 +231,19 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "") 
     if full_name and full_name.lower() not in text_lower:
         warnings.append(f"Name '{full_name}' missing -- will be injected")
 
-    # 3. Check companies preserved
-    for company in resume_facts.get("preserved_companies", []):
-        if company.lower() not in text_lower:
-            errors.append(f"Company '{company}' missing -- cannot remove real experience")
+    # 3. Check companies preserved (resume mode only)
+    # In content-library mode, the LLM may legitimately drop irrelevant roles/companies.
+    if source != "content-library":
+        for company in resume_facts.get("preserved_companies", []):
+            if company.lower() not in text_lower:
+                errors.append(f"Company '{company}' missing -- cannot remove real experience")
 
-    # 4. Check projects preserved
-    for project in resume_facts.get("preserved_projects", []):
-        if project.lower() not in text_lower:
-            warnings.append(f"Project '{project}' not found -- may have been renamed")
+    # 4. Check projects preserved (resume mode only)
+    # In content-library mode, projects are selected from the library, not preserved.
+    if source != "content-library":
+        for project in resume_facts.get("preserved_projects", []):
+            if project.lower() not in text_lower:
+                warnings.append(f"Project '{project}' not found -- may have been renamed")
 
     # 5. Check school preserved
     preserved_school = resume_facts.get("preserved_school", "")

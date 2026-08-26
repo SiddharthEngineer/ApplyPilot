@@ -144,6 +144,8 @@ class ContentLibrary:
 - Content-library validation passes for valid output.
 - Fabrication detection still catches invented metrics/tools.
 
+**Status:** ✅ Complete (2026-08-26) — Added `source` parameter to `validate_json_fields()` and `validate_tailored_resume()`. When `source="content-library"`, preserved-companies and preserved-projects checks are relaxed. Fabrication detection, banned words, required sections, and LLM self-talk checks remain fully enforced. Updated `tailor_from_content_library()` to pass `source="content-library"` to validation. 14 unit tests pass.
+
 ---
 
 ### Task 5: CLI & Pipeline Integration

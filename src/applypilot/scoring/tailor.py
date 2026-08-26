@@ -529,7 +529,7 @@ def tailor_from_content_library(
             continue
 
         # Layer 1: Validate JSON fields (with relaxed company check for content-library mode)
-        validation = validate_json_fields(data, profile, mode=validation_mode)
+        validation = validate_json_fields(data, profile, mode=validation_mode, source="content-library")
         report["validator"] = validation
 
         if not validation["passed"]:
