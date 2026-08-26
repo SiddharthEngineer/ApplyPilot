@@ -19,6 +19,7 @@ from pathlib import Path
 from applypilot.config import RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import get_client
+from applypilot.scoring.content_library import ContentLibrary
 from applypilot.scoring.validator import (
     BANNED_WORDS,
     FABRICATION_WATCHLIST,
@@ -115,6 +116,119 @@ BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, De
 ## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
 
 {{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
+
+
+def _build_content_library_tailor_prompt(profile: dict, content_library: ContentLibrary) -> str:
+    """Build the resume tailoring system prompt for content-library-based tailoring.
+
+    Instead of rewriting an existing resume, the LLM selects projects from the
+    content library and writes fresh bullets from raw facts.
+
+    Args:
+        profile: User profile dict from load_profile().
+        content_library: Parsed ContentLibrary with all roles and projects.
+    """
+    boundary = profile.get("skills_boundary", {})
+    resume_facts = profile.get("resume_facts", {})
+
+    # Format skills boundary
+    skills_lines = []
+    for category, items in boundary.items():
+        if isinstance(items, list) and items:
+            label = category.replace("_", " ").title()
+            skills_lines.append(f"{label}: {', '.join(items)}")
+    skills_block = "\n".join(skills_lines)
+
+    school = resume_facts.get("preserved_school", "")
+    education = profile.get("experience", {})
+    education_level = education.get("education_level", "")
+
+    banned_str = ", ".join(BANNED_WORDS)
+
+    # Format all available angle tags
+    angles_str = ", ".join(sorted(content_library.all_angles))
+
+    # Format all projects grouped by role
+    projects_block_parts: list[str] = []
+    for role in content_library.roles:
+        projects_block_parts.append(f"### {role.title} ({role.dates})")
+        for proj in role.projects:
+            facts = []
+            if proj.context:
+                facts.append(f"  Context: {proj.context}")
+            if proj.scope_scale:
+                facts.append(f"  Scope/Scale: {proj.scope_scale}")
+            if proj.tools_actions:
+                facts.append(f"  Tools & Actions: {proj.tools_actions}")
+            if proj.outcome_metrics:
+                facts.append(f"  Outcome/Metrics: {proj.outcome_metrics}")
+            facts.append(f"  Angles: {', '.join(proj.angles)}")
+            projects_block_parts.append(f"#### {proj.name} ({proj.dates})")
+            projects_block_parts.extend(facts)
+            projects_block_parts.append("")
+    projects_block = "\n".join(projects_block_parts)
+
+    return f"""You are a senior technical recruiter building a resume from a project library.
+
+You have a library of raw project facts. Your job: select the most relevant projects for the target job and write ONE bullet per project from the raw facts. Return the tailored resume as a JSON object.
+
+## CONTENT LIBRARY (all available projects):
+
+{projects_block}
+
+## AVAILABLE ANGLE TAGS:
+{angles_str}
+
+## RECRUITER SCAN (6 seconds):
+1. Title -- matches what they're hiring?
+2. Summary -- 2 sentences proving you've done this work
+3. First 3 bullets of most recent role -- verbs and outcomes match?
+4. Skills -- must-haves visible immediately?
+
+## SKILLS BOUNDARY (real skills only):
+{skills_block}
+
+You MAY add 2-3 closely related tools (Kubernetes if Docker, Terraform if AWS, Redis if PostgreSQL). No unrelated languages/frameworks.
+
+## SELECTION PROCESS:
+
+1. Read the job description. Identify the JD's top 3-5 priorities.
+2. Map each priority to one or more Angle tags from: {angles_str}
+3. Select 5-7 projects whose Angle tags best match the JD priorities. Prioritize depth over breadth -- it's better to have 5 strong matches than 7 weak ones.
+4. For each selected project, write ONE new resume bullet from its raw facts (Context / Scope / Tools & Actions / Outcome). Do NOT reuse pre-written phrasing -- write a fresh bullet from the raw data.
+5. Note which internship (if any) is worth keeping as a single line for this role, and which can be dropped entirely.
+
+## TAILORING RULES:
+
+TITLE: Match the target role. Keep seniority (Senior/Lead/Staff). Drop company suffixes and team names.
+
+SUMMARY: Write from scratch. Lead with the 1-2 skills that matter most for THIS role. Sound like someone who's done this job.
+
+SKILLS: Reorder each category so the job's must-haves appear first.
+
+EXPERIENCE: Group selected projects under their role header. Use the role title as the experience header (e.g., "Data Science Associate at AIR"). Use role dates as the subtitle. Include 2-4 bullets per role, ordered by relevance to the JD.
+
+PROJECTS: Include standalone projects that don't fit under a role header, or projects worth highlighting separately. Drop irrelevant projects entirely.
+
+BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, Designed, Implemented, Reduced, Automated, Deployed, Operated, Optimized). Most relevant first. Max 4 per section. Keep to one line (~20-28 words).
+
+## VOICE:
+- Write like a real engineer. Short, direct.
+- GOOD: "Automated financial reporting with Python + API integrations, cut processing time from 10 hours to 2"
+- BAD: "Leveraged cutting-edge AI technologies to drive transformative operational efficiencies"
+- BANNED WORDS (using ANY of these = validation failure -- do not use them even once):
+  {banned_str}
+- No em dashes. Use commas, periods, or hyphens.
+
+## HARD RULES:
+- Every number, tool, or outcome in a bullet MUST trace to a fact in the content library above. Do NOT invent metrics.
+- Mirror the JD's own terminology where it accurately describes the work (for ATS keyword matching).
+- Preserved school: {school}
+- Must fit 1 page.
+
+## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
+
+{{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
 
 
 def _build_judge_prompt(profile: dict) -> str:
