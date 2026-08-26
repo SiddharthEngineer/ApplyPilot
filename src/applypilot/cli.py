@@ -402,7 +402,7 @@ def doctor() -> None:
     import shutil
     from applypilot.config import (
         load_env, PROFILE_PATH, RESUME_PATH, RESUME_PDF_PATH,
-        SEARCH_CONFIG_PATH, ENV_PATH, get_chrome_path,
+        SEARCH_CONFIG_PATH, ENV_PATH, CONTENT_LIBRARY_PATH, get_chrome_path,
     )
 
     load_env()
@@ -427,6 +427,29 @@ def doctor() -> None:
         results.append(("resume.txt", warn_mark, "Only PDF found — plain-text needed for AI stages"))
     else:
         results.append(("resume.txt", fail_mark, "Run 'applypilot init' to add your resume"))
+
+    # Content library
+    if CONTENT_LIBRARY_PATH.exists():
+        try:
+            from applypilot.scoring.content_library import parse_content_library
+            lib = parse_content_library(CONTENT_LIBRARY_PATH)
+            n_roles = len(lib.roles)
+            n_projects = sum(len(r.projects) for r in lib.roles)
+            n_angles = len(lib.all_angles)
+            results.append((
+                "content_library.md", ok_mark,
+                f"{CONTENT_LIBRARY_PATH} — parsed: {n_roles} roles, {n_projects} projects, {n_angles} angle tags",
+            ))
+        except Exception as exc:
+            results.append((
+                "content_library.md", "[red]ERROR[/red]",
+                f"File exists but cannot be parsed: {exc}",
+            ))
+    else:
+        results.append((
+            "content_library.md", warn_mark,
+            "Run 'applypilot init' and choose content library workflow",
+        ))
 
     # Search config
     if SEARCH_CONFIG_PATH.exists():
@@ -535,6 +558,9 @@ def doctor() -> None:
         console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code or OpenCode CLI + Chrome + Node.js)[/dim]")
     elif tier == 2:
         console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code or OpenCode CLI + Chrome + Node.js)[/dim]")
+
+    if CONTENT_LIBRARY_PATH.exists():
+        console.print("[dim]  → Content library mode available (use --source content-library)[/dim]")
 
     console.print()
 

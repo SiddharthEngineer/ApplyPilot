@@ -18,16 +18,16 @@ Plan file: `agents/plans/content_library.md`
 | Task 6: PDF Rendering Update | ✅ Complete |
 | Task 7: Batch Entry & End-to-End Test | ✅ Complete |
 | Task 8: Init Wizard Content Library Support | ✅ Complete |
-| Task 9: Doctor Command Content Library Check | 🔄 Pending |
+| Task 9: Doctor Command Content Library Check | ✅ Complete |
 | Task 10: Update Tests for Init Wizard | ✅ Complete |
 
 ### Current Task
 
-Task 8 complete. Next: Task 9 (Doctor Command Content Library Check).
+All tasks complete. The Content Library Resume Tailoring plan is fully implemented.
 
 ### Completed This Session
 
-- **Task 8: Init Wizard Content Library Support** — Updated `src/applypilot/wizard/init.py` to present workflow choice (traditional resume vs content library) during `applypilot init`. Added `_setup_content_library()` and `_setup_pdf_reference()` functions. Content library mode copies file to `~/.applypilot/content_library.md` and skips resume prompts. Optional PDF formatting reference support added. Added `RESUME_REFERENCE_PATH` to `config.py`. Created 9 unit tests in `tests/test_init_wizard.py` covering workflow choice, traditional resume setup, content library setup, PDF reference, and integration. All 105 tests pass.
+- **Task 9: Doctor Command Content Library Check** — Updated `src/applypilot/cli.py` `doctor()` to validate content library setup. Added three checks: (1) file existence with green OK / yellow WARN, (2) parse validation showing role/project/angle counts or red ERROR on failure, (3) tier summary hint "Content library mode available (use `--source content-library`)". Created 6 unit tests in `tests/test_doctor_content_library.py` covering valid library, missing file, malformed content, parse errors, and tier summary hints. All 111 tests pass.
 
 ### Test Results
 
@@ -39,7 +39,8 @@ tests/test_validator_source.py — 14 passed
 tests/test_pdf_overflow.py — 14 passed
 tests/test_content_library_e2e.py — 7 passed
 tests/test_init_wizard.py — 9 passed
-Total: 105 passed
+tests/test_doctor_content_library.py — 6 passed
+Total: 111 passed
 ruff check — no new issues
 ```
 
@@ -65,6 +66,7 @@ ruff check — no new issues
 - Init wizard defaults to traditional workflow (option 1) for backward compatibility.
 - Content library mode skips resume.txt/resume.pdf prompts entirely.
 - Optional PDF formatting reference is separate from the content library setup.
+- Doctor content library check catches parse errors with `Exception` — acceptable for a diagnostic command.
 
 ### Blockers
 
@@ -72,7 +74,7 @@ None.
 
 ### Recommended Next Step
 
-Implement Task 9: Doctor Command Content Library Check. Add content library validation to `applypilot doctor` so users can verify their setup is correct.
+All tasks in the Content Library Resume Tailoring plan are complete. No remaining work.
 
 ## Project Overview
 
@@ -99,6 +101,7 @@ Users choose via `applypilot apply --backend <claude|opencode>`.
 | `src/applypilot/wizard/init.py` | Interactive setup wizard |
 | `tests/test_content_library_e2e.py` | End-to-end integration tests for content-library tailoring |
 | `tests/test_init_wizard.py` | Init wizard tests for content library support |
+| `tests/test_doctor_content_library.py` | Doctor command content library validation tests |
 
 ## Testing
 

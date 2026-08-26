@@ -1,7 +1,7 @@
 # Plan: Content Library Resume Tailoring
 
 **Started:** 2026-08-26
-**Status:** 🔄 In progress
+**Status:** ✅ Complete
 
 ---
 
@@ -322,6 +322,8 @@ Do you have a PDF resume to use as a formatting reference? (optional)
 - Parsing validation catches malformed content library files
 - Clear guidance provided if content library is missing or invalid
 
+**Status:** ✅ Complete (2026-08-26) — Added content library validation to `doctor()` in `cli.py`. Three checks: file existence (OK/WARN), parse validation (role/project/angle counts or ERROR), and tier summary hint. Created 6 unit tests in `tests/test_doctor_content_library.py`. All 111 tests pass.
+
 ---
 
 ### Task 10: Update Tests for Init Wizard
@@ -360,8 +362,8 @@ Task 1 (Parser) → Task 2 (Prompt) → Task 3 (Core Function) → Task 4 (Valid
                                                         Task 10 (Tests)
 ```
 
-Tasks 1-8: ✅ Complete (2026-08-26)
-Tasks 9-10: 🔄 New tasks for init wizard integration
+Tasks 1-9: ✅ Complete (2026-08-26)
+Task 10: ✅ Complete (2026-08-26)
 
 Each task is a coherent unit of work that can be implemented and verified independently. Tasks 1-4 are the core logic. Tasks 5-6 integrate into the pipeline. Task 7 verifies everything works together. Tasks 8-10 handle user onboarding and validation.
 
@@ -380,6 +382,6 @@ Each task is a coherent unit of work that can be implemented and verified indepe
 
 **Phase 1 (Complete):** Core content library functionality implemented 2026-08-26. Tasks 1-7 complete, 96 tests pass, lint clean. Parser, prompt, tailor function, validation, CLI integration, PDF rendering, and E2E tests all working.
 
-**Phase 2 (In Progress):** Init wizard integration. Task 8 complete: init wizard now presents workflow choice and sets up content library. Task 9 pending: doctor command validation. Task 10 complete: init wizard tests. 105 tests pass.
+**Phase 2 (Complete):** Init wizard and doctor integration. Task 8: init wizard presents workflow choice and sets up content library. Task 9: doctor command validates content library setup with parse checks and tier summary hint. Task 10: init wizard tests. 111 tests pass. Content Library Resume Tailoring plan fully complete.
 
 The previous plan (OpenCode backend, completed 2026-08-25) is preserved in git history and `agent/CHANGELOG.md` under `[0.3.0]`.
