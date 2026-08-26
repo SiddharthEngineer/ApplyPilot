@@ -204,6 +204,8 @@ applypilot run --source content-library         # runs all stages, tailor uses c
 - Content fits on one page for typical content-library output (5-7 projects).
 - Overflows are detected and logged (not silently truncated).
 
+**Status:** ✅ Complete (2026-08-26) — Added one-page overflow detection: `render_pdf()` measures content height via Playwright and returns overflow dict; `convert_to_pdf()` returns dict with path and overflow info. Added role-group detection in `build_html()` — entries with role keywords get `role-entry` CSS class. Overflow warnings logged; `page_overflow` flag saved in report JSON. Report saved after PDF generation so overflow info is included. `run_tailoring()` captures overflow in result dict. 14 new tests pass (89 total).
+
 ---
 
 ### Task 7: Batch Entry & End-to-End Test

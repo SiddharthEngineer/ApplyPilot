@@ -176,7 +176,16 @@ def build_html(resume: dict) -> str:
         for e in entries:
             bullets = "".join(f"<li>{b}</li>" for b in e["bullets"])
             subtitle = f'<div class="entry-subtitle">{e["subtitle"]}</div>' if e["subtitle"] else ""
-            items += f'<div class="entry"><div class="entry-title">{e["title"]}</div>{subtitle}<ul>{bullets}</ul></div>'
+            # Detect role headers by title keywords (not by subtitle presence,
+            # since roles have date subtitles too).
+            title_lower = e["title"].lower()
+            is_role = any(kw in title_lower for kw in [
+                "associate", "engineer", "analyst", "developer",
+                "intern", "scientist", "lead", "manager", "consultant",
+                "researcher", "current role", "prior role",
+            ])
+            css_class = "entry role-entry" if is_role else "entry"
+            items += f'<div class="{css_class}"><div class="entry-title">{e["title"]}</div>{subtitle}<ul>{bullets}</ul></div>'
         exp_html = f'<div class="section"><div class="section-title">Experience</div>{items}</div>'
 
     # Projects
@@ -290,8 +299,15 @@ body {{
     margin-bottom: 4px;
     break-inside: avoid;
 }}
+.entry.role-entry {{
+    margin-top: 3px;
+}}
 .entry-title {{
     font-weight: 600;
+    font-size: 10pt;
+    color: #1a3a5c;
+}}
+.entry.role-entry .entry-title {{
     font-size: 10pt;
     color: #1a3a5c;
 }}
@@ -333,12 +349,23 @@ li {{
 
 # ── PDF Renderer ─────────────────────────────────────────────────────────
 
-def render_pdf(html: str, output_path: str) -> None:
+# Letter size in points: 612 x 792.  Margins in @page are 0.35in top/bottom
+# (25.2pt) and 0.5in left/right (36pt).  Usable height = 792 - 2*25.2 = 741.6pt.
+_LETTER_HEIGHT_PT = 792
+_PAGE_MARGIN_TOP_PT = 25.2
+_PAGE_MARGIN_BOTTOM_PT = 25.2
+_USABLE_HEIGHT_PT = _LETTER_HEIGHT_PT - _PAGE_MARGIN_TOP_PT - _PAGE_MARGIN_BOTTOM_PT
+
+
+def render_pdf(html: str, output_path: str) -> dict:
     """Render HTML to PDF using Playwright's headless Chromium.
 
     Args:
         html: Complete HTML string.
         output_path: Path to write the PDF file.
+
+    Returns:
+        {"overflow": bool, "content_height_pt": float, "usable_height_pt": float}
     """
     from playwright.sync_api import sync_playwright
 
@@ -346,6 +373,13 @@ def render_pdf(html: str, output_path: str) -> None:
         browser = p.chromium.launch()
         page = browser.new_page()
         page.set_content(html, wait_until="networkidle")
+
+        # Measure content height before rendering to PDF
+        content_height_pt = page.evaluate(
+            "() => document.body.scrollHeight * (72 / 96)"
+        )
+        overflow = content_height_pt > _USABLE_HEIGHT_PT + 1  # 1pt tolerance
+
         page.pdf(
             path=output_path,
             format="Letter",
@@ -354,12 +388,18 @@ def render_pdf(html: str, output_path: str) -> None:
         )
         browser.close()
 
+    return {
+        "overflow": overflow,
+        "content_height_pt": round(content_height_pt, 1),
+        "usable_height_pt": _USABLE_HEIGHT_PT,
+    }
+
 
 # ── Public API ───────────────────────────────────────────────────────────
 
 def convert_to_pdf(
     text_path: Path, output_path: Path | None = None, html_only: bool = False
-) -> Path:
+) -> dict:
     """Convert a text resume/cover letter to PDF.
 
     Args:
@@ -369,7 +409,8 @@ def convert_to_pdf(
         html_only: If True, output HTML instead of PDF.
 
     Returns:
-        Path to the generated PDF (or HTML) file.
+        {"path": Path, "overflow": bool, "content_height_pt": float,
+         "usable_height_pt": float}  — overflow keys are None when html_only.
     """
     text_path = Path(text_path)
     text = text_path.read_text(encoding="utf-8")
@@ -381,13 +422,20 @@ def convert_to_pdf(
         out = Path(out)
         out.write_text(html, encoding="utf-8")
         log.info("HTML generated: %s", out)
-        return out
+        return {"path": out, "overflow": None, "content_height_pt": None,
+                "usable_height_pt": None}
 
     out = output_path or text_path.with_suffix(".pdf")
     out = Path(out)
-    render_pdf(html, str(out))
-    log.info("PDF generated: %s", out)
-    return out
+    pdf_info = render_pdf(html, str(out))
+    if pdf_info["overflow"]:
+        log.warning(
+            "Resume overflows one page (%.1fpt content vs %.1fpt usable): %s",
+            pdf_info["content_height_pt"], pdf_info["usable_height_pt"], out,
+        )
+    else:
+        log.info("PDF generated: %s", out)
+    return {"path": out, **pdf_info}
 
 
 def batch_convert(limit: int = 50) -> int:

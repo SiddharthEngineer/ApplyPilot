@@ -850,19 +850,33 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             )
             job_path.write_text(job_desc, encoding="utf-8")
 
-            # Save validation report
-            report_path = TAILORED_DIR / f"{prefix}_REPORT.json"
-            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
             # Generate PDF for approved resumes (best-effort)
             # "approved_with_judge_warning" is also a success — resume was generated.
             pdf_path = None
+            overflow_info = None
             if report["status"] in ("approved", "approved_with_judge_warning"):
                 try:
                     from applypilot.scoring.pdf import convert_to_pdf
-                    pdf_path = str(convert_to_pdf(txt_path))
+                    pdf_result = convert_to_pdf(txt_path)
+                    pdf_path = str(pdf_result["path"])
+                    if pdf_result["overflow"]:
+                        overflow_info = {
+                            "content_height_pt": pdf_result["content_height_pt"],
+                            "usable_height_pt": pdf_result["usable_height_pt"],
+                        }
+                        report["page_overflow"] = True
+                        log.warning(
+                            "Resume overflows one page for %s (%.1fpt > %.1fpt)",
+                            job["title"][:40],
+                            pdf_result["content_height_pt"],
+                            pdf_result["usable_height_pt"],
+                        )
                 except Exception:
                     log.debug("PDF generation failed for %s", txt_path, exc_info=True)
+
+            # Save validation report (after PDF so page_overflow is included)
+            report_path = TAILORED_DIR / f"{prefix}_REPORT.json"
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
             result = {
                 "url": job["url"],
@@ -872,11 +886,13 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
                 "site": job["site"],
                 "status": report["status"],
                 "attempts": report["attempts"],
+                "overflow": overflow_info,
             }
         except Exception as e:
             result = {
                 "url": job["url"], "title": job["title"], "site": job["site"],
                 "status": "error", "attempts": 0, "path": None, "pdf_path": None,
+                "overflow": None,
             }
             log.error("%d/%d [ERROR] %s -- %s", completed, len(jobs), job["title"][:40], e)
 
