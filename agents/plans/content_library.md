@@ -177,6 +177,8 @@ applypilot run --source content-library         # runs all stages, tailor uses c
 - `applypilot run tailor --source content-library` uses content library.
 - Source preference is persisted per-run (not just CLI flag).
 
+**Status:** ✅ Complete (2026-08-26) — Added `--source` flag to CLI `run` command (choices: `resume`, `content-library`). Added `CONTENT_LIBRARY_PATH` to `config.py`. Updated `run_tailoring()` to accept `source` parameter and dispatch to `tailor_resume()` or `tailor_from_content_library()`. Plumbed `source` through `pipeline.py` (sequential, streaming, stage runner). CLI validates flag and checks file exists. 75 tests pass, lint clean.
+
 ---
 
 ### Task 6: PDF Rendering Update

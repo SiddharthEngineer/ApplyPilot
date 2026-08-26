@@ -14,17 +14,17 @@ Plan file: `agents/plans/content_library.md`
 | Task 2: Content Library Tailoring Prompt | ✅ Complete |
 | Task 3: Content Library Tailor Function | ✅ Complete |
 | Task 4: Validation Updates | ✅ Complete |
-| Task 5: CLI & Pipeline Integration | Pending |
+| Task 5: CLI & Pipeline Integration | ✅ Complete |
 | Task 6: PDF Rendering Update | Pending |
 | Task 7: Batch Entry & End-to-End Test | Pending |
 
 ### Current Task
 
-Task 5: CLI & Pipeline Integration — add `--source` flag, update `run_tailoring()`, pass source through pipeline.
+Task 5 completed. Next: Task 6 (PDF Rendering Update) or Task 7 (Batch Entry & E2E Test).
 
 ### Completed This Session
 
-- **Task 4: Validation Updates** — Added `source` parameter to `validate_json_fields()` and `validate_tailored_resume()` in `src/applypilot/scoring/validator.py`. When `source="content-library"`, preserved-companies and preserved-projects checks are relaxed. Fabrication detection, banned words, required sections, and LLM self-talk checks remain fully enforced. Updated `tailor_from_content_library()` to pass `source="content-library"` to validation. 14 unit tests pass, linting clean.
+- **Task 5: CLI & Pipeline Integration** — Added `--source` flag to `applypilot run` CLI with choices `resume` (default) and `content-library`. Added `CONTENT_LIBRARY_PATH` constant to `config.py`. Updated `run_tailoring()` in `tailor.py` to accept `source` parameter and dispatch to `tailor_resume()` or `tailor_from_content_library()`. Plumbed `source` through all pipeline paths (`_run_tailor`, `_run_sequential`, `_run_streaming`, `_run_stage_streaming`, `run_pipeline`). CLI validates source flag value and checks content library file exists before running. 75 tests pass, lint clean.
 
 ### Test Results
 
@@ -48,6 +48,9 @@ ruff check — all pre-existing warnings, no new issues
 - Judge prompt for content-library mode omits the "preserve companies" rule — the LLM decides which roles/projects are relevant.
 - Validation `source` parameter defaults to `"resume"` for backward compatibility.
 - Content-library mode relaxes preserved-companies/projects checks but keeps all other validation (fabrication, banned words, sections).
+- `--source` flag defaults to `"resume"` so existing `applypilot run tailor` works unchanged.
+- CLI checks content library file existence upfront and fails fast with a clear message.
+- `source` plumbed through all pipeline paths (sequential, streaming, stage runner) for consistency.
 
 ### Blockers
 
@@ -55,7 +58,7 @@ None.
 
 ### Recommended Next Step
 
-Implement Task 5: CLI & Pipeline Integration in `src/applypilot/cli.py`, `src/applypilot/scoring/tailor.py`, `src/applypilot/pipeline.py`, and `src/applypilot/config.py` — add `--source` flag, update `run_tailoring()` to accept source parameter, pass source through pipeline.
+Implement Task 6: PDF Rendering Update — verify existing `build_html()` styling matches the target PDF, add one-page enforcement check, ensure role-grouped entries render correctly. Or skip to Task 7 if PDF styling is already acceptable.
 
 ## Project Overview
 

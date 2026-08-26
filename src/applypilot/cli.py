@@ -100,6 +100,15 @@ def run(
             "lenient: banned words ignored, LLM judge skipped (fastest, fewest API calls)."
         ),
     ),
+    source: str = typer.Option(
+        "resume",
+        "--source",
+        help=(
+            "Resume source for tailoring. "
+            "resume: use ~/.applypilot/resume.txt (default). "
+            "content-library: use content_library.md (selects projects from raw facts)."
+        ),
+    ),
 ) -> None:
     """Run pipeline stages: discover, enrich, score, tailor, cover, pdf."""
     _bootstrap()
@@ -132,6 +141,25 @@ def run(
         )
         raise typer.Exit(code=1)
 
+    # Validate the --source flag value
+    valid_sources = ("resume", "content-library")
+    if source not in valid_sources:
+        console.print(
+            f"[red]Invalid --source value:[/red] '{source}'. "
+            f"Choose from: {', '.join(valid_sources)}"
+        )
+        raise typer.Exit(code=1)
+
+    # Validate content-library file exists if selected
+    if source == "content-library":
+        from applypilot.config import CONTENT_LIBRARY_PATH
+        if not CONTENT_LIBRARY_PATH.exists():
+            console.print(
+                f"[red]Content library not found:[/red] {CONTENT_LIBRARY_PATH}\n"
+                "Place your content_library.md in ~/.applypilot/ or use [bold]--source resume[/bold]."
+            )
+            raise typer.Exit(code=1)
+
     result = run_pipeline(
         stages=stage_list,
         min_score=min_score,
@@ -139,6 +167,7 @@ def run(
         stream=stream,
         workers=workers,
         validation_mode=validation,
+        source=source,
     )
 
     if result.get("errors"):

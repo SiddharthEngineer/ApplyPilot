@@ -16,10 +16,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from applypilot.config import RESUME_PATH, TAILORED_DIR, load_profile
+from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import get_client
-from applypilot.scoring.content_library import ContentLibrary
+from applypilot.scoring.content_library import ContentLibrary, parse_content_library
 from applypilot.scoring.validator import (
     BANNED_WORDS,
     FABRICATION_WATCHLIST,
@@ -772,20 +772,37 @@ def tailor_resume(
 # ── Batch Entry Point ────────────────────────────────────────────────────
 
 def run_tailoring(min_score: int = 7, limit: int = 20,
-                  validation_mode: str = "normal") -> dict:
+                  validation_mode: str = "normal",
+                  source: str = "resume") -> dict:
     """Generate tailored resumes for high-scoring jobs.
 
     Args:
         min_score:       Minimum fit_score to tailor for.
         limit:           Maximum jobs to process.
         validation_mode: "strict", "normal", or "lenient".
+        source:          "resume" (default, uses resume.txt) or
+                         "content-library" (uses content_library.md).
 
     Returns:
         {"approved": int, "failed": int, "errors": int, "elapsed": float}
     """
     profile = load_profile()
-    resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
+
+    # Load content library if using that source
+    content_library: ContentLibrary | None = None
+    if source == "content-library":
+        if not CONTENT_LIBRARY_PATH.exists():
+            log.error("Content library not found at %s", CONTENT_LIBRARY_PATH)
+            return {"approved": 0, "failed": 0, "errors": 1, "elapsed": 0.0}
+        content_library = parse_content_library(CONTENT_LIBRARY_PATH)
+        log.info("Loaded content library: %d roles, %d angle tags",
+                 len(content_library.roles), len(content_library.all_angles))
+    else:
+        if not RESUME_PATH.exists():
+            log.error("Resume not found at %s", RESUME_PATH)
+            return {"approved": 0, "failed": 0, "errors": 1, "elapsed": 0.0}
+        resume_text = RESUME_PATH.read_text(encoding="utf-8")
 
     jobs = get_jobs_by_stage(conn=conn, stage="pending_tailor", min_score=min_score, limit=limit)
 
@@ -794,7 +811,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         return {"approved": 0, "failed": 0, "errors": 0, "elapsed": 0.0}
 
     TAILORED_DIR.mkdir(parents=True, exist_ok=True)
-    log.info("Tailoring resumes for %d jobs (score >= %d)...", len(jobs), min_score)
+    log.info("Tailoring resumes for %d jobs (score >= %d, source=%s)...", len(jobs), min_score, source)
     t0 = time.time()
     completed = 0
     results: list[dict] = []
@@ -803,8 +820,14 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
     for job in jobs:
         completed += 1
         try:
-            tailored, report = tailor_resume(resume_text, job, profile,
-                                             validation_mode=validation_mode)
+            if source == "content-library":
+                tailored, report = tailor_from_content_library(
+                    content_library, job, profile,
+                    validation_mode=validation_mode,
+                )
+            else:
+                tailored, report = tailor_resume(resume_text, job, profile,
+                                                 validation_mode=validation_mode)
 
             # Build safe filename prefix
             safe_title = re.sub(r"[^\w\s-]", "", job["title"])[:50].strip().replace(" ", "_")
