@@ -228,6 +228,8 @@ applypilot run --source content-library         # runs all stages, tailor uses c
 - All tests pass.
 - Linting passes.
 
+**Status:** ✅ Complete (2026-08-26) — Verified batch entry point already implemented in `run_tailoring()`. Created 7 integration tests in `tests/test_content_library_e2e.py`: successful job processing with approval, file output verification (txt + report JSON), no-jobs edge case, missing content library error handling, resume source isolation, multi-job batch processing, and DB update verification. Tests mock DB/LLM/parser but exercise real `run_tailoring()` dispatch logic. 96 tests pass, lint clean. Content Library Resume Tailoring plan is fully implemented.
+
 ---
 
 ## Implementation Order
