@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OpenCode backend plan fully implemented** (2026-08-25) — All items from the "Add OpenCode as an Alternative Agent Backend" plan are complete and verified. The plan is preserved in git history; see `agent/PLAN.md` for the cleared version.
 - **Content Library Parser (Task 1)** (2026-08-26) — Created `src/applypilot/scoring/content_library.py` with `Project`, `RoleSection`, `ContentLibrary` dataclasses and `parse_content_library()` function. Parses all 19 projects from `personal/content_library.md` with correct angle tag extraction. 26 unit tests pass.
 - **Content Library Tailoring Prompt (Task 2)** (2026-08-26) — Added `_build_content_library_tailor_prompt()` to `src/applypilot/scoring/tailor.py`. Prompt formats all content library projects grouped by role, includes angle tags for selection, skills boundary, banned words, and a 5-step project selection process. 16 unit tests pass.
+- **Content Library Tailor Function (Task 3)** (2026-08-26) — Added `tailor_from_content_library()` and `judge_content_library_resume()` to `src/applypilot/scoring/tailor.py`. Mirrors `tailor_resume()` structure (retry loop, validation, judge) but uses content library as input. Judge uses content-library-aware prompt that understands projects were selected from a library. 19 unit tests pass.
 
 ## [0.3.0] - 2026-08-25
 

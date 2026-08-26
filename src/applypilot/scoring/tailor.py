@@ -411,6 +411,208 @@ def assemble_resume_text(data: dict, profile: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_content_library_judge_prompt(profile: dict) -> str:
+    """Build the LLM judge prompt for content-library-based tailoring.
+
+    Unlike the standard judge, this one understands that:
+    - Projects were SELECTED from a content library (not all must appear)
+    - Bullets were written from raw facts (not reworded from existing bullets)
+    - The comparison baseline is the content library, not a pre-written resume
+    """
+    boundary = profile.get("skills_boundary", {})
+
+    all_skills: list[str] = []
+    for items in boundary.values():
+        if isinstance(items, list):
+            all_skills.extend(items)
+    skills_str = ", ".join(all_skills) if all_skills else "N/A"
+
+    return f"""You are a resume quality judge. A tailoring engine built a resume by selecting projects from a content library and writing bullets from raw project facts. Your job is to catch LIES, not style changes.
+
+You must answer with EXACTLY this format:
+VERDICT: PASS or FAIL
+ISSUES: (list any problems, or "none")
+
+## CONTEXT -- what the tailoring engine was instructed to do (all of this is ALLOWED):
+- Select 5-7 most relevant projects from the content library (dropping irrelevant ones)
+- Write ONE new bullet per selected project from raw facts (Context / Scope / Tools / Outcome)
+- Rewrite the summary from scratch for the target job
+- Reorder skills to put job-relevant skills first
+- Group projects under role headers
+- Drop entire roles if no projects under them are relevant
+- Mirror JD terminology for ATS keyword matching
+
+## WHAT IS FABRICATION (FAIL for these):
+1. Adding tools, languages, or frameworks to TECHNICAL SKILLS that aren't in the allowed set. The allowed skills are ONLY: {skills_str}
+2. Inventing metrics, numbers, or outcomes not present in any content library project fact.
+3. Inventing work that has no basis in any content library project (completely new achievements).
+4. Adding companies, roles, or degrees that don't exist.
+5. Changing real numbers (inflating 80% to 95%, 500 nodes to 1000 nodes).
+
+## WHAT IS NOT FABRICATION (do NOT fail for these):
+- Selecting only some projects from the library (this is expected)
+- Rewriting bullets from raw facts in a new way (this is the goal)
+- Dropping roles or projects that aren't relevant
+- Reordering anything
+- Changing the title or summary completely
+- Combining or splitting ideas across bullets
+
+## TOLERANCE RULE:
+The goal is to get interviews, not to be a perfect fact-checker. Allow up to 3 minor stretches per resume:
+- Adding a closely related tool the candidate could realistically know is a MINOR STRETCH.
+- Reframing a metric with slightly different wording is a MINOR STRETCH.
+- Adding any LEARNABLE skill given their existing stack is a MINOR STRETCH.
+- Only FAIL if there are MAJOR lies: completely invented projects, fake companies, fake degrees, wildly inflated numbers, or skills from a completely different domain.
+
+Be strict about major lies. Be lenient about minor stretches and learnable skills. Do not fail for style, tone, or restructuring."""
+
+
+def tailor_from_content_library(
+    content_library: ContentLibrary, job: dict, profile: dict,
+    max_retries: int = 3, validation_mode: str = "normal",
+) -> tuple[str, dict]:
+    """Generate a tailored resume from the content library via LLM.
+
+    Mirrors tailor_resume() structure (retry loop, validation, judge) but uses
+    the content library as input instead of an existing resume. The LLM selects
+    projects and writes fresh bullets from raw facts.
+
+    Args:
+        content_library: Parsed ContentLibrary with all roles and projects.
+        job:             Job dict with title, site, location, full_description.
+        profile:         User profile dict.
+        max_retries:     Maximum retry attempts.
+        validation_mode: "strict", "normal", or "lenient".
+
+    Returns:
+        (tailored_text, report) where report contains validation details.
+    """
+    job_text = (
+        f"TITLE: {job['title']}\n"
+        f"COMPANY: {job['site']}\n"
+        f"LOCATION: {job.get('location', 'N/A')}\n\n"
+        f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
+    )
+
+    report: dict = {
+        "attempts": 0, "validator": None, "judge": None,
+        "status": "pending", "validation_mode": validation_mode,
+        "source": "content-library",
+    }
+    avoid_notes: list[str] = []
+    tailored = ""
+    client = get_client()
+    tailor_prompt_base = _build_content_library_tailor_prompt(profile, content_library)
+
+    for attempt in range(max_retries + 1):
+        report["attempts"] = attempt + 1
+
+        # Fresh conversation every attempt
+        prompt = tailor_prompt_base
+        if avoid_notes:
+            prompt += "\n\n## AVOID THESE ISSUES (from previous attempt):\n" + "\n".join(
+                f"- {n}" for n in avoid_notes[-5:]
+            )
+
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"TARGET JOB:\n{job_text}\n\nSelect projects from the content library and return the JSON:"},
+        ]
+
+        raw = client.chat(messages, max_tokens=2048, temperature=0.4)
+
+        # Parse JSON from response
+        try:
+            data = extract_json(raw)
+        except ValueError:
+            avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
+            continue
+
+        # Layer 1: Validate JSON fields (with relaxed company check for content-library mode)
+        validation = validate_json_fields(data, profile, mode=validation_mode)
+        report["validator"] = validation
+
+        if not validation["passed"]:
+            avoid_notes.extend(validation["errors"])
+            if attempt < max_retries:
+                continue
+            tailored = assemble_resume_text(data, profile)
+            report["status"] = "failed_validation"
+            return tailored, report
+
+        # Assemble text (header injected by code)
+        tailored = assemble_resume_text(data, profile)
+
+        # Layer 2: LLM judge — skipped in lenient mode
+        if validation_mode == "lenient":
+            report["judge"] = {"verdict": "SKIPPED", "passed": True, "issues": "none"}
+            report["status"] = "approved"
+            return tailored, report
+
+        judge = judge_content_library_resume(
+            tailored, job.get("title", ""), profile,
+        )
+        report["judge"] = judge
+
+        if not judge["passed"]:
+            avoid_notes.append(f"Judge rejected: {judge['issues']}")
+            if attempt < max_retries and validation_mode != "lenient":
+                continue
+            report["status"] = "approved_with_judge_warning"
+            return tailored, report
+
+        report["status"] = "approved"
+        return tailored, report
+
+    report["status"] = "exhausted_retries"
+    return tailored, report
+
+
+def judge_content_library_resume(
+    tailored_text: str, job_title: str, profile: dict,
+) -> dict:
+    """LLM judge for content-library-based tailoring.
+
+    Unlike judge_tailored_resume(), there is no original resume to compare against.
+    The judge evaluates the tailored resume against the profile's allowed skills
+    and checks for fabrication.
+
+    Args:
+        tailored_text: Tailored resume text.
+        job_title:     Target job title.
+        profile:       User profile for building the judge prompt.
+
+    Returns:
+        {"passed": bool, "verdict": str, "issues": str, "raw": str}
+    """
+    judge_prompt = _build_content_library_judge_prompt(profile)
+
+    messages = [
+        {"role": "system", "content": judge_prompt},
+        {"role": "user", "content": (
+            f"JOB TITLE: {job_title}\n\n"
+            f"TAILORED RESUME:\n{tailored_text}\n\n"
+            "Judge this tailored resume:"
+        )},
+    ]
+
+    client = get_client()
+    response = client.chat(messages, max_tokens=512, temperature=0.1)
+
+    passed = "VERDICT: PASS" in response.upper()
+    issues = "none"
+    if "ISSUES:" in response.upper():
+        issues_idx = response.upper().index("ISSUES:")
+        issues = response[issues_idx + 7:].strip()
+
+    return {
+        "passed": passed,
+        "verdict": "PASS" if passed else "FAIL",
+        "issues": issues,
+        "raw": response,
+    }
+
+
 # ── LLM Judge ────────────────────────────────────────────────────────────
 
 def judge_tailored_resume(

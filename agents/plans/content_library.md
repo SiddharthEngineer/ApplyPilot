@@ -123,6 +123,8 @@ class ContentLibrary:
 - Retry logic works identically to existing `tailor_resume()`.
 - Output text is in the same format as existing tailoring (header + sections).
 
+**Status:** ✅ Complete (2026-08-26) — Added `tailor_from_content_library()`, `judge_content_library_resume()`, and `_build_content_library_judge_prompt()`. 19 unit tests pass covering successful tailoring, retry logic, exhausted retries, prompt content, and judge pass/fail.
+
 ---
 
 ### Task 4: Validation Updates
