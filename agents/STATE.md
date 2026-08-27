@@ -2,44 +2,46 @@
 
 **Last updated:** 2026-08-27
 
-## Active Plan: CAPTCHA Solve via cred-server Tool
+## Active Plan: ZipRecruiter 403 Handling
 
-Plan file: `agents/plans/captcha-solve-tool.md`
+Plan file: `agents/plans/ziprecruiter-403-handling.md`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Add `captcha_solve` tool to cred_server.py | ✅ Complete |
-| Task 2: Unit tests for `captcha_solve` | ✅ Complete |
-| Task 3: Rewrite CAPTCHA SOLVE prompt section | ✅ Complete |
-| Task 4: Update prompt tests | ✅ Complete |
+| Task 1: Add `_site_counts` + `_SiteTracker` helper + unit tests | ✅ Complete |
+| Task 2: Wire tracker through crawl + integration tests | ✅ Complete |
+| Task 3: Surface disabled sites in pipeline discover output | ✅ Complete |
+| Task 4: Update searches.example.yaml and README.md | ✅ Complete |
 
 ### Current Task
 
-Completed. CAPTCHA Solve via cred-server tool plan is fully implemented.
+Completed. ZipRecruiter 403 Handling plan is fully implemented.
 
 ### Completed This Session
 
-- **CAPTCHA Solve via cred-server tool** — Moved CapSolver API key handling and HTTP calls from the LLM's browser context (broken) to a new `captcha_solve` MCP tool on the cred-server (mirrors existing `ats_login` pattern). Key changes:
-  - `cred_server.py`: Added `captcha_solve` tool definition with input schema (captcha_type enum for 5 types, website_url, website_key, page_action, metadata). Added `_get_capsolver_key()` env reader, `CAPTCHA_TYPE_MAP` constant, and `_solve_captcha()` async function with createTask→poll→getTaskResult flow via `_httpx.AsyncClient`. Added dispatch in `_handle_tool_call`. Moved `httpx` import to module level as `_httpx` with `try/except ImportError` for clean testing.
-  - `prompt.py`: Rewrote `_build_captcha_section()`: removed broken FIRST/STEP 1/STEP 2 (browser_evaluate createTask/poll with `api.capsolver.com`), replaced with instructions to call `captcha_solve` tool on the cred server. Kept STEP 3 token injection JS. Updated MANUAL FALLBACK to reference `captcha_solve` returns. No more `CAPSOLVER_API_KEY` or `api.capsolver.com` in prompt text.
-  - `tests/test_cred_server.py`: Added `TestCaptchaSolve` class with 15 tests covering tool definition, schema, enum values, missing key error, unsupported type, mocked successful hcaptcha/turnstile solves, CapSolver error, key leak prevention, `_get_capsolver_key` env reading, `CAPTCHA_TYPE_MAP` values, and dispatch. Updated `test_tools_list_returns_tools` to expect 2 tools.
-  - `tests/test_prompt.py`: Updated `TestCaptchaSection` with 7 tests verifying `captcha_solve` appears, no `api.capsolver.com` in section, no `CAPSOLVER_API_KEY` in section, token injection preserved, manual fallback references tool.
+- **ZipRecruiter 403 Handling** — Detected and auto-skips boards (e.g. ZipRecruiter) that repeatedly return 0 results during a crawl, preventing log spam and wasted API calls. Key changes:
+  - `jobspy.py`: Added `_site_counts(df, requested_sites)` to count DataFrame rows per site. Added `_SiteTracker` dataclass with `active_sites()`, `note()`, and `report()` methods — tracks per-crawl consecutive empty results and disables boards after `site_fail_threshold` (default 3) consecutive 0-result searches. Wired tracker through `_full_crawl`: creates tracker, filters sites via `active_sites()` before each search, calls `note()` after, logs WARNING for newly disabled boards, returns `disabled_sites` and `site_stats`. `_run_one_search` now returns per-site counts in `"sites"` key. `run_discovery` passes through keys and includes them in empty-config early return.
+  - `pipeline.py`: `_run_discover` captures `run_discovery()` return value, prints yellow banner when `disabled_sites` is non-empty, sets `stats["jobspy"]` to `"ok (disabled: ...)"`.
+  - `searches.example.yaml`: Added `site_fail_threshold: 3` to defaults block.
+  - `README.md`: Documented auto-skip behavior and ZipRecruiter Cloudflare 403 block.
+  - `tests/test_jobspy.py`: 25 tests — 5 for `_site_counts`, 14 for `_SiteTracker`, 6 integration tests verifying tracker wired through `_full_crawl` and `run_discovery`.
+  - `tests/test_pipeline.py`: 4 tests verifying yellow banner, stats update, no banner when empty, error handling.
 
 ### Test Results
 
 ```
-212 total tests passed — zero failures
-ruff check: 2 pre-existing lint issues in prompt.py (unused var, datetime.now without tz)
+158 tests passed — zero failures (content-library tailoring tests excluded; pre-existing slow test timeout)
+ruff check: only pre-existing lint issues (BLE001, DTZ005, F541, I001, SIM113, F841, UP035, UP017)
 ```
 
 ### Key Decisions
 
-- **Module-level `_httpx` import with try/except** — Importing httpx at module level as `_httpx` (with fallback to `None`) allows clean patching in tests while preserving the `httpx_not_installed` error path.
-- **`captcha_solve` returns structured JSON** — Identical shape to `ats_login` (`{"success": bool, "token"|"message": ...}`), making the LLM's MANUAL FALLBACK logic map cleanly.
-- **Token injection stays in browser_evaluate** — Only the key-reading and CapSolver HTTP steps moved server-side; token injection correctly runs in the browser via `browser_evaluate`.
-- **CapSolver API key never in prompt** — The LLM never sees the key; it calls `captcha_solve` which reads it server-side.
+- **Disabled state is crawl-scoped, not persisted** — Each `applypilot run discover` starts fresh, so a board that recovers is automatically retried on the next run.
+- **Threshold configurable via `defaults.site_fail_threshold`** — Follows existing pattern of pulling tunables from `searches.yaml`'s defaults block, default 3.
+- **`_run_one_search` computes per-site counts before location filtering** — Counts reflect raw JobSpy output, not filtered results.
+- **Tracker skips disabled boards at crawl level, not per-search** — `active_sites()` is called once per search iteration, filtering the site list passed to `_run_one_search`.
 
 ### Blockers
 
@@ -47,7 +49,7 @@ None.
 
 ### Recommended Next Step
 
-All tasks in the CAPTCHA Solve via cred-server tool plan are complete. No remaining work.
+All tasks in the ZipRecruiter 403 Handling plan are complete. No remaining work.
 
 ## Project Overview
 
@@ -75,6 +77,9 @@ Users choose via `applypilot apply --backend <claude|opencode>`.
 | `src/applypilot/apply/cred_server.py` | MCP credential server (hides passwords from LLM) |
 | `src/applypilot/apply/launcher.py` | Apply orchestration: config builders, job execution |
 | `src/applypilot/apply/prompt.py` | Prompt builder for the apply agent |
+| `src/applypilot/discovery/jobspy.py` | JobSpy job discovery + site fail tracking |
+| `tests/test_jobspy.py` | JobSpy site counting and tracker tests |
+| `tests/test_pipeline.py` | Pipeline discover banner tests |
 | `tests/test_content_library_e2e.py` | End-to-end integration tests for content-library tailoring |
 | `tests/test_init_wizard.py` | Init wizard tests for content library support |
 | `tests/test_doctor_content_library.py` | Doctor command content library validation tests |

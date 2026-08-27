@@ -10,8 +10,10 @@ search configuration YAML (searches.yaml) rather than being hardcoded.
 import logging
 import sqlite3
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import pandas as pd
 from jobspy import scrape_jobs
 
 from applypilot import config
@@ -256,9 +258,9 @@ def _run_one_search(
 
     if not all_dfs:
         log.error("[%s]: all sites failed", label)
-        return {"new": 0, "existing": 0, "errors": 1, "filtered": 0, "total": 0, "label": label}
+        return {"new": 0, "existing": 0, "errors": 1, "filtered": 0, "total": 0, "label": label,
+                "sites": _site_counts(pd.DataFrame(), sites)}
 
-    import pandas as pd
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
@@ -266,7 +268,11 @@ def _run_one_search(
 
     if len(df) == 0:
         log.info("[%s] 0 results", label)
-        return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label}
+        return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label,
+                "sites": _site_counts(df, sites)}
+
+    # Count per-site results before location filtering
+    per_site = _site_counts(df, sites)
 
     # Filter by location before storing
     before = len(df)
@@ -284,7 +290,8 @@ def _run_one_search(
         msg += f", {filtered} filtered (location)"
     log.info(msg)
 
-    return {"new": new, "existing": existing, "errors": 0, "filtered": filtered, "total": before, "label": label}
+    return {"new": new, "existing": existing, "errors": 0, "filtered": filtered, "total": before, "label": label,
+            "sites": per_site}
 
 
 # -- Single query search -----------------------------------------------------
@@ -395,6 +402,10 @@ def _full_crawl(
 
     proxy_config = parse_proxy(proxy) if proxy else None
 
+    # Per-crawl site tracker: auto-disable boards that keep returning 0 results
+    site_fail_threshold = defaults.get("site_fail_threshold", 3)
+    tracker = _SiteTracker(threshold=site_fail_threshold)
+
     log.info("Full crawl: %d search combinations", len(searches))
     log.info("Sites: %s | Results/site: %d | Hours old: %d",
              ", ".join(sites), results_per_site, hours_old)
@@ -408,8 +419,13 @@ def _full_crawl(
     completed = 0
 
     for s in searches:
+        active = tracker.active_sites(sites)
+        if not active:
+            log.warning("All sites disabled — stopping crawl early")
+            break
+
         result = _run_one_search(
-            s, sites, results_per_site, hours_old,
+            s, active, results_per_site, hours_old,
             proxy_config, defaults, max_retries,
             accept_locs, reject_locs, glassdoor_map,
         )
@@ -417,6 +433,15 @@ def _full_crawl(
         total_new += result["new"]
         total_existing += result["existing"]
         total_errors += result["errors"]
+
+        newly_disabled = tracker.note(active, result["sites"])
+        for site_name in newly_disabled:
+            log.warning(
+                "%s returned 0 results on %d consecutive searches — likely blocked. "
+                "Skipping for the rest of the crawl. Remove it from 'sites' in "
+                "searches.yaml to permanently disable.",
+                site_name, tracker.threshold,
+            )
 
         if completed % 5 == 0 or completed == len(searches):
             log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",
@@ -435,10 +460,81 @@ def _full_crawl(
         "errors": total_errors,
         "db_total": db_total,
         "queries": len(searches),
+        "disabled_sites": sorted(tracker.disabled),
+        "site_stats": tracker.report(),
     }
 
 
 # -- Public entry point ------------------------------------------------------
+
+def _site_counts(df: pd.DataFrame, requested_sites: list[str]) -> dict[str, int]:
+    """Count rows per site for only the requested sites.
+
+    Returns a dict with an entry for each requested site. Sites not present
+    in the DataFrame report 0. The DataFrame is expected to have a ``site``
+    column (as JobSpy returns).
+    """
+    counts: dict[str, int] = {}
+    if df.empty or "site" not in df.columns:
+        for site in requested_sites:
+            counts[site] = 0
+        return counts
+
+    site_col = df["site"]
+    for site in requested_sites:
+        mask = site_col == site
+        counts[site] = int(mask.sum())
+
+    return counts
+
+
+@dataclass
+class _SiteTracker:
+    """Tracks per-site results across a crawl and disables boards that keep returning 0 jobs."""
+
+    threshold: int = 3
+    counts: dict[str, int] = field(default_factory=dict)
+    requests: dict[str, int] = field(default_factory=dict)
+    consecutive_empty: dict[str, int] = field(default_factory=dict)
+    disabled: set[str] = field(default_factory=set)
+
+    def active_sites(self, sites: list[str]) -> list[str]:
+        """Return ``sites`` with disabled boards removed, preserving order."""
+        return [s for s in sites if s not in self.disabled]
+
+    def note(self, requested: list[str], counts: dict[str, int]) -> list[str]:
+        """Record results for one search; disable boards that reached ``threshold``
+        consecutive 0-result searches. Returns the list of boards newly disabled."""
+        newly_disabled: list[str] = []
+
+        for site in requested:
+            self.requests[site] = self.requests.get(site, 0) + 1
+            prev_count = self.counts.get(site, 0)
+            self.counts[site] = prev_count + counts.get(site, 0)
+
+            if site in requested and counts.get(site, 0) == 0:
+                # Site got 0 results this search
+                prev_consec = self.consecutive_empty.get(site, 0)
+                self.consecutive_empty[site] = prev_consec + 1
+            else:
+                # Site got ≥1 result → reset its counter
+                self.consecutive_empty[site] = 0
+
+            # Check if we've just hit the threshold
+            if self.consecutive_empty.get(site, 0) >= self.threshold and site not in self.disabled:
+                self.disabled.add(site)
+                newly_disabled.append(site)
+
+        return newly_disabled
+
+    def report(self) -> dict:
+        """Return ``{"counts": dict, "requests": dict, "disabled": list}`` for crawl stats."""
+        return {
+            "counts": dict(self.counts),
+            "requests": dict(self.requests),
+            "disabled": sorted(self.disabled),
+        }
+
 
 def run_discovery(cfg: dict | None = None) -> dict:
     """Main entry point for JobSpy-based job discovery.
@@ -458,7 +554,8 @@ def run_discovery(cfg: dict | None = None) -> dict:
 
     if not cfg:
         log.warning("No search configuration found. Run `applypilot init` to create one.")
-        return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0}
+        return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0,
+                "site_stats": {}, "disabled_sites": []}
 
     proxy = cfg.get("proxy")
     sites = cfg.get("sites")

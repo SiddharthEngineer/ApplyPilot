@@ -67,8 +67,18 @@ def _run_discover(workers: int = 1) -> dict:
     console.print("  [cyan]JobSpy full crawl...[/cyan]")
     try:
         from applypilot.discovery.jobspy import run_discovery
-        run_discovery()
-        stats["jobspy"] = "ok"
+        result = run_discovery()
+        disabled = result.get("disabled_sites", [])
+        if disabled:
+            sites_str = ", ".join(disabled)
+            console.print(
+                f"  [yellow]JobSpy skipped site(s): {sites_str} "
+                f"(0 results across multiple searches — likely blocked). "
+                f"Remove from 'sites' in searches.yaml to permanently disable.[/yellow]"
+            )
+            stats["jobspy"] = f"ok (disabled: {sites_str})"
+        else:
+            stats["jobspy"] = "ok"
     except Exception as e:
         log.error("JobSpy crawl failed: %s", e)
         console.print(f"  [red]JobSpy error:[/red] {e}")

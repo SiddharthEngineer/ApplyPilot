@@ -1,7 +1,7 @@
 # Plan: ZipRecruiter 403 Handling for JobSpy Crawl
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ---
 
@@ -65,7 +65,7 @@ class _SiteTracker:
 - `report()` returns keys `counts`, `requests`, `disabled`.
 - `python -m pytest tests/test_jobspy.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -89,7 +89,7 @@ class _SiteTracker:
 - `run_discovery` returns `site_stats` and `disabled_sites` in all code paths including the empty-config early return.
 - `python -m pytest tests/test_jobspy.py -q` and `python -m pytest -q` pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -108,7 +108,7 @@ and set `stats["jobspy"]` to `"ok (disabled: zip_recruiter)"` (else keep the cur
 - With no disabled sites, no banner is printed and `stats["jobspy"] == "ok"`.
 - `python -m pytest tests/test_pipeline.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -131,7 +131,7 @@ Add a short note to the README discovery section (around the JobSpy lines, READM
 - README contains a phrase noting boards that repeatedly return 0 results are auto-skipped, and a mention of the ZipRecruiter 403 block.
 - `python -m pytest tests/test_config.py -q` and the full suite still pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -163,3 +163,4 @@ Implementation order:
 ## Historical Record
 
 - 2026-08-27 — Plan created. Root cause confirmed as a server-side ZipRecruiter Cloudflare 403 block of JobSpy's requests (upstream issue #302 open, `python-jobspy` 1.1.82 already latest); plan scopes ApplyPilot's fix to detect-and-skip + observability rather than attempting to unblock the board.
+- 2026-08-27 — Plan completed. All 4 tasks implemented and verified: `_site_counts`/`_SiteTracker` helpers, tracker wired through `_full_crawl`/`run_discovery`, pipeline yellow banner for disabled sites, `site_fail_threshold` in example config and README. 25 jobspy tests + 4 pipeline tests added, 158 total tests pass.
