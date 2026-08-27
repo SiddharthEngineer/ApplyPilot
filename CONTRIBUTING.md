@@ -138,6 +138,14 @@ ApplyPilot/
 │   ├── cover/            # Stage 5: cover letter generation
 │   ├── apply/            # Stage 6: browser automation
 │   └── utils/            # Shared utilities
+├── agents/                 # Agent plans, state, and queue
+│   ├── BUILD_PROMPT.md     # Prompt template for build agents
+│   ├── STATE.md            # Current implementation state
+│   ├── CHANGELOG.md        # Agent-maintained changelog
+│   ├── plan_queue.json     # Plan queue for continuous implementation
+│   └── plans/              # Individual plan files
+├── scripts/                # Automation scripts
+│   └── plan_worker.py      # Plan queue worker (continuous agent loop)
 ├── config/               # Default configuration files
 ├── tests/                # Test suite
 ├── docs/                 # Documentation
@@ -156,6 +164,68 @@ The auto-apply stage supports two agent backends via the `--backend` flag:
 Each backend has its own command builder (`_build_claude_cmd` / `_build_opencode_cmd`), MCP config generator (`_make_mcp_config` / `_make_opencode_config`), and output parser (`_parse_claude_output` / `_parse_opencode_output`) in `apply/launcher.py`.
 
 When adding new MCP tools or changing tool permissions, update **both** backend paths. The prompt in `apply/prompt.py` uses backend-agnostic tool names (e.g. `browser_navigate`) and works with both.
+
+## Plan Queue Worker (Automated Implementation)
+
+The plan queue worker continuously implements plans using agentic sessions. It reads plans from `agents/plan_queue.json`, launches opencode agents to implement them, and loops until the queue is empty.
+
+### How It Works
+
+1. Picks the top plan from the queue
+2. Launches `opencode run --auto` with `agents/BUILD_PROMPT.md` + plan path
+3. After the agent exits, checks completion via `agents/STATE.md` and the plan file's status field
+4. If done: dequeues the plan, immediately starts the next one
+5. If not done: next iteration continues (agent reads STATE.md to resume)
+6. Retries up to 2x on failure, skips after 20 iterations per plan
+
+### Usage
+
+```bash
+# Start the worker (runs continuously until queue is empty)
+./scripts/plan_worker.py
+
+# Background it
+nohup ./scripts/plan_worker.py >> plan_worker.log 2>&1 &
+
+# Add a plan to the queue
+./scripts/plan_worker.py --enqueue agents/plans/my_new_plan.md
+
+# Remove a plan from the queue
+./scripts/plan_worker.py --dequeue agents/plans/my_new_plan.md
+
+# Check queue status
+./scripts/plan_worker.py --status
+
+# Dry run (see what would happen without executing)
+./scripts/plan_worker.py --dry-run
+```
+
+### Queue Format (`agents/plan_queue.json`)
+
+```json
+{
+  "queue": ["agents/plans/captcha-solve-tool.md"],
+  "completed": [],
+  "model": "opencode/big-pickle",
+  "max_iterations": 20,
+  "iteration_counts": {},
+  "retry_counts": {}
+}
+```
+
+### Adding a New Plan
+
+1. Create a plan file in `agents/plans/` following the template in `agents/PLAN_PROMPT.md`
+2. Enqueue it: `./scripts/plan_worker.py --enqueue agents/plans/your_plan.md`
+3. The worker will pick it up on the next iteration
+
+### Completion Detection
+
+A plan is considered done when either:
+- `agents/STATE.md` contains "No remaining work" or "All tasks complete"
+- The plan file's status field reads `✅ Completed`
+
+The agent is responsible for updating these markers via the instructions in `agents/BUILD_PROMPT.md`.
 
 ## License
 
