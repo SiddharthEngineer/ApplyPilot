@@ -297,12 +297,24 @@ def _setup_searches() -> None:
     """Generate a searches.yaml from user input."""
     console.print(Panel("[bold]Step 3: Job Search Config[/bold]\nDefine what you're looking for."))
 
-    location = Prompt.ask("Target location (e.g. 'Remote', 'Canada', 'New York, NY')", default="Remote")
+    location = Prompt.ask("Primary target location (e.g. 'Chicago', 'New York, NY')", default="Chicago")
     distance_str = Prompt.ask("Search radius in miles (0 for remote-only)", default="0")
     try:
         distance = int(distance_str)
     except ValueError:
         distance = 0
+
+    # Location accept patterns
+    console.print(
+        "\n[bold]Location filtering[/bold]\n"
+        "List all location strings ApplyPilot should accept when filtering jobs.\n"
+        "[dim]Jobs matching any pattern below (or marked remote) will be kept.[/dim]"
+    )
+    accept_raw = Prompt.ask(
+        "Location patterns to accept (comma-separated)",
+        default=f"{location}, Remote, US",
+    )
+    accept_patterns = [a.strip() for a in accept_raw.split(",") if a.strip()]
 
     roles_raw = Prompt.ask(
         "Target job titles (comma-separated, e.g. 'Backend Engineer, Full Stack Developer')"
@@ -323,6 +335,13 @@ def _setup_searches() -> None:
         f"  distance: {distance}",
         "  hours_old: 72",
         "  results_per_site: 50",
+        "",
+        "location_accept:",
+    ]
+    for pattern in accept_patterns:
+        lines.append(f'  - "{pattern}"')
+
+    lines += [
         "",
         "locations:",
         f'  - location: "{location}"',

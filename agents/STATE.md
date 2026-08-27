@@ -2,6 +2,26 @@
 
 **Last updated:** 2026-08-26
 
+## Recent: Fix Wizard Location Config
+
+### Completed This Session
+
+- **Wizard location filtering** — Updated `_setup_searches()` in `wizard/init.py` to prompt for multiple location accept patterns (comma-separated) and write `location_accept:` to `searches.yaml`. This fixes the root cause where all non-remote jobs were silently rejected because `location_accept` was empty.
+- **Example YAML schema fix** — Updated `config/searches.example.yaml` to use flat keys (`location_accept`, `sites`) that match what `jobspy.py` actually reads. The old nested `location.accept_patterns` and `boards` keys were incompatible with the code.
+
+### Key Decisions
+
+- Default location patterns: `"{location}, Remote, US"` — covers the common case.
+- The `location_accept` key is a flat top-level list in YAML (not nested under `location:`), matching `jobspy.py:_load_location_config()`.
+- `boards` renamed to `sites` in example YAML to match `jobspy.py:464`.
+
+### Test Results
+
+```
+ruff check — All checks passed
+Total: 117 passed
+```
+
 ## Active Plan: Site-Specific Passwords
 
 Plan file: `agents/plans/site_specific_passwords.md`
