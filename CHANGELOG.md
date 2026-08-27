@@ -15,5 +15,5 @@
 - `applypilot doctor` now validates configured `LLM_MODEL` against the Gemini API model list and warns if not found.
 
 ### Changed
-- Default Gemini model updated from `gemini-2.0-flash` to `gemini-2.5-flash` (current GA).
+- Default Gemini model updated from `gemini-2.5-flash` to `gemini-3.6-flash` following retirement of 2.5-flash for new users.
 - `scorer.py`: Error logging now includes HTTP status code, truncated response body, and Gemini-specific remediation hints.

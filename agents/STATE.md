@@ -1,36 +1,34 @@
 # Current State
 
-**Last updated:** 2026-08-27 (Workday SSL fix session)
+**Last updated:** 2026-08-27 (Gemini 3.6-Flash Migration session)
 
-## Active Plan: Fix Workday Scraper SSL Certificate Verification
+## Active Plan: Migrate Default Gemini Model to 3.6-Flash
 
-Plan file: `agents/plans/fix-workday-ssl-cert.md`
+Plan file: `agents/plans/gemini-3.6-flash-migration.md`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Add SSL context configuration to workday.py | ✅ Complete |
-| Task 2: Add unit test for SSL context configuration | ✅ Complete |
-| Task 3: Verify fix with manual integration test | ✅ Complete |
+| Task 1: Update core LLM client default model | ✅ Complete |
+| Task 2: Update CLI doctor and init wizard defaults | ✅ Complete |
+| Task 3: Update documentation, configuration examples, and error hints | ✅ Complete |
+| Task 4: Live integration verification | ✅ Complete |
 
 ### Current Task
 
-None — Workday SSL fix plan is fully complete.
+None — Gemini 3.6-Flash migration plan is fully complete.
 
 ### Completed This Session
 
-- **Workday SSL Certificate Fix** — Fixed `SSL: CERTIFICATE_VERIFY_FAILED` error when scraping Workday employer portals on macOS. Key changes:
-  - `workday.py`: Added `ssl` and `certifi` imports. Created module-level `_ssl_context = ssl.create_default_context(cafile=certifi.where())`. Updated `setup_proxy()` to inject `HTTPSHandler(context=_ssl_context)` into the opener chain. Updated `_urlopen()` to pass `context=_ssl_context` when no proxy is configured.
-  - `tests/test_workday_ssl.py`: Created 5 tests verifying SSL context existence, certifi CA bundle loading, CERT_REQUIRED verify mode, proxy setup preservation, and TLS protocol version.
-  - Uses existing `certifi` transitive dependency (via `httpx`) — no new dependencies needed.
-
-- **Gemini 404 Scoring Fix** — Fixed job scoring when using `GEMINI_API_KEY` so that LLM calls no longer 404 on the OpenAI-compat endpoint. Key changes:
-  - `llm.py`: Extended `_chat_compat()` fallback from 403-only to 400/403/404 for Gemini providers. Updated `_GeminiCompatForbidden` exception to handle all three status codes. Enhanced warning logs to include status code and response body. Updated docstrings and default model from `gemini-2.0-flash` to `gemini-2.5-flash`.
-  - `tests/test_llm.py`: Created 15 mocked tests covering gemini 404→native, 400→native, 403→native, native success, fallback persistence, 429 retry, provider detection, and OpenAI 404 no-fallback behavior.
-  - `scoring/scorer.py`: Added `httpx.HTTPStatusError` handler in `score_job()` with Gemini-specific hints (check GEMINI_API_KEY, LLM_MODEL). Added systemic failure detection in `run_scoring()` — logs actionable error when all jobs fail with 404/400.
-  - `cli.py`: Added doctor model validation — queries Gemini API model list and warns if configured `LLM_MODEL` not found.
-  - `.env.example`, `wizard/init.py`: Updated default model references to `gemini-2.5-flash`.
+- **Gemini 3.6-Flash Model Migration** — Migrated ApplyPilot's default Gemini model from `gemini-2.5-flash` (retired/404 for new users) to `gemini-3.6-flash`. Key changes:
+  - `llm.py`: Updated `_detect_provider()` default model to `gemini-3.6-flash`.
+  - `cli.py`: Updated `applypilot doctor` default model validation to `gemini-3.6-flash`.
+  - `wizard/init.py`: Updated setup wizard default model prompt to `gemini-3.6-flash`.
+  - `scoring/scorer.py`: Updated error log hints to reference `gemini-3.6-flash`.
+  - `.env.example`: Updated recommended Gemini model comment.
+  - `tests/test_llm.py`: Updated client mock fixture.
+  - Live verification: Confirmed `LLMClient.chat()` successfully calls `gemini-3.6-flash` via OpenAI compat endpoint (`HTTP 200 OK`, returning `"PONG"`).
 
 ### Test Results (verified 2026-08-27)
 

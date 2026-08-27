@@ -471,7 +471,7 @@ def doctor() -> None:
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
     has_local = bool(os.environ.get("LLM_URL"))
     if has_gemini:
-        model = os.environ.get("LLM_MODEL", "gemini-2.5-flash")
+        model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
         # Validate model against Gemini API model list
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         model_valid = True

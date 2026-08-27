@@ -104,7 +104,7 @@ def score_job(resume_text: str, job: dict) -> dict:
         hint = ""
         if status in (400, 403, 404):
             hint = (
-                " — check GEMINI_API_KEY, LLM_MODEL (default gemini-2.5-flash), "
+                " — check GEMINI_API_KEY, LLM_MODEL (default gemini-3.6-flash), "
                 "and that model exists on https://ai.google.dev/gemini-api/docs/models"
             )
         log.error(
@@ -175,7 +175,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     if errors == len(jobs) and errors > 0 and ("404" in first_error_msg or "400" in first_error_msg):
         log.error(
             "ALL %d jobs failed to score — likely a systemic LLM configuration issue.\n"
-            "  Check GEMINI_API_KEY, LLM_MODEL (default gemini-2.5-flash), "
+            "  Check GEMINI_API_KEY, LLM_MODEL (default gemini-3.6-flash), "
             "and that model exists on https://ai.google.dev/gemini-api/docs/models\n"
             "  First error: %s",
             errors, first_error_msg,
