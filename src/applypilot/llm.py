@@ -2,7 +2,7 @@
 Unified LLM client for ApplyPilot.
 
 Auto-detects provider from environment:
-  GEMINI_API_KEY  -> Google Gemini (default: gemini-2.0-flash)
+  GEMINI_API_KEY  -> Google Gemini (default: gemini-2.5-flash)
   OPENAI_API_KEY  -> OpenAI (default: gpt-4o-mini)
   LLM_URL         -> Local llama.cpp / Ollama compatible endpoint
 
@@ -35,7 +35,7 @@ def _detect_provider() -> tuple[str, str, str]:
     if gemini_key and not local_url:
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",
-            model_override or "gemini-2.0-flash",
+            model_override or "gemini-2.5-flash",
             gemini_key,
         )
 
@@ -78,7 +78,7 @@ _GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
 class LLMClient:
     """Thin LLM client supporting OpenAI-compatible and native Gemini endpoints.
 
-    For Gemini keys, starts on the OpenAI-compat layer. On a 403 (which
+    For Gemini keys, starts on the OpenAI-compat layer. On a 400/403/404 (which
     happens with preview/experimental models not exposed via compat), it
     automatically switches to the native generateContent API and stays there
     for the lifetime of the process.
@@ -103,7 +103,7 @@ class LLMClient:
     ) -> str:
         """Call the native Gemini generateContent API.
 
-        Used automatically when the OpenAI-compat endpoint returns 403,
+        Used automatically when the OpenAI-compat endpoint returns 400/403/404,
         which happens for preview/experimental models not exposed via compat.
 
         Converts OpenAI-style messages to Gemini's contents/systemInstruction
@@ -170,9 +170,9 @@ class LLMClient:
             headers=headers,
         )
 
-        # 403 on Gemini compat = model not available on compat layer.
+        # 400/403/404 on Gemini compat = model not available on compat layer.
         # Raise a specific sentinel so chat() can switch to native API.
-        if resp.status_code == 403 and self._is_gemini:
+        if resp.status_code in (400, 403, 404) and self._is_gemini:
             raise _GeminiCompatForbidden(resp)
 
         return self._handle_compat_response(resp)
@@ -210,10 +210,11 @@ class LLMClient:
             except _GeminiCompatForbidden as exc:
                 # Model not available on OpenAI-compat layer — switch to native.
                 log.warning(
-                    "Gemini compat endpoint returned 403 for model '%s'. "
+                    "Gemini compat endpoint returned %d for model '%s'. "
                     "Switching to native generateContent API. "
-                    "(Preview/experimental models are often compat-only on native.)",
-                    self.model,
+                    "(Preview/experimental models are often compat-only on native.) "
+                    "Body: %s",
+                    exc.response.status_code, self.model, exc.response.text[:300],
                 )
                 self._use_native_gemini = True
                 # Retry immediately with native — don't count as a rate-limit wait
@@ -221,7 +222,7 @@ class LLMClient:
                     return self._chat_native_gemini(messages, temperature, max_tokens)
                 except httpx.HTTPStatusError as native_exc:
                     raise RuntimeError(
-                        f"Both Gemini endpoints failed. Compat: 403 Forbidden. "
+                        f"Both Gemini endpoints failed. Compat: {exc.response.status_code}. "
                         f"Native: {native_exc.response.status_code} — "
                         f"{native_exc.response.text[:200]}"
                     ) from native_exc
@@ -274,10 +275,10 @@ class LLMClient:
 
 
 class _GeminiCompatForbidden(Exception):
-    """Sentinel: Gemini OpenAI-compat returned 403. Switch to native API."""
+    """Sentinel: Gemini OpenAI-compat returned 400/403/404. Switch to native API."""
     def __init__(self, response: httpx.Response) -> None:
         self.response = response
-        super().__init__(f"Gemini compat 403: {response.text[:200]}")
+        super().__init__(f"Gemini compat {response.status_code}: {response.text[:200]}")
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # Plan: Gemini 404 Scoring Fix
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ---
 
@@ -33,7 +33,7 @@ Fix job scoring (`applypilot run score`) when using `GEMINI_API_KEY` so that LLM
 - OpenAI client mocked to 404/400 still raises `HTTPStatusError` (no fallback).
 - `ruff check src/applypilot/llm.py` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ### Task 2: Add LLMClient unit tests
 
@@ -45,7 +45,7 @@ Fix job scoring (`applypilot run score`) when using `GEMINI_API_KEY` so that LLM
 - `pytest tests/test_llm.py -v` passes with 8+ tests; all use mocks, no network.
 - Tests fail before Task 1 and pass after.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ### Task 3: Harden scoring observability
 
@@ -58,7 +58,7 @@ Fix job scoring (`applypilot run score`) when using `GEMINI_API_KEY` so that LLM
 - Single-job mocked failure still returns `{"score": 0}` without crashing.
 - `pytest` tailoring/cover tests unaffected.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ### Task 4: Verify default model and doctor hint
 
@@ -72,7 +72,7 @@ Fix job scoring (`applypilot run score`) when using `GEMINI_API_KEY` so that LLM
 - `README.md` and `.env.example` updated if default changes.
 - `ruff check` and `pytest` pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -99,3 +99,4 @@ Task 1 (llm fallback 400/403/404) → Task 2 (tests) → Task 3 (scorer observab
 ## Historical Record
 
 - 2026-08-27 — Plan created after investigating `404 Not Found` on `generativelanguage.googleapis.com/v1beta/openai/chat/completions` in job scoring logs (326 jobs, all `score=0`). Inspected `src/applypilot/llm.py`, `src/applypilot/scoring/scorer.py`, git `de13c8c` (403 fallback precedent). User confirmed to include 400 in fallback and update default to `gemini-2.5-flash`.
+- 2026-08-27 — All 4 tasks complete. Extended fallback to 400/403/404 in `llm.py`, added 15 mocked tests in `tests/test_llm.py`, improved scorer error logging with Gemini-specific hints, updated default model to `gemini-2.5-flash` across all files, added doctor model validation.

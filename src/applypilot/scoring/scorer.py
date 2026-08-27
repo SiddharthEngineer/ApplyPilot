@@ -11,6 +11,8 @@ import re
 import time
 from datetime import datetime, timezone
 
+import httpx
+
 from applypilot.config import RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import get_client
@@ -96,6 +98,20 @@ def score_job(resume_text: str, job: dict) -> dict:
         client = get_client()
         response = client.chat(messages, max_tokens=512, temperature=0.2)
         return _parse_score_response(response)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        body = e.response.text[:300]
+        hint = ""
+        if status in (400, 403, 404):
+            hint = (
+                " — check GEMINI_API_KEY, LLM_MODEL (default gemini-2.5-flash), "
+                "and that model exists on https://ai.google.dev/gemini-api/docs/models"
+            )
+        log.error(
+            "LLM error scoring job '%s': HTTP %d%s — %s",
+            job.get("title", "?"), status, hint, body,
+        )
+        return {"score": 0, "keywords": "", "reasoning": f"LLM error: HTTP {status}"}
     except Exception as e:
         log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
         return {"score": 0, "keywords": "", "reasoning": f"LLM error: {e}"}
@@ -135,6 +151,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     t0 = time.time()
     completed = 0
     errors = 0
+    first_error_msg = ""
     results: list[dict] = []
 
     for job in jobs:
@@ -144,12 +161,24 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
 
         if result["score"] == 0:
             errors += 1
+            if not first_error_msg:
+                first_error_msg = result.get("reasoning", "")
 
         results.append(result)
 
         log.info(
             "[%d/%d] score=%d  %s",
             completed, len(jobs), result["score"], job.get("title", "?")[:60],
+        )
+
+    # If all jobs failed, check for systemic LLM config issue
+    if errors == len(jobs) and errors > 0 and ("404" in first_error_msg or "400" in first_error_msg):
+        log.error(
+            "ALL %d jobs failed to score — likely a systemic LLM configuration issue.\n"
+            "  Check GEMINI_API_KEY, LLM_MODEL (default gemini-2.5-flash), "
+            "and that model exists on https://ai.google.dev/gemini-api/docs/models\n"
+            "  First error: %s",
+            errors, first_error_msg,
         )
 
     # Write scores to DB

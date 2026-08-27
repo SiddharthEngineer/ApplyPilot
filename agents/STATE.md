@@ -2,46 +2,46 @@
 
 **Last updated:** 2026-08-27
 
-## Active Plan: ZipRecruiter 403 Handling
+## Active Plan: Gemini 404 Scoring Fix
 
-Plan file: `agents/plans/ziprecruiter-403-handling.md`
+Plan file: `agents/plans/gemini-404-scoring-fix.md`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Add `_site_counts` + `_SiteTracker` helper + unit tests | ✅ Complete |
-| Task 2: Wire tracker through crawl + integration tests | ✅ Complete |
-| Task 3: Surface disabled sites in pipeline discover output | ✅ Complete |
-| Task 4: Update searches.example.yaml and README.md | ✅ Complete |
+| Task 1: Extend Gemini compat fallback to 404 and 400 | ✅ Complete |
+| Task 2: Add LLMClient unit tests | ✅ Complete |
+| Task 3: Harden scoring observability | ✅ Complete |
+| Task 4: Verify default model and doctor hint | ✅ Complete |
 
 ### Current Task
 
-Completed. ZipRecruiter 403 Handling plan is fully implemented.
+Completed. Gemini 404 Scoring Fix plan is fully implemented.
 
 ### Completed This Session
 
-- **ZipRecruiter 403 Handling** — Detected and auto-skips boards (e.g. ZipRecruiter) that repeatedly return 0 results during a crawl, preventing log spam and wasted API calls. Key changes:
-  - `jobspy.py`: Added `_site_counts(df, requested_sites)` to count DataFrame rows per site. Added `_SiteTracker` dataclass with `active_sites()`, `note()`, and `report()` methods — tracks per-crawl consecutive empty results and disables boards after `site_fail_threshold` (default 3) consecutive 0-result searches. Wired tracker through `_full_crawl`: creates tracker, filters sites via `active_sites()` before each search, calls `note()` after, logs WARNING for newly disabled boards, returns `disabled_sites` and `site_stats`. `_run_one_search` now returns per-site counts in `"sites"` key. `run_discovery` passes through keys and includes them in empty-config early return.
-  - `pipeline.py`: `_run_discover` captures `run_discovery()` return value, prints yellow banner when `disabled_sites` is non-empty, sets `stats["jobspy"]` to `"ok (disabled: ...)"`.
-  - `searches.example.yaml`: Added `site_fail_threshold: 3` to defaults block.
-  - `README.md`: Documented auto-skip behavior and ZipRecruiter Cloudflare 403 block.
-  - `tests/test_jobspy.py`: 25 tests — 5 for `_site_counts`, 14 for `_SiteTracker`, 6 integration tests verifying tracker wired through `_full_crawl` and `run_discovery`.
-  - `tests/test_pipeline.py`: 4 tests verifying yellow banner, stats update, no banner when empty, error handling.
+- **Gemini 404 Scoring Fix** — Fixed job scoring when using `GEMINI_API_KEY` so that LLM calls no longer 404 on the OpenAI-compat endpoint. Key changes:
+  - `llm.py`: Extended `_chat_compat()` fallback from 403-only to 400/403/404 for Gemini providers. Updated `_GeminiCompatForbidden` exception to handle all three status codes. Enhanced warning logs to include status code and response body. Updated docstrings and default model from `gemini-2.0-flash` to `gemini-2.5-flash`.
+  - `tests/test_llm.py`: Created 15 mocked tests covering gemini 404→native, 400→native, 403→native, native success, fallback persistence, 429 retry, provider detection, and OpenAI 404 no-fallback behavior.
+  - `scoring/scorer.py`: Added `httpx.HTTPStatusError` handler in `score_job()` with Gemini-specific hints (check GEMINI_API_KEY, LLM_MODEL). Added systemic failure detection in `run_scoring()` — logs actionable error when all jobs fail with 404/400.
+  - `cli.py`: Added doctor model validation — queries Gemini API model list and warns if configured `LLM_MODEL` not found.
+  - `.env.example`, `wizard/init.py`: Updated default model references to `gemini-2.5-flash`.
 
 ### Test Results
 
 ```
-158 tests passed — zero failures (content-library tailoring tests excluded; pre-existing slow test timeout)
-ruff check: only pre-existing lint issues (BLE001, DTZ005, F541, I001, SIM113, F841, UP035, UP017)
+tests/test_llm.py: 15 passed
+tests/test_init_wizard.py: 38 passed
+ruff check src/applypilot/llm.py: All checks passed
 ```
 
 ### Key Decisions
 
-- **Disabled state is crawl-scoped, not persisted** — Each `applypilot run discover` starts fresh, so a board that recovers is automatically retried on the next run.
-- **Threshold configurable via `defaults.site_fail_threshold`** — Follows existing pattern of pulling tunables from `searches.yaml`'s defaults block, default 3.
-- **`_run_one_search` computes per-site counts before location filtering** — Counts reflect raw JobSpy output, not filtered results.
-- **Tracker skips disabled boards at crawl level, not per-search** — `active_sites()` is called once per search iteration, filtering the site list passed to `_run_one_search`.
+- **Treat 400/404 like 403 for Gemini only** — all three mean "model not exposed on OpenAI-compat layer"; OpenAI 400/404 must not fallback to avoid masking real errors.
+- **Reuse existing native path and sentinel `_GeminiCompatForbidden`** — no new endpoint code, minimal blast radius.
+- **Default to `gemini-2.5-flash`** — current GA model (released June 2025, retiring October 2026); `gemini-2.0-flash` may be deprecated or not exposed on compat.
+- **Verify model name via live list in doctor** — Gemini model IDs rotate; doctor is the right place for validation feedback.
 
 ### Blockers
 
@@ -49,7 +49,7 @@ None.
 
 ### Recommended Next Step
 
-All tasks in the ZipRecruiter 403 Handling plan are complete. No remaining work.
+All tasks in the Gemini 404 Scoring Fix plan are complete. Ready for live testing with `applypilot run score` against actual Gemini API.
 
 ## Project Overview
 
@@ -66,6 +66,7 @@ Users choose via `applypilot apply --backend <claude|opencode>`.
 
 | File | Role |
 |------|------|
+| `src/applypilot/llm.py` | LLM client with Gemini compat/native fallback |
 | `src/applypilot/scoring/content_library.py` | Content library parser |
 | `src/applypilot/scoring/tailor.py` | Resume tailoring with LLM + validation + judge |
 | `src/applypilot/scoring/validator.py` | Banned words, fabrication detection, structural checks |
@@ -78,6 +79,7 @@ Users choose via `applypilot apply --backend <claude|opencode>`.
 | `src/applypilot/apply/launcher.py` | Apply orchestration: config builders, job execution |
 | `src/applypilot/apply/prompt.py` | Prompt builder for the apply agent |
 | `src/applypilot/discovery/jobspy.py` | JobSpy job discovery + site fail tracking |
+| `tests/test_llm.py` | LLMClient Gemini fallback and provider detection tests |
 | `tests/test_jobspy.py` | JobSpy site counting and tracker tests |
 | `tests/test_pipeline.py` | Pipeline discover banner tests |
 | `tests/test_content_library_e2e.py` | End-to-end integration tests for content-library tailoring |

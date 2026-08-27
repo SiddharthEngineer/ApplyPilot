@@ -544,7 +544,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         api_key = Prompt.ask("Gemini API key (from aistudio.google.com)", default=existing_key)
         if not api_key and existing_key:
             api_key = existing_key
-        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "gemini-2.0-flash"))
+        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "gemini-2.5-flash"))
         env_lines.append(f"GEMINI_API_KEY={api_key}")
         env_lines.append(f"LLM_MODEL={model}")
     elif provider == "openai":

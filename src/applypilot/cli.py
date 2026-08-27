@@ -471,8 +471,30 @@ def doctor() -> None:
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
     has_local = bool(os.environ.get("LLM_URL"))
     if has_gemini:
-        model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-        results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
+        model = os.environ.get("LLM_MODEL", "gemini-2.5-flash")
+        # Validate model against Gemini API model list
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        model_valid = True
+        try:
+            import httpx
+            resp = httpx.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": gemini_key},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                models = [m["name"].split("/")[-1] for m in resp.json().get("models", [])]
+                if model not in models:
+                    model_valid = False
+                    avail = ', '.join(sorted(models)[:5])
+                    results.append((
+                        "LLM API key", warn_mark,
+                        f"Gemini ({model}) — model not found in API model list. Available: {avail}...",
+                    ))
+        except Exception:
+            pass  # If we can't validate, just show the model name
+        if model_valid:
+            results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
     elif has_openai:
         model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
         results.append(("LLM API key", ok_mark, f"OpenAI ({model})"))
