@@ -1,36 +1,34 @@
 # Current State
 
-**Last updated:** 2026-08-26
+**Last updated:** 2026-08-27
 
-## Active Plan: Hide Passwords from the LLM
+## Active Plan: Plan Queue Worker
 
-Plan file: `agents/plans/hide_passwords.md`
+Plan file: `agents/plan_queue.json`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Create cred_server.py | ✅ Complete |
-| Task 2: Refactor launcher.py | ✅ Complete |
-| Task 3: Update prompt.py | ✅ Complete |
-| Task 4: Tests, Verification, Documentation | ✅ Complete |
+| Task 1: Create plan_queue.json | ✅ Complete |
+| Task 2: Create scripts/plan_worker.py | ✅ Complete |
+| Task 3: CLI helpers (--enqueue/--dequeue/--status/--dry-run) | ✅ Complete |
+| Task 4: Test dry-run and status commands | ✅ Complete |
 
 ### Current Task
 
-All tasks complete. The Hide Passwords from the LLM plan is fully implemented.
+Completed. Plan queue worker is ready for use.
 
 ### Completed This Session
 
-- **Hide Passwords from LLM** — Created `src/applypilot/apply/cred_server.py`: a standalone MCP credential server over stdio that reads passwords from env vars, connects to Chrome via CDP, and fills login forms. The LLM calls `ats_login(ats="workday", email="...", cdp_port=9222)` and never sees the password. Refactored `launcher.py`: added `site_passwords` parameter to `_make_mcp_config()` and `_make_opencode_config()`, added `"cred"` MCP server entry with per-ATS env vars, updated `_build_opencode_cmd()` to pipe prompt via stdin (not CLI arg) to prevent `ps aux` leakage, updated `run_job()` to load profile and pass passwords to config builders. Updated `prompt.py`: removed password table from step 5c, replaced with `ats_login` tool call instructions with URL pattern table, removed CapSolver API key from prompt text (replaced with env var reference), added `cdp_port` parameter to `build_prompt()`, removed unused `os` import. Created 42 new tests across 3 test files: `test_cred_server.py` (17 tests for env var reading, tool dispatch, MCP protocol), `test_launcher.py` (15 tests for MCP config, OpenCode config, command builder), `test_prompt.py` (10 tests for no passwords in prompt, ats_login tool, cdp_port interpolation). All 182 tests pass, lint clean.
+- **Plan Queue Worker** — Created `scripts/plan_worker.py`: a reusable orchestrator that continuously implements plans from `agents/plan_queue.json`. Reads the top plan from the queue, launches an opencode agent session via `opencode run --auto --model <model>`, checks for completion by inspecting STATE.md and plan file status markers, dequeues completed plans, and immediately starts the next. Supports max iterations per plan (default 20), retry on failure (up to 2 retries), 30-minute hard timeout per run, and structured logging to `plan_worker.log`. CLI flags: `--enqueue PATH`, `--dequeue PATH`, `--status`, `--dry-run`. Moved `plan_queue.json` to `agents/` folder. Added `plan_worker.log` to `.gitignore`.
 
 ### Test Results
 
 ```
-tests/test_cred_server.py — 17 passed
-tests/test_launcher.py — 15 passed
-tests/test_prompt.py — 10 passed
-Total: 182 passed (was 140)
-ruff check new files — All checks passed
+scripts/plan_worker.py --status — Shows queue correctly
+scripts/plan_worker.py --dry-run — Prompt preview correct, no execution
+scripts/plan_worker.py --enqueue/--dequeue — Queue manipulation works
 ```
 
 ### Key Decisions

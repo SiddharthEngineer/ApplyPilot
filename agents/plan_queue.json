@@ -1,0 +1,10 @@
+{
+  "queue": [
+    "agents/plans/captcha-solve-tool.md"
+  ],
+  "completed": [],
+  "model": "opencode/big-pickle",
+  "max_iterations": 20,
+  "iteration_counts": {},
+  "retry_counts": {}
+}
