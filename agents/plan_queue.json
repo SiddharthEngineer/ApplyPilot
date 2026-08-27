@@ -26,7 +26,7 @@
     "agents/plans/secure-password-at-rest.md": 1,
     "agents/plans/captcha-solve-tool.md": 1,
     "agents/plans/ziprecruiter-403-handling.md": 4,
-    "agents/plans/gemini-404-scoring-fix.md": 5,
+    "agents/plans/gemini-404-scoring-fix.md": 9,
     "agents/plans/fix-workday-ssl-cert.md": 3
   },
   "retry_counts": {
