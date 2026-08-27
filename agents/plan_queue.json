@@ -1,10 +1,11 @@
 {
   "queue": [
+    "agents/plans/secure-password-at-rest.md",
     "agents/plans/captcha-solve-tool.md"
   ],
   "completed": [],
   "model": "opencode/big-pickle",
-  "max_iterations": 20,
+  "max_iterations": 10,
   "iteration_counts": {},
   "retry_counts": {}
 }

@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -68,8 +69,26 @@ ATS_PW_ENV: dict[str, str] = {
 }
 
 
+def _get_password_from_profile(ats: str) -> str | None:
+    """Read password from profile.json via APPLYPILOT_APP_DIR env var."""
+    app_dir = os.environ.get("APPLYPILOT_APP_DIR")
+    if not app_dir:
+        return None
+    profile_path = Path(app_dir) / "profile.json"
+    if not profile_path.exists():
+        return None
+    try:
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        return profile.get("site_passwords", {}).get(ats) or None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def _get_password(ats: str) -> str | None:
-    """Read password from env var. Returns None if not set."""
+    """Read password — try profile.json first, fall back to env vars."""
+    password = _get_password_from_profile(ats)
+    if password:
+        return password
     env_var = ATS_PW_ENV.get(ats)
     if not env_var:
         return None

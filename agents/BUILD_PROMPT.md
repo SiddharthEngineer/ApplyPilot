@@ -11,7 +11,7 @@ Before doing anything:
 Then:
 
 - Implement ONE coherent unit of work.
-- Do not redo work marked complete in STATE.md.
+- Do not redo work marked complete in @agents/STATE.md.
 - Run the relevant tests after implementation.
 - Fix failures caused by your changes.
 - Update @agents/STATE.md with:
@@ -28,7 +28,7 @@ Then:
 - Commit the completed work.
 
 If context is becoming constrained, do not begin another substantial task.
-Finish the current coherent unit of work, update STATE.md, and stop.
+Finish the current coherent unit of work, update @agents/STATE.md, and stop.
 
 Do not claim work is complete unless the relevant tests or verification have actually passed.
 Once it is actually complete though, please update the status to reflect this.
