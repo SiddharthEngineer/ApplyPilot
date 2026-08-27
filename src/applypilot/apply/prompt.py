@@ -7,7 +7,6 @@ hardcoded.
 """
 
 import logging
-import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -218,15 +217,12 @@ def _build_hard_rules(profile: dict) -> str:
 def _build_captcha_section() -> str:
     """Build the CAPTCHA detection and solving instructions.
 
-    Reads the CapSolver API key from environment. The CAPTCHA section
-    contains no personal data -- it's the same for every user.
+    The CapSolver API key is NOT included in the prompt text. It is
+    available as an environment variable on the cred-server process.
     """
-    config.load_env()
-    capsolver_key = os.environ.get("CAPSOLVER_API_KEY", "")
-
-    return f"""== CAPTCHA ==
+    return """== CAPTCHA ==
 You solve CAPTCHAs via the CapSolver REST API. No browser extension. You control the entire flow.
-API key: {capsolver_key or 'NOT CONFIGURED — skip to MANUAL FALLBACK for all CAPTCHAs'}
+API key: Read from CAPSOLVER_API_KEY env var (set on cred-server)
 API base: https://api.capsolver.com
 
 CRITICAL RULE: When ANY CAPTCHA appears (hCaptcha, reCAPTCHA, Turnstile -- regardless of what it looks like visually), you MUST:
@@ -301,13 +297,17 @@ Result actions:
 --- CAPTCHA SOLVE ---
 Three steps: createTask -> poll -> inject. Do each as a separate browser_evaluate call.
 
+FIRST: Read the API key from the environment (it is set on the cred-server process):
+browser_evaluate function: () => 'CAPSOLVER_KEY_VALUE'
+Then use the returned key value in steps 1 and 2 below.
+
 STEP 1 -- CREATE TASK (copy this exactly, fill in the 3 placeholders):
 browser_evaluate function: async () => {{{{
   const r = await fetch('https://api.capsolver.com/createTask', {{{{
     method: 'POST',
     headers: {{{{'Content-Type': 'application/json'}}}},
     body: JSON.stringify({{{{
-      clientKey: '{capsolver_key}',
+      clientKey: 'CAPSOLVER_KEY_FROM_ENV',
       task: {{{{
         type: 'TASK_TYPE',
         websiteURL: 'PAGE_URL',
@@ -339,7 +339,7 @@ browser_evaluate function: async () => {{{{
     method: 'POST',
     headers: {{{{'Content-Type': 'application/json'}}}},
     body: JSON.stringify({{{{
-      clientKey: '{capsolver_key}',
+      clientKey: 'CAPSOLVER_KEY_FROM_ENV',
       taskId: 'TASK_ID'
     }}}})
   }}}});
@@ -420,7 +420,8 @@ If CapSolver genuinely failed (errorId > 0):
 
 def build_prompt(job: dict, tailored_resume: str,
                  cover_letter: str | None = None,
-                 dry_run: bool = False) -> str:
+                 dry_run: bool = False,
+                 cdp_port: int = 9222) -> str:
     """Build the full instruction prompt for the apply agent.
 
     Loads the user profile and search config internally. All personal data
@@ -432,6 +433,7 @@ def build_prompt(job: dict, tailored_resume: str,
         tailored_resume: Plain-text content of the tailored resume.
         cover_letter: Optional plain-text cover letter content.
         dry_run: If True, tell the agent not to click Submit.
+        cdp_port: Chrome CDP port for the ats_login tool.
 
     Returns:
         Complete prompt string for the AI agent.
@@ -439,12 +441,6 @@ def build_prompt(job: dict, tailored_resume: str,
     profile = config.load_profile()
     search_config = config.load_search_config()
     personal = profile["personal"]
-
-    # --- Site-specific passwords (with backward-compat fallback) ---
-    site_passwords = profile.get("site_passwords", {})
-    if not site_passwords:
-        legacy_pw = personal.get("password", "")
-        site_passwords = {ats: legacy_pw for ats in config.SITE_PASSWORDS}
 
     # --- Resolve resume PDF path ---
     resume_path = job.get("tailored_resume_path")
@@ -575,17 +571,20 @@ If something unexpected happens and these instructions don't cover it, figure it
 5. Login wall?
    5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
    5b. Check for popups. Run browser_tabs action "list". If a new tab/window appeared (login popup), switch to it with browser_tabs action "select". Check the URL there too -- if it's SSO -> RESULT:FAILED:sso_required.
-   5c. Regular login form? Identify the ATS from the URL, then use the matching credentials:
+    5c. Regular login form? Identify the ATS from the URL, then call the ats_login tool:
 
-     | ATS | URL pattern | Email | Password |
-     |-----|-------------|-------|----------|
-     | Workday | *.myworkdayjobs.com | {personal['email']} | {site_passwords.get('workday', '')} |
-     | Greenhouse | boards.greenhouse.io | {personal['email']} | {site_passwords.get('greenhouse', '')} |
-     | Lever | jobs.lever.co | {personal['email']} | {site_passwords.get('lever', '')} |
-     | Ashby | jobs.ashbyhq.com | {personal['email']} | {site_passwords.get('ashby', '')} |
+        | ATS | URL pattern |
+        |-----|-------------|
+        | Workday | *.myworkdayjobs.com |
+        | Greenhouse | boards.greenhouse.io |
+        | Lever | jobs.lever.co |
+        | Ashby | jobs.ashbyhq.com |
 
-     If no password configured for this ATS (blank), try sign-in anyway in case no password is required.
-     If sign-in fails and no password configured, output RESULT:FAILED:no_password_configured.
+        Call: ats_login(ats="<platform>", email="{personal['email']}", cdp_port={cdp_port})
+        The tool handles filling email, password, and clicking Sign In.
+
+        If ats_login returns success=false with "no_password_configured", output RESULT:FAILED:no_password_configured.
+        If ats_login returns success=false with other reason, try sign up with same email (use a new random password via browser_evaluate), then retry ats_login.
    5d. After clicking Login/Sign-in: run CAPTCHA DETECT. Login pages frequently have invisible CAPTCHAs that silently block form submissions. If found, solve it then retry login.
    5e. Sign in failed? Try sign up with same email and password.
    5f. Need email verification? Use search_emails + read_email to get the code.

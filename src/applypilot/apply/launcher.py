@@ -64,8 +64,21 @@ if platform.system() != "Windows":
 # MCP config
 # ---------------------------------------------------------------------------
 
-def _make_mcp_config(cdp_port: int) -> dict:
-    """Build MCP config dict for a specific CDP port."""
+def _make_mcp_config(cdp_port: int, site_passwords: dict | None = None) -> dict:
+    """Build MCP config dict for a specific CDP port.
+
+    Args:
+        cdp_port: Chrome DevTools Protocol port.
+        site_passwords: Dict mapping ATS names to passwords. Passed to the
+            cred-server as env vars so the LLM never sees them.
+    """
+    pw_env = {
+        "APPLYPILOT_PW_WORKDAY": (site_passwords or {}).get("workday", ""),
+        "APPLYPILOT_PW_GREENHOUSE": (site_passwords or {}).get("greenhouse", ""),
+        "APPLYPILOT_PW_LEVER": (site_passwords or {}).get("lever", ""),
+        "APPLYPILOT_PW_ASHBY": (site_passwords or {}).get("ashby", ""),
+        "CAPSOLVER_API_KEY": os.environ.get("CAPSOLVER_API_KEY", ""),
+    }
     return {
         "mcpServers": {
             "playwright": {
@@ -79,18 +92,30 @@ def _make_mcp_config(cdp_port: int) -> dict:
             "gmail": {
                 "command": "npx",
                 "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
+            },
+            "cred": {
+                "command": sys.executable,
+                "args": [str(Path(__file__).parent / "cred_server.py")],
+                "env": pw_env,
             },
         }
     }
 
 
-def _make_opencode_config(cdp_port: int) -> dict:
+def _make_opencode_config(cdp_port: int, site_passwords: dict | None = None) -> dict:
     """Build OpenCode config dict for a specific CDP port.
 
     OpenCode uses a project-level opencode.json config file. The MCP server
     names use ``{server}_{tool}`` format (not ``mcp__{server}__{tool}``).
-    Permission rules block Gmail tools while allowing Playwright tools.
+    Permission rules block Gmail tools while allowing Playwright and cred tools.
     """
+    pw_env = {
+        "APPLYPILOT_PW_WORKDAY": (site_passwords or {}).get("workday", ""),
+        "APPLYPILOT_PW_GREENHOUSE": (site_passwords or {}).get("greenhouse", ""),
+        "APPLYPILOT_PW_LEVER": (site_passwords or {}).get("lever", ""),
+        "APPLYPILOT_PW_ASHBY": (site_passwords or {}).get("ashby", ""),
+        "CAPSOLVER_API_KEY": os.environ.get("CAPSOLVER_API_KEY", ""),
+    }
     return {
         "mcpServers": {
             "playwright": {
@@ -105,10 +130,17 @@ def _make_opencode_config(cdp_port: int) -> dict:
                 "command": "npx",
                 "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
             },
+            "cred": {
+                "command": sys.executable,
+                "args": [str(Path(__file__).parent / "cred_server.py")],
+                "env": pw_env,
+            },
         },
         "permission": {
             "playwright_*": "allow",
             "gmail_*": "deny",
+            "ats_login": "allow",
+            "captcha_solve": "allow",
         },
     }
 
@@ -269,10 +301,12 @@ def gen_prompt(target_url: str, min_score: int = 7,
     prompt_file = config.LOG_DIR / f"prompt_{site_slug}_{job['title'][:30].replace(' ', '_')}.txt"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    # Write MCP config for reference
+    # Write MCP config for reference (with site passwords for cred-server)
+    profile = config.load_profile()
+    site_passwords = profile.get("site_passwords", {})
     port = BASE_CDP_PORT + worker_id
     mcp_path = config.APP_DIR / f".mcp-apply-{worker_id}.json"
-    mcp_path.write_text(json.dumps(_make_mcp_config(port)), encoding="utf-8")
+    mcp_path.write_text(json.dumps(_make_mcp_config(port, site_passwords)), encoding="utf-8")
 
     return prompt_file
 
@@ -348,11 +382,12 @@ def _build_claude_cmd(model: str, mcp_config_path: Path) -> list[str]:
     ]
 
 
-def _build_opencode_cmd(model: str, worker_dir: Path, prompt: str) -> list[str]:
+def _build_opencode_cmd(model: str, worker_dir: Path) -> list[str]:
     """Build the OpenCode CLI command.
 
-    OpenCode ``run`` takes the prompt as a positional argument. The MCP
-    config is read from ``opencode.json`` in the worker directory.
+    The prompt is piped via stdin (not as a CLI argument) to prevent
+    passwords from appearing in ``ps aux`` output. The MCP config is
+    read from ``opencode.json`` in the worker directory.
     """
     return [
         "opencode",
@@ -361,7 +396,6 @@ def _build_opencode_cmd(model: str, worker_dir: Path, prompt: str) -> list[str]:
         "--auto",
         "--format", "json",
         "--dir", str(worker_dir),
-        prompt,
     ]
 
 
@@ -401,6 +435,7 @@ def _parse_opencode_output(output: str) -> dict:
                             block.get("name", "")
                             .replace("playwright_", "")
                             .replace("gmail_", "gmail:")
+                            .replace("cred_", "cred:")
                         )
                         inp = block.get("input", {})
                         if "url" in inp:
@@ -472,19 +507,24 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         job=job,
         tailored_resume=resume_text,
         dry_run=dry_run,
+        cdp_port=port,
     )
+
+    # Load profile for site passwords (passed to cred-server as env vars)
+    profile = config.load_profile()
+    site_passwords = profile.get("site_passwords", {})
 
     worker_dir = reset_worker_dir(worker_id)
 
     # Backend-specific command and config
     if backend == "opencode":
-        opencode_config = _make_opencode_config(port)
+        opencode_config = _make_opencode_config(port, site_passwords)
         opencode_config_path = worker_dir / "opencode.json"
         opencode_config_path.write_text(json.dumps(opencode_config, indent=2), encoding="utf-8")
-        cmd = _build_opencode_cmd(model, worker_dir, agent_prompt)
+        cmd = _build_opencode_cmd(model, worker_dir)
     else:
         mcp_config_path = config.APP_DIR / f".mcp-apply-{worker_id}.json"
-        mcp_config_path.write_text(json.dumps(_make_mcp_config(port)), encoding="utf-8")
+        mcp_config_path.write_text(json.dumps(_make_mcp_config(port, site_passwords)), encoding="utf-8")
         cmd = _build_claude_cmd(model, mcp_config_path)
 
     env = os.environ.copy()
@@ -513,39 +553,25 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     proc = None
 
     try:
-        if backend == "opencode":
-            # OpenCode takes prompt as CLI arg — no stdin needed
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                cwd=str(worker_dir),
-            )
-        else:
-            # Claude Code takes prompt via stdin
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                cwd=str(worker_dir),
-            )
+        # Both backends take prompt via stdin
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            cwd=str(worker_dir),
+        )
 
         with _claude_lock:
             _claude_procs[worker_id] = proc
 
-        # Send prompt via stdin (Claude) or skip (OpenCode — prompt is CLI arg)
-        if backend == "claude":
-            proc.stdin.write(agent_prompt)
-            proc.stdin.close()
+        # Send prompt via stdin (both backends now use stdin)
+        proc.stdin.write(agent_prompt)
+        proc.stdin.close()
 
         text_parts: list[str] = []
         with open(worker_log, "a", encoding="utf-8") as lf:
@@ -585,6 +611,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                                         block.get("name", "")
                                         .replace("mcp__playwright__", "")
                                         .replace("mcp__gmail__", "gmail:")
+                                        .replace("mcp__cred__", "cred:")
                                     )
                                     inp = block.get("input", {})
                                     if "url" in inp:
