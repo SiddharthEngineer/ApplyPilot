@@ -1,25 +1,29 @@
 # Current State
 
-**Last updated:** 2026-08-27 (CHANGELOG update session)
+**Last updated:** 2026-08-27 (Workday SSL fix session)
 
-## Active Plan: Gemini 404 Scoring Fix
+## Active Plan: Fix Workday Scraper SSL Certificate Verification
 
-Plan file: `agents/plans/gemini-404-scoring-fix.md`
+Plan file: `agents/plans/fix-workday-ssl-cert.md`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Extend Gemini compat fallback to 404 and 400 | ✅ Complete |
-| Task 2: Add LLMClient unit tests | ✅ Complete |
-| Task 3: Harden scoring observability | ✅ Complete |
-| Task 4: Verify default model and doctor hint | ✅ Complete |
+| Task 1: Add SSL context configuration to workday.py | ✅ Complete |
+| Task 2: Add unit test for SSL context configuration | ✅ Complete |
+| Task 3: Verify fix with manual integration test | ❌ Not started |
 
 ### Current Task
 
-No active task. All Gemini 404 Scoring Fix plan tasks verified complete. Session ended.
+Task 3: Manual integration test against failing employers (pending manual verification)
 
 ### Completed This Session
+
+- **Workday SSL Certificate Fix** — Fixed `SSL: CERTIFICATE_VERIFY_FAILED` error when scraping Workday employer portals on macOS. Key changes:
+  - `workday.py`: Added `ssl` and `certifi` imports. Created module-level `_ssl_context = ssl.create_default_context(cafile=certifi.where())`. Updated `setup_proxy()` to inject `HTTPSHandler(context=_ssl_context)` into the opener chain. Updated `_urlopen()` to pass `context=_ssl_context` when no proxy is configured.
+  - `tests/test_workday_ssl.py`: Created 5 tests verifying SSL context existence, certifi CA bundle loading, CERT_REQUIRED verify mode, proxy setup preservation, and TLS protocol version.
+  - Uses existing `certifi` transitive dependency (via `httpx`) — no new dependencies needed.
 
 - **Gemini 404 Scoring Fix** — Fixed job scoring when using `GEMINI_API_KEY` so that LLM calls no longer 404 on the OpenAI-compat endpoint. Key changes:
   - `llm.py`: Extended `_chat_compat()` fallback from 403-only to 400/403/404 for Gemini providers. Updated `_GeminiCompatForbidden` exception to handle all three status codes. Enhanced warning logs to include status code and response body. Updated docstrings and default model from `gemini-2.0-flash` to `gemini-2.5-flash`.
@@ -31,10 +35,9 @@ No active task. All Gemini 404 Scoring Fix plan tasks verified complete. Session
 ### Test Results (verified 2026-08-27)
 
 ```
-tests/test_llm.py: 15 passed ✅
-tests/test_init_wizard.py: 44 passed ✅
-tests/test_doctor_content_library.py: 6 passed ✅
-ruff check src/applypilot/llm.py: All checks passed ✅
+tests/test_workday_ssl.py: 5 passed ✅
+tests/test_jobspy.py: 25 passed ✅
+ruff check tests/test_workday_ssl.py: All checks passed ✅
 ```
 
 ### Key Decisions
@@ -50,7 +53,7 @@ None.
 
 ### Recommended Next Step
 
-All tasks in the Gemini 404 Scoring Fix plan are complete and verified. All acceptance criteria pass. Ready for live testing with `applypilot run score` against actual Gemini API. No further code changes needed for this plan.
+Task 3 (manual integration test) requires running `applypilot discover workday --employers manulife,sunlife,desjardins,intact --workers 1` against live Workday endpoints to verify SSL errors are resolved and jobs are returned. This is a manual verification step that cannot be automated in unit tests.
 
 ## Project Overview
 

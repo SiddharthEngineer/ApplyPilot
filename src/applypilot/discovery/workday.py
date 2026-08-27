@@ -11,12 +11,14 @@ import json
 import logging
 import re
 import sqlite3
+import ssl
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 
+import certifi
 import yaml
 
 from applypilot import config
@@ -117,6 +119,9 @@ def strip_html(html: str) -> str:
 
 _opener = None
 
+# SSL context using certifi CA bundle (fixes macOS "unable to get local issuer certificate")
+_ssl_context = ssl.create_default_context(cafile=certifi.where())
+
 
 def setup_proxy(proxy_str: str | None) -> None:
     """Configure a global urllib opener with proxy support."""
@@ -140,7 +145,8 @@ def setup_proxy(proxy_str: str | None) -> None:
         "http": proxy_url,
         "https": proxy_url,
     })
-    _opener = urllib.request.build_opener(proxy_handler)
+    https_handler = urllib.request.HTTPSHandler(context=_ssl_context)
+    _opener = urllib.request.build_opener(proxy_handler, https_handler)
     log.info("Proxy configured: %s:%s", parts[0], parts[1])
 
 
@@ -148,7 +154,7 @@ def _urlopen(req, timeout=30):
     """Open a URL using the configured opener (with or without proxy)."""
     if _opener:
         return _opener.open(req, timeout=timeout)
-    return urllib.request.urlopen(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context)
 
 
 # -- Workday API -------------------------------------------------------------
