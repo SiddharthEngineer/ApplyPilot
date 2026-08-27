@@ -206,7 +206,7 @@ nohup ./scripts/plan_worker.py >> plan_worker.log 2>&1 &
 {
   "queue": ["agents/plans/captcha-solve-tool.md"],
   "completed": [],
-  "model": "opencode/nemotron-3.5-lightning-free",
+  "model": "opencode/mimo-2.5-free",
   "max_iterations": 20,
   "iteration_counts": {},
   "retry_counts": {}
