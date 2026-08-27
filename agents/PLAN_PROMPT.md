@@ -8,7 +8,7 @@ Write the plan to `agents/plans/<slug>.md` where `<slug>` is a short lowercase-k
 
 ## Task Segmentation Rule
 
-Each task must be completable in a single OpenCode BigPickle session. A realistic session implements **one** of:
+Each task must be completable in a single OpenCode "Nemotron 3.5 Lightning" session. A realistic session implements **one** of:
 
 - A single new file with one clear responsibility
 - A single function + its unit tests

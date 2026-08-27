@@ -1,11 +1,25 @@
 {
   "queue": [
-    "agents/plans/secure-password-at-rest.md",
-    "agents/plans/captcha-solve-tool.md"
+    "agents/plans/ziprecruiter-403-handling.md",
+    "agents/plans/gemini-404-scoring-fix.md"
   ],
-  "completed": [],
-  "model": "opencode/big-pickle",
+  "completed": [
+    {
+      "plan": "agents/plans/secure-password-at-rest.md",
+      "reason": "done",
+      "completed_at": "2026-08-27T05:25:30.552986+00:00"
+    },
+    {
+      "plan": "agents/plans/captcha-solve-tool.md",
+      "reason": "done",
+      "completed_at": "2026-08-27T05:34:05.250327+00:00"
+    }
+  ],
+  "model": "opencode/nemotron-3.5-lightning-free",
   "max_iterations": 10,
-  "iteration_counts": {},
+  "iteration_counts": {
+    "agents/plans/secure-password-at-rest.md": 1,
+    "agents/plans/captcha-solve-tool.md": 1
+  },
   "retry_counts": {}
 }

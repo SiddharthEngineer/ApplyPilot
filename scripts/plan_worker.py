@@ -15,12 +15,10 @@ Usage:
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,12 +42,13 @@ log = logging.getLogger("plan_worker")
 
 # ── Queue helpers ────────────────────────────────────────────────────────────
 
+
 def load_queue() -> dict:
     if not QUEUE_FILE.exists():
         return {
             "queue": [],
             "completed": [],
-            "model": "opencode/big-pickle",
+            "model": "opencode/nemotron-3.5-lightning-free",
             "max_iterations": 20,
             "iteration_counts": {},
             "retry_counts": {},
@@ -80,23 +79,28 @@ def set_retry_count(state: dict, plan: str, n: int) -> None:
 
 def mark_completed(state: dict, plan: str, reason: str = "done") -> None:
     state["queue"] = [p for p in state["queue"] if p != plan]
-    state["completed"].append({
-        "plan": plan,
-        "reason": reason,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-    })
+    state["completed"].append(
+        {
+            "plan": plan,
+            "reason": reason,
+            "completed_at": datetime.now(UTC).isoformat(),
+        }
+    )
     state.get("retry_counts", {}).pop(plan, None)
     # iteration_counts kept for audit trail
 
 
 # ── Completion detection ─────────────────────────────────────────────────────
 
+
 def check_plan_completed(plan_path: str) -> bool:
     """Check if a plan is done by inspecting STATE.md and the plan file."""
     # 1. Check STATE.md for completion markers
     if STATE_FILE.exists():
         state_text = STATE_FILE.read_text(encoding="utf-8")
-        if re.search(r"No remaining work|All tasks complete", state_text, re.IGNORECASE):
+        if re.search(
+            r"No remaining work|All tasks complete", state_text, re.IGNORECASE
+        ):
             log.info("STATE.md indicates no remaining work")
             return True
 
@@ -112,6 +116,7 @@ def check_plan_completed(plan_path: str) -> bool:
 
 
 # ── Agent launch ─────────────────────────────────────────────────────────────
+
 
 def build_agent_prompt(plan_path: str) -> str:
     """Build the full prompt to pipe to opencode."""
@@ -131,9 +136,11 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
     cmd = [
         "opencode",
         "run",
-        "--model", model,
+        "--model",
+        model,
         "--auto",
-        "--dir", str(REPO_ROOT),
+        "--dir",
+        str(REPO_ROOT),
     ]
 
     log.info("Launching agent for %s (iteration %d)", plan_path, iteration)
@@ -172,9 +179,10 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
 
 # ── Main loop ────────────────────────────────────────────────────────────────
 
+
 def worker_loop(dry_run: bool = False) -> None:
     state = load_queue()
-    model = state.get("model", "opencode/big-pickle")
+    model = state.get("model", "opencode/nemotron-3.5-lightning-free")
     max_iter = state.get("max_iterations", 20)
 
     log.info("Plan worker started. Model=%s, max_iterations=%d", model, max_iter)
@@ -188,7 +196,8 @@ def worker_loop(dry_run: bool = False) -> None:
         if iteration > max_iter:
             log.warning(
                 "Plan %s exceeded max iterations (%d). Skipping.",
-                plan, max_iter,
+                plan,
+                max_iter,
             )
             mark_completed(state, plan, reason="max_iterations_exceeded")
             save_queue(state)
@@ -206,7 +215,10 @@ def worker_loop(dry_run: bool = False) -> None:
             set_retry_count(state, plan, retries + 1)
             log.warning(
                 "Agent exited with code %d for %s (retry %d/%d)",
-                exit_code, plan, retries + 1, MAX_RETRIES,
+                exit_code,
+                plan,
+                retries + 1,
+                MAX_RETRIES,
             )
             if retries + 1 > MAX_RETRIES:
                 log.error(
@@ -235,6 +247,7 @@ def worker_loop(dry_run: bool = False) -> None:
 
 # ── CLI helpers ──────────────────────────────────────────────────────────────
 
+
 def enqueue_plan(plan_path: str) -> None:
     state = load_queue()
     if plan_path in state["queue"]:
@@ -262,9 +275,11 @@ def dequeue_plan(plan_path: str) -> None:
 def show_status() -> None:
     state = load_queue()
     print(f"\n{'='*60}")
-    print(f"  Plan Queue Worker Status")
+    print("  Plan Queue Worker Status")
     print(f"{'='*60}")
-    print(f"  Model:            {state.get('model', 'opencode/big-pickle')}")
+    print(
+        f"  Model:            {state.get('model', 'opencode/nemotron-3.5-lightning-free')}"
+    )
     print(f"  Max iterations:   {state.get('max_iterations', 20)}")
     print(f"\n  Queue ({len(state['queue'])} pending):")
     for i, plan in enumerate(state["queue"]):

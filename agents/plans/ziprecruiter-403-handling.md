@@ -1,0 +1,165 @@
+# Plan: ZipRecruiter 403 Handling for JobSpy Crawl
+
+**Started:** 2026-08-27
+**Status:** 🔄 In Progress
+
+---
+
+## Goal
+
+The JobSpy crawl repeatedly logs `JobSpy:ZipRecruiter - ZipRecruiter response status code 403 with response: {"error_code":"forbidden aa",...}` on every query×location combination (up to ~46 times per crawl). This is a server-side anti-bot block from ZipRecruiter's Cloudflare/WAF (`forbidden aa` / `forbidden cf-waf`); the installed `python-jobspy` (1.1.82) is already the latest version and upstream issue [JobSpy#302](https://github.com/speedyapply/JobSpy/issues/302) has been open since Sept 2025, so no upgrade or ApplyPilot header tweak can reliably restore the board.
+
+JobSpy swallows the 403 internally (logs it via its own `JobSpy:*` logger and returns 0 ZipRecruiter rows) while other boards still succeed, so the crawl "fails open" but ApplyPilot never learns that ZipRecruiter is dead — it just hammers it on every search and floods the log.
+
+The plan makes the crawl resilient and observable: detect a board that is requested but returns zero results on `N` consecutive searches, stop calling it for the rest of the crawl, report it in crawl stats and in the `run discover` console output, and let the user tune `N` or permanently remove the board via config.
+
+## Success Criteria
+
+1. During one full crawl where ZipRecruiter returns 0 results, the JobSpy 403 error is emitted at most `site_fail_threshold` times (default 3) instead of once per query×location; once the threshold is hit, ZipRecruiter is excluded from every subsequent `scrape_jobs` call of that crawl.
+2. Other boards are unaffected: results from Indeed/LinkedIn/Glassdoor are still scraped and stored to the DB exactly as before (fail-open behavior preserved, no per-site serialization that slows the crawl).
+3. `run_discovery()` returns `site_stats` and `disabled_sites` keys in every code path (including the empty-config early return).
+4. `applypilot run discover` prints a clear, actionable message when a site is skipped, e.g. "zip_recruiter returned 0 results on 3 consecutive searches — likely blocked; remove it from `sites` in `searches.yaml` to permanently disable". With no disabled sites, no such banner is printed.
+5. The threshold is configurable: setting `defaults.site_fail_threshold: 1` disables a board after a single empty result; omitting it defaults to 3.
+6. New tests pass: `tests/test_jobspy.py` and `tests/test_pipeline.py` green, full suite `python -m pytest -q` green, `ruff check` clean.
+
+## Task Chain
+
+### Task 1: Add per-site result counting and the blocked-site tracker
+
+**Files:**
+- `src/applypilot/discovery/jobspy.py` (modify)
+- `tests/test_jobspy.py` (new)
+
+**What:** Add two pure, dependency-free helpers to `jobspy.py` that will be used to detect boards that are requested but return no jobs. `_site_counts(df, requested_sites)` counts rows grouped by the DataFrame's `site` column for the given site names (jobspy's `Site` enum values are exactly the config names: `indeed`, `linkedin`, `zip_recruiter`, `glassdoor`, `google`); any requested site missing from the DataFrame reports 0. `_SiteTracker` keeps per-crawl state — total counts, request counts, consecutive empty-result counters, and a disabled set — and exposes:
+
+```python
+@dataclass
+class _SiteTracker:
+    """Tracks per-site results across a crawl and disables boards that keep returning 0 jobs."""
+    threshold: int = 3  # consecutive 0-result searches before a site is disabled
+    counts: dict[str, int] = field(default_factory=dict)          # total rows per site
+    requests: dict[str, int] = field(default_factory=dict)        # times each site was requested
+    consecutive_empty: dict[str, int] = field(default_factory=dict)
+    disabled: set[str] = field(default_factory=set)
+
+    def active_sites(self, sites: list[str]) -> list[str]:
+        """Return `sites` with disabled boards removed, preserving order."""
+        ...
+
+    def note(self, requested: list[str], counts: dict[str, int]) -> list[str]:
+        """Record results for one search; disable boards that reached `threshold`
+        consecutive 0-result searches. Returns the list of boards newly disabled."""
+        ...
+
+    def report(self) -> dict:
+        """Return {"counts": dict, "requests": dict, "disabled": list} for crawl stats."""
+        ...
+```
+
+`note` increments `requests`, adds to `counts`, bumps `consecutive_empty[site]` for a requested site with 0 rows (resetting to 0 when a site yields ≥1 row), and moves a site to `disabled` the moment its counter reaches `threshold`.
+
+**Acceptance criteria:**
+- `_site_counts` returns `{"zip_recruiter": 3, "indeed": 1, "linkedin": 0}` for a DataFrame with 3 `zip_recruiter` + 1 `indeed` rows when all three sites are requested, and returns 0 for a requested site that has no rows at all.
+- `_SiteTracker.note` disables a site only after `threshold` consecutive 0-result calls and returns it in the newly-disabled list; a site that produces ≥1 row in between resets its counter and is never disabled.
+- `active_sites(["indeed", "linkedin", "zip_recruiter"])` drops disabled entries and preserves the order of the remaining ones.
+- `report()` returns keys `counts`, `requests`, `disabled`.
+- `python -m pytest tests/test_jobspy.py -q` passes.
+
+**Status:** ❌ Not started
+
+---
+
+### Task 2: Wire the tracker through the crawl and expose per-site stats + disabled_sites
+
+**Files:**
+- `src/applypilot/discovery/jobspy.py` (modify)
+- `tests/test_jobspy.py` (modify)
+
+**What:** Thread the tracker through `_run_one_search`, `_full_crawl`, and `run_discovery` so a disabled board is dropped from subsequent searches and surfaced in crawl results.
+
+- `_run_one_search` computes `_site_counts(combined_df, sites)` from the concatenated per-search DataFrame and adds a `"sites"` key to its return dict.
+- `_full_crawl` creates `tracker = _SiteTracker(threshold=search_cfg.get("defaults", {}).get("site_fail_threshold", 3))`. For each search it computes `active = tracker.active_sites(sites)` and passes `active` to `_run_one_search` instead of the raw `sites` list (the existing Glassdoor-split logic then naturally excludes disabled boards). If `active` is empty, it logs a warning and stops iterating (nothing left to scrape). After each search it calls `tracker.note(active, result["sites"])` and logs a `WARNING` for each newly disabled board, e.g.:
+  `"zip_recruiter returned 0 results on 3 consecutive searches — likely blocked. Skipping for the rest of the crawl. Remove it from 'sites' in searches.yaml to permanently disable."`
+- `_full_crawl` returns `"disabled_sites": sorted(tracker.disabled)` and `"site_stats": tracker.report()`; `run_discovery` passes both through, and also adds them to its "No search configuration found" early-return dict for dict-shape consistency.
+
+**Acceptance criteria** (integration tests that monkeypatch `applypilot.discovery.jobspy.scrape_jobs` to return controlled DataFrames and point `applypilot.discovery.jobspy.get_connection` at a tmp `init_db` SQLite file):
+- With `scrape_jobs` returning only `indeed`/`linkedin` rows across all searches, `run_discovery(cfg)` returns `disabled_sites == ["zip_recruiter"]`, and after the threshold is reached, later `scrape_jobs` calls receive a `site_name` that excludes `zip_recruiter`.
+- Boards that yield rows are never disabled.
+- `defaults.site_fail_threshold: 1` in the search config disables after a single empty result.
+- `run_discovery` returns `site_stats` and `disabled_sites` in all code paths including the empty-config early return.
+- `python -m pytest tests/test_jobspy.py -q` and `python -m pytest -q` pass.
+
+**Status:** ❌ Not started
+
+---
+
+### Task 3: Surface disabled/blocked sites in the pipeline discover output
+
+**Files:**
+- `src/applypilot/pipeline.py` (modify)
+- `tests/test_pipeline.py` (new)
+
+**What:** In `_run_discover`, capture the dict returned by `run_discovery()` instead of discarding it. When `disabled_sites` is non-empty, print a yellow banner via the module's `console`, e.g.:
+`[yellow]JobSpy skipped site(s): zip_recruiter (0 results across N searches — likely blocked). Remove from 'sites' in searches.yaml to permanently disable.[/yellow]`
+and set `stats["jobspy"]` to `"ok (disabled: zip_recruiter)"` (else keep the current `"ok"`). Preserve the existing try/except and `[red]JobSpy error[/red]` behavior unchanged.
+
+**Acceptance criteria:**
+- With `applypilot.pipeline`'s call to `run_discovery` monkeypatched to return `{"disabled_sites": ["zip_recruiter"], "site_stats": {}}`, the discover stage prints a message containing `zip_recruiter` and either `blocked` or `skipped`.
+- With no disabled sites, no banner is printed and `stats["jobspy"] == "ok"`.
+- `python -m pytest tests/test_pipeline.py -q` passes.
+
+**Status:** ❌ Not started
+
+---
+
+### Task 4: Document the auto-skip behavior and the configurable threshold in the example config
+
+**Files:**
+- `src/applypilot/config/searches.example.yaml` (modify)
+- `README.md` (modify)
+
+**What:** Add an optional, commented key to the `defaults` block of the example search config:
+
+```yaml
+  site_fail_threshold: 3  # Auto-skip a board (e.g. ZipRecruiter) after N consecutive searches return 0 results
+```
+
+Add a short note to the README discovery section (around the JobSpy lines, README.md:~124 and ~140) explaining that boards which repeatedly return 0 results are auto-skipped for the rest of a crawl, that a board can be permanently disabled by removing it from the `sites:` list in `searches.yaml`, and that ZipRecruiter is currently subject to a known Cloudflare 403 anti-bot block upstream (`python-jobspy` latest version, upstream issue open, discussed in the plan).
+
+**Acceptance criteria:**
+- `yaml.safe_load` on `searches.example.yaml` succeeds and `defaults.site_fail_threshold == 3`.
+- README contains a phrase noting boards that repeatedly return 0 results are auto-skipped, and a mention of the ZipRecruiter 403 block.
+- `python -m pytest tests/test_config.py -q` and the full suite still pass.
+
+**Status:** ❌ Not started
+
+---
+
+## Implementation Order
+
+```
+Task 1 (Tracker/helper + tests)
+        ↓
+Task 2 (Crawl wiring + stats + tests)
+        ↓
+Task 3 (Pipeline banner + tests)   Task 4 (Docs + example yaml)
+```
+
+Implementation order:
+1. Task 1 — add `_site_counts` + `_SiteTracker` and their unit tests.
+2. Task 2 — wire the tracker through `_run_one_search`/`_full_crawl`/`run_discovery` and add integration tests.
+3. Task 3 — surface disabled sites in `_run_discover` (depends on Task 2's return dict).
+4. Task 4 — update `searches.example.yaml` and README (independent; can land with or after Task 3).
+
+## Key Design Decisions
+
+1. **Detect failures via the DataFrame `site` column, not JobSpy log parsing.** JobSpy swallows the 403 internally and logs it through its own `JobSpy:*` logger with `propagate=False` and a direct stderr handler, so its message text bypasses ApplyPilot's logging and is an unversioned implementation detail. Comparing requested boards against boards present in the returned DataFrame is stable, documented library API.
+2. **Disable on "N consecutive 0-result searches" rather than a single empty search.** One query can legitimately return nothing; requiring `site_fail_threshold` (default 3) consecutive empties makes false positives very unlikely while still capping wasted ZipRecruiter calls at 3 per crawl (down from ~46 error lines).
+3. **Keep the combined `scrape_jobs` call; do not split per-site.** JobSpy already fans boards out across threads inside one call and fails open (a blocked board yields rows only for the others), so splitting would serialize ~46 searches × 3–5 boards and slow the crawl for no correctness gain. The tracker only filters the requested site list at the crawl level.
+4. **Skip blocked boards rather than retry them.** ZipRecruiter's Cloudflare `forbidden aa`/`forbidden cf-waf` 403 blocks JobSpy's hardcoded iOS UA + static tokens; `python-jobspy` 1.1.82 is the latest and upstream issue #302 is unresolved, so no retry or header tweak here can reliably restore the board. `_scrape_with_retry` continues to cover transient 429/timeout/proxy/connection cases for all boards.
+5. **Threshold is config-driven via `defaults.site_fail_threshold`** (default 3), following the existing pattern of pulling tunables from `searches.yaml`'s `defaults` block.
+6. **Disabled state is crawl-scoped, not persisted.** Each `applypilot run discover` starts fresh, so a board that recovers (block lifted) is automatically retried on the next run with no manual config change.
+
+## Historical Record
+
+- 2026-08-27 — Plan created. Root cause confirmed as a server-side ZipRecruiter Cloudflare 403 block of JobSpy's requests (upstream issue #302 open, `python-jobspy` 1.1.82 already latest); plan scopes ApplyPilot's fix to detect-and-skip + observability rather than attempting to unblock the board.
