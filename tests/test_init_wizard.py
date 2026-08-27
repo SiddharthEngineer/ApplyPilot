@@ -1,7 +1,8 @@
-"""Tests for init wizard content library support."""
+"""Tests for init wizard content library and site passwords support."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -190,3 +191,106 @@ class TestIntegration:
             # Should NOT be asked for resume.txt or resume.pdf
             assert mock_ask.call_count == 2
             assert dest_path.exists()
+
+
+class TestSetupSitePasswords:
+    """Test the site-specific password setup."""
+
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_prompts_for_each_ats(self, mock_ask):
+        """Test that _setup_site_passwords prompts for all 4 ATS platforms."""
+        from applypilot.wizard.init import _setup_site_passwords
+
+        mock_ask.side_effect = ["pw1", "pw2", "pw3", "pw4"]
+        result = _setup_site_passwords()
+
+        assert mock_ask.call_count == 4
+        assert result == {
+            "workday": "pw1",
+            "greenhouse": "pw2",
+            "lever": "pw3",
+            "ashby": "pw4",
+        }
+
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_all_blank_passwords(self, mock_ask):
+        """Test that leaving all passwords blank is valid."""
+        from applypilot.wizard.init import _setup_site_passwords
+
+        mock_ask.side_effect = ["", "", "", ""]
+        result = _setup_site_passwords()
+
+        assert result == {
+            "workday": "",
+            "greenhouse": "",
+            "lever": "",
+            "ashby": "",
+        }
+
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_partial_passwords(self, mock_ask):
+        """Test that some passwords can be filled while others are blank."""
+        from applypilot.wizard.init import _setup_site_passwords
+
+        mock_ask.side_effect = ["workday_pass", "", "lever_pass", ""]
+        result = _setup_site_passwords()
+
+        assert result["workday"] == "workday_pass"
+        assert result["greenhouse"] == ""
+        assert result["lever"] == "lever_pass"
+        assert result["ashby"] == ""
+
+
+class TestProfileMigration:
+    """Test backward-compat migration of personal.password -> site_passwords."""
+
+    def test_migration_when_site_passwords_missing(self, tmp_path):
+        """Test that load_profile migrates personal.password to site_passwords."""
+        from applypilot.config import load_profile
+
+        profile_data = {
+            "personal": {"password": "old_pass", "email": "test@test.com"},
+            "work_authorization": {},
+        }
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
+
+        with patch("applypilot.config.PROFILE_PATH", profile_path):
+            result = load_profile()
+
+        assert "site_passwords" in result
+        assert result["site_passwords"]["workday"] == "old_pass"
+        assert result["site_passwords"]["greenhouse"] == ""
+        assert result["site_passwords"]["lever"] == ""
+        assert result["site_passwords"]["ashby"] == ""
+
+    def test_no_migration_when_site_passwords_exists(self, tmp_path):
+        """Test that existing site_passwords are preserved."""
+        from applypilot.config import load_profile
+
+        profile_data = {
+            "personal": {"password": "old_pass", "email": "test@test.com"},
+            "site_passwords": {"workday": "keep_this", "greenhouse": "", "lever": "", "ashby": ""},
+        }
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
+
+        with patch("applypilot.config.PROFILE_PATH", profile_path):
+            result = load_profile()
+
+        assert result["site_passwords"]["workday"] == "keep_this"
+
+    def test_migration_with_empty_legacy_password(self, tmp_path):
+        """Test migration when legacy password is empty."""
+        from applypilot.config import load_profile
+
+        profile_data = {
+            "personal": {"password": "", "email": "test@test.com"},
+        }
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
+
+        with patch("applypilot.config.PROFILE_PATH", profile_path):
+            result = load_profile()
+
+        assert result["site_passwords"] == {"workday": "", "greenhouse": "", "lever": "", "ashby": ""}

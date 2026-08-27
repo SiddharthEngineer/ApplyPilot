@@ -31,6 +31,29 @@ APPLY_WORKER_DIR = APP_DIR / "apply-workers"
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_DIR = PACKAGE_DIR / "config"
 
+# ---------------------------------------------------------------------------
+# ATS platform registry — used for site-specific passwords
+# ---------------------------------------------------------------------------
+
+SITE_PASSWORDS: dict[str, dict[str, str]] = {
+    "workday": {
+        "description": "Workday (used by TD, CIBC, RBC, BMO, NVIDIA, Netflix, etc.)",
+        "domain_pattern": "*.myworkdayjobs.com",
+    },
+    "greenhouse": {
+        "description": "Greenhouse (used by many tech startups)",
+        "domain_pattern": "boards.greenhouse.io",
+    },
+    "lever": {
+        "description": "Lever (used by many tech companies)",
+        "domain_pattern": "jobs.lever.co",
+    },
+    "ashby": {
+        "description": "Ashby (used by many startups)",
+        "domain_pattern": "jobs.ashbyhq.com",
+    },
+}
+
 
 def get_chrome_path() -> str:
     """Auto-detect Chrome/Chromium executable path, cross-platform.
@@ -94,13 +117,30 @@ def ensure_dirs():
 
 
 def load_profile() -> dict:
-    """Load user profile from ~/.applypilot/profile.json."""
+    """Load user profile from ~/.applypilot/profile.json.
+
+    Migrates old profiles that have ``personal.password`` but no
+    ``site_passwords`` by copying the legacy password to
+    ``site_passwords.workday`` (the most common use case).
+    """
     import json
     if not PROFILE_PATH.exists():
         raise FileNotFoundError(
             f"Profile not found at {PROFILE_PATH}. Run `applypilot init` first."
         )
-    return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+
+    # Backward-compat migration: personal.password -> site_passwords.workday
+    if "site_passwords" not in profile:
+        legacy_password = profile.get("personal", {}).get("password", "")
+        profile["site_passwords"] = {ats: "" for ats in SITE_PASSWORDS}
+        if legacy_password:
+            profile["site_passwords"]["workday"] = legacy_password
+        PROFILE_PATH.write_text(
+            json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    return profile
 
 
 def load_search_config() -> dict:

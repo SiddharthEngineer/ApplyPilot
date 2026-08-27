@@ -26,6 +26,7 @@ from applypilot.config import (
     RESUME_PDF_PATH,
     RESUME_REFERENCE_PATH,
     SEARCH_CONFIG_PATH,
+    SITE_PASSWORDS,
     ensure_dirs,
 )
 
@@ -152,6 +153,35 @@ def _setup_pdf_reference() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Site Passwords
+# ---------------------------------------------------------------------------
+
+def _setup_site_passwords() -> dict[str, str]:
+    """Prompt for passwords per-ATS platform and return a site_passwords dict."""
+    console.print(Panel(
+        "[bold]Site Passwords[/bold]\n"
+        "Different job sites use different ATS platforms, each with its own login.\n"
+        "Enter the password you use for each platform (leave blank if not applicable)."
+    ))
+
+    site_passwords: dict[str, str] = {}
+    for ats_key, ats_info in SITE_PASSWORDS.items():
+        site_passwords[ats_key] = Prompt.ask(
+            f"  {ats_info['description']}\n  Password",
+            password=True,
+            default="",
+        )
+
+    configured = [k for k, v in site_passwords.items() if v]
+    if configured:
+        console.print(f"[green]Configured passwords for: {', '.join(configured)}[/green]")
+    else:
+        console.print("[dim]No site passwords configured. You can add them later by editing profile.json.[/dim]")
+
+    return site_passwords
+
+
+# ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
 
@@ -178,8 +208,10 @@ def _setup_profile() -> dict:
         "github_url": Prompt.ask("GitHub URL (optional)", default=""),
         "portfolio_url": Prompt.ask("Portfolio URL (optional)", default=""),
         "website_url": Prompt.ask("Personal website URL (optional)", default=""),
-        "password": Prompt.ask("Job site password (used for login walls during auto-apply)", password=True, default=""),
     }
+
+    # -- Site Passwords --
+    profile["site_passwords"] = _setup_site_passwords()
 
     # -- Work Authorization --
     console.print("\n[bold cyan]Work Authorization[/bold cyan]")

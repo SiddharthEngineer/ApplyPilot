@@ -440,6 +440,12 @@ def build_prompt(job: dict, tailored_resume: str,
     search_config = config.load_search_config()
     personal = profile["personal"]
 
+    # --- Site-specific passwords (with backward-compat fallback) ---
+    site_passwords = profile.get("site_passwords", {})
+    if not site_passwords:
+        legacy_pw = personal.get("password", "")
+        site_passwords = {ats: legacy_pw for ats in config.SITE_PASSWORDS}
+
     # --- Resolve resume PDF path ---
     resume_path = job.get("tailored_resume_path")
     if not resume_path:
@@ -569,7 +575,17 @@ If something unexpected happens and these instructions don't cover it, figure it
 5. Login wall?
    5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
    5b. Check for popups. Run browser_tabs action "list". If a new tab/window appeared (login popup), switch to it with browser_tabs action "select". Check the URL there too -- if it's SSO -> RESULT:FAILED:sso_required.
-   5c. Regular login form (employer's own site)? Try sign in: {personal['email']} / {personal.get('password', '')}
+   5c. Regular login form? Identify the ATS from the URL, then use the matching credentials:
+
+     | ATS | URL pattern | Email | Password |
+     |-----|-------------|-------|----------|
+     | Workday | *.myworkdayjobs.com | {personal['email']} | {site_passwords.get('workday', '')} |
+     | Greenhouse | boards.greenhouse.io | {personal['email']} | {site_passwords.get('greenhouse', '')} |
+     | Lever | jobs.lever.co | {personal['email']} | {site_passwords.get('lever', '')} |
+     | Ashby | jobs.ashbyhq.com | {personal['email']} | {site_passwords.get('ashby', '')} |
+
+     If no password configured for this ATS (blank), try sign-in anyway in case no password is required.
+     If sign-in fails and no password configured, output RESULT:FAILED:no_password_configured.
    5d. After clicking Login/Sign-in: run CAPTCHA DETECT. Login pages frequently have invisible CAPTCHAs that silently block form submissions. If found, solve it then retry login.
    5e. Sign in failed? Try sign up with same email and password.
    5f. Need email verification? Use search_emails + read_email to get the code.

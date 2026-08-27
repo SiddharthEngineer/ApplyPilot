@@ -3,7 +3,7 @@
     "full_name": "YOUR_LEGAL_NAME",
     "preferred_name": "YOUR_PREFERRED_NAME",
     "email": "your.email@example.com",
-    "password": "YOUR_JOB_SITE_PASSWORD",
+    "password": "",
     "phone": "555-123-4567",
     "address": "123 Main St",
     "city": "Your City",
@@ -14,6 +14,12 @@
     "github_url": "https://github.com/yourusername",
     "portfolio_url": "",
     "website_url": ""
+  },
+  "site_passwords": {
+    "workday": "YOUR_WORKDAY_PASSWORD",
+    "greenhouse": "YOUR_GREENHOUSE_PASSWORD",
+    "lever": "YOUR_LEVER_PASSWORD",
+    "ashby": "YOUR_ASHBY_PASSWORD"
   },
   "work_authorization": {
     "legally_authorized_to_work": "Yes",
