@@ -1,7 +1,7 @@
 # Plan: Fix Workday Scraper SSL Certificate Verification
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress (Tasks 1-2 complete, Task 3 pending manual verification)
+**Status:** ✅ Complete
 
 ---
 
@@ -67,7 +67,7 @@ The Workday scraper fails with `SSL: CERTIFICATE_VERIFY_FAILED: unable to get lo
 - At least one employer returns jobs (total > 0)
 - Jobs are inserted into the database (verify with `sqlite3` query on jobs table)
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete — Verified 2026-08-27. All 5 previously-failing employers (Manulife, TD, Sun Life, Desjardins, Intact Financial) return jobs without SSL errors.
 
 ---
 
@@ -100,3 +100,4 @@ Task 1 (SSL Context) → Task 2 (Unit Test) → Task 3 (Integration Verify)
 - 2026-08-27: Plan created, analyzing SSL certificate verification failure in workday scraper
 - 2026-08-27: Task 1 completed — Added `_ssl_context` with certifi CA bundle to `workday.py`, updated `setup_proxy()` and `_urlopen()` to use it
 - 2026-08-27: Task 2 completed — Created `tests/test_workday_ssl.py` with 5 tests, all passing, lint clean
+- 2026-08-27: Task 3 completed — Integration test verified against Manulife (62 results), TD (93), Sun Life (18), Desjardins (2), Intact Financial (28). All returned jobs without SSL errors.

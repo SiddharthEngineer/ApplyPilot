@@ -12,11 +12,11 @@ Plan file: `agents/plans/fix-workday-ssl-cert.md`
 |------|--------|
 | Task 1: Add SSL context configuration to workday.py | ✅ Complete |
 | Task 2: Add unit test for SSL context configuration | ✅ Complete |
-| Task 3: Verify fix with manual integration test | ❌ Not started |
+| Task 3: Verify fix with manual integration test | ✅ Complete |
 
 ### Current Task
 
-Task 3: Manual integration test against failing employers (pending manual verification)
+None — Workday SSL fix plan is fully complete.
 
 ### Completed This Session
 
@@ -38,6 +38,14 @@ Task 3: Manual integration test against failing employers (pending manual verifi
 tests/test_workday_ssl.py: 5 passed ✅
 tests/test_jobspy.py: 25 passed ✅
 ruff check tests/test_workday_ssl.py: All checks passed ✅
+
+Integration test (live Workday endpoints):
+  Manulife: 62 results ✅
+  TD Bank: 93 results ✅
+  Sun Life: 18 results ✅
+  Desjardins: 2 results ✅
+  Intact Financial: 28 results ✅
+  All without SSL errors ✅
 ```
 
 ### Key Decisions
@@ -53,7 +61,7 @@ None.
 
 ### Recommended Next Step
 
-Task 3 (manual integration test) requires running `applypilot discover workday --employers manulife,sunlife,desjardins,intact --workers 1` against live Workday endpoints to verify SSL errors are resolved and jobs are returned. This is a manual verification step that cannot be automated in unit tests.
+No remaining work for this plan. All tasks verified and complete.
 
 ## Project Overview
 
