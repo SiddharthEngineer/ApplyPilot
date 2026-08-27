@@ -217,18 +217,19 @@ def _build_hard_rules(profile: dict) -> str:
 def _build_captcha_section() -> str:
     """Build the CAPTCHA detection and solving instructions.
 
-    The CapSolver API key is NOT included in the prompt text. It is
-    available as an environment variable on the cred-server process.
+    The CapSolver API key is NOT included in the prompt text. It lives on the
+    cred-server process. The LLM calls ``cred.captcha_solve`` which reads the
+    key server-side and returns a solution token.
     """
     return """== CAPTCHA ==
 You solve CAPTCHAs via the CapSolver REST API. No browser extension. You control the entire flow.
-API key: Read from CAPSOLVER_API_KEY env var (set on cred-server)
-API base: https://api.capsolver.com
+API key: Stored on the cred-server process (never exposed to you). Call the captcha_solve tool.
 
 CRITICAL RULE: When ANY CAPTCHA appears (hCaptcha, reCAPTCHA, Turnstile -- regardless of what it looks like visually), you MUST:
 1. Run CAPTCHA DETECT to get the type and sitekey
-2. Run CAPTCHA SOLVE (createTask -> poll -> inject) with the CapSolver API
-3. ONLY go to MANUAL FALLBACK if CapSolver returns errorId > 0
+2. Call the captcha_solve tool on the cred server to get a solution token
+3. Inject the returned token via browser_evaluate
+4. ONLY go to MANUAL FALLBACK if captcha_solve returns success=false
 Do NOT skip the API call based on what the CAPTCHA looks like. CapSolver solves CAPTCHAs server-side -- it does NOT need to see or interact with images, puzzles, or games. Even "drag the pipe" or "click all traffic lights" hCaptchas are solved via API token, not visually. ALWAYS try the API first.
 
 --- CAPTCHA DETECT ---
@@ -295,65 +296,27 @@ Result actions:
 - Any other type -> proceed to CAPTCHA SOLVE below.
 
 --- CAPTCHA SOLVE ---
-Three steps: createTask -> poll -> inject. Do each as a separate browser_evaluate call.
+Call the captcha_solve tool on the cred server. It reads the CapSolver API key
+server-side, creates the task, polls for completion, and returns a solution
+token. You never see the API key.
 
-FIRST: Read the API key from the environment (it is set on the cred-server process):
-browser_evaluate function: () => 'CAPSOLVER_KEY_VALUE'
-Then use the returned key value in steps 1 and 2 below.
+Call: captcha_solve(captcha_type="<type>", website_url="<url>", website_key="<sitekey>")
 
-STEP 1 -- CREATE TASK (copy this exactly, fill in the 3 placeholders):
-browser_evaluate function: async () => {{{{
-  const r = await fetch('https://api.capsolver.com/createTask', {{{{
-    method: 'POST',
-    headers: {{{{'Content-Type': 'application/json'}}}},
-    body: JSON.stringify({{{{
-      clientKey: 'CAPSOLVER_KEY_FROM_ENV',
-      task: {{{{
-        type: 'TASK_TYPE',
-        websiteURL: 'PAGE_URL',
-        websiteKey: 'SITE_KEY'
-      }}}}
-    }}}})
-  }}}});
-  return await r.json();
-}}}}
+captcha_type values (use EXACTLY these strings):
+  hcaptcha     -> hCaptcha
+  recaptchav2  -> reCAPTCHA v2
+  recaptchav3  -> reCAPTCHA v3
+  turnstile    -> Cloudflare Turnstile
+  funcaptcha   -> FunCaptcha (Arkose Labs)
 
-TASK_TYPE values (use EXACTLY these strings):
-  hcaptcha     -> HCaptchaTaskProxyLess
-  recaptchav2  -> ReCaptchaV2TaskProxyLess
-  recaptchav3  -> ReCaptchaV3TaskProxyLess
-  turnstile    -> AntiTurnstileTaskProxyLess
-  funcaptcha   -> FunCaptchaTaskProxyLess
+website_url = the url from detect result. website_key = the sitekey from detect result.
+For recaptchav3: add page_action="submit" (or the actual action found in page scripts).
+For turnstile: add metadata={{"action": "...", "cdata": "..."}} if those were in detect result.
 
-PAGE_URL = the url from detect result. SITE_KEY = the sitekey from detect result.
-For recaptchav3: add "pageAction": "submit" to the task object (or the actual action found in page scripts).
-For turnstile: add "metadata": {{"action": "...", "cdata": "..."}} if those were in detect result.
+Response: {{"success": true, "token": "..."}} on success.
+If success=false -> CAPTCHA SOLVE failed. Go to MANUAL FALLBACK.
 
-Response: {{"errorId": 0, "taskId": "abc123"}} on success.
-If errorId > 0 -> CAPTCHA SOLVE failed. Go to MANUAL FALLBACK.
-
-STEP 2 -- POLL (replace TASK_ID with the taskId from step 1):
-Loop: browser_wait_for time: 3, then run:
-browser_evaluate function: async () => {{{{
-  const r = await fetch('https://api.capsolver.com/getTaskResult', {{{{
-    method: 'POST',
-    headers: {{{{'Content-Type': 'application/json'}}}},
-    body: JSON.stringify({{{{
-      clientKey: 'CAPSOLVER_KEY_FROM_ENV',
-      taskId: 'TASK_ID'
-    }}}})
-  }}}});
-  return await r.json();
-}}}}
-
-- status "processing" -> wait 3s, poll again. Max 10 polls (30s).
-- status "ready" -> extract token:
-    reCAPTCHA: solution.gRecaptchaResponse
-    hCaptcha:  solution.gRecaptchaResponse
-    Turnstile: solution.token
-- errorId > 0 or 30s timeout -> MANUAL FALLBACK.
-
-STEP 3 -- INJECT TOKEN (replace THE_TOKEN with actual token string):
+STEP 3 -- INJECT TOKEN (replace THE_TOKEN with the token from captcha_solve):
 
 For reCAPTCHA v2/v3:
 browser_evaluate function: () => {{{{
@@ -407,11 +370,11 @@ browser_evaluate function: () => {{{{
 After injecting: browser_wait_for time: 2, then snapshot.
 - Widget gone or green check -> success. Click Submit if needed.
 - No change -> click Submit/Verify/Continue button (some sites need it).
-- Still stuck -> token may have expired (~2 min lifetime). Re-run from STEP 1.
+- Still stuck -> token may have expired (~2 min lifetime). Re-run captcha_solve.
 
 --- MANUAL FALLBACK ---
-You should ONLY be here if CapSolver createTask returned errorId > 0. If you haven't tried CapSolver yet, GO BACK and try it first.
-If CapSolver genuinely failed (errorId > 0):
+You should ONLY be here if captcha_solve returned success=false. If you haven't tried the captcha_solve tool yet, GO BACK and try it first.
+If captcha_solve genuinely failed (success=false):
 1. Audio challenge: Look for "audio" or "accessibility" button -> click it for an easier challenge.
 2. Text/logic puzzles: Solve them yourself. Think step by step. Common tricks: "All but 9 die" = 9 left. "3 sisters and 4 brothers, how many siblings?" = 7.
 3. Simple text captchas ("What is 3+7?", "Type the word") -> solve them.

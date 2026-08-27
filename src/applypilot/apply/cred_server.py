@@ -22,6 +22,11 @@ import os
 import sys
 from pathlib import Path
 
+try:
+    import httpx as _httpx
+except ImportError:
+    _httpx = None  # type: ignore[assignment]
+
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
@@ -55,6 +60,54 @@ TOOLS = [
             "required": ["ats", "email"],
         },
     },
+    {
+        "name": "captcha_solve",
+        "description": (
+            "Solve a CAPTCHA via the CapSolver API. Provide the detected captcha "
+            "type, the page URL, and the sitekey. Returns a solution token that "
+            "should be injected into the page via browser_evaluate."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "captcha_type": {
+                    "type": "string",
+                    "description": "Type of CAPTCHA detected on the page",
+                    "enum": [
+                        "hcaptcha",
+                        "recaptchav2",
+                        "recaptchav3",
+                        "turnstile",
+                        "funcaptcha",
+                    ],
+                },
+                "website_url": {
+                    "type": "string",
+                    "description": "Full URL of the page containing the CAPTCHA",
+                },
+                "website_key": {
+                    "type": "string",
+                    "description": "Sitekey extracted from the CAPTCHA widget",
+                },
+                "page_action": {
+                    "type": "string",
+                    "description": (
+                        "Action string for reCAPTCHA v3 (e.g. 'submit'). "
+                        "Ignored for other captcha types."
+                    ),
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": (
+                        "Optional metadata for Turnstile captchas "
+                        "(e.g. {\"action\": \"...\", \"cdata\": \"...\"}). "
+                        "Ignored for other captcha types."
+                    ),
+                },
+            },
+            "required": ["captcha_type", "website_url", "website_key"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -67,6 +120,23 @@ ATS_PW_ENV: dict[str, str] = {
     "lever": "APPLYPILOT_PW_LEVER",
     "ashby": "APPLYPILOT_PW_ASHBY",
 }
+
+# Maps detected captcha type to CapSolver task type string
+CAPTCHA_TYPE_MAP: dict[str, str] = {
+    "hcaptcha": "HCaptchaTaskProxyLess",
+    "recaptchav2": "ReCaptchaV2TaskProxyLess",
+    "recaptchav3": "ReCaptchaV3TaskProxyLess",
+    "turnstile": "AntiTurnstileTaskProxyLess",
+    "funcaptcha": "FunCaptchaTaskProxyLess",
+}
+
+
+def _get_capsolver_key() -> str | None:
+    """Read the CapSolver API key from the process environment."""
+    key = os.environ.get("CAPSOLVER_API_KEY")
+    if key:
+        return key
+    return None
 
 
 def _get_password_from_profile(ats: str) -> str | None:
@@ -93,6 +163,99 @@ def _get_password(ats: str) -> str | None:
     if not env_var:
         return None
     return os.environ.get(env_var) or None
+
+
+# ---------------------------------------------------------------------------
+# CapSolver CAPTCHA solving
+# ---------------------------------------------------------------------------
+
+async def _solve_captcha(
+    captcha_type: str,
+    website_url: str,
+    website_key: str,
+    page_action: str | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    """Solve a CAPTCHA via the CapSolver REST API.
+
+    Returns:
+        {"success": bool, "token": str} or {"success": bool, "message": str}
+    """
+    task_type = CAPTCHA_TYPE_MAP.get(captcha_type)
+    if not task_type:
+        return {"success": False, "message": f"unsupported_captcha_type: {captcha_type}"}
+
+    if _httpx is None:
+        return {"success": False, "message": "httpx_not_installed"}
+
+    client_key = _get_capsolver_key()
+    if not client_key:
+        return {"success": False, "message": "no_capsolver_key_configured"}
+
+    task: dict = {
+        "type": task_type,
+        "websiteURL": website_url,
+        "websiteKey": website_key,
+    }
+    if captcha_type == "recaptchav3" and page_action:
+        task["pageAction"] = page_action
+    if captcha_type == "turnstile" and metadata:
+        task["metadata"] = metadata
+
+    try:
+        async with _httpx.AsyncClient(timeout=30) as client:
+            create_resp = await client.post(
+                "https://api.capsolver.com/createTask",
+                json={"clientKey": client_key, "task": task},
+            )
+            create_data = create_resp.json()
+
+            if create_data.get("errorId", 1) != 0:
+                return {
+                    "success": False,
+                    "message": f"createTask_failed: {create_data.get('errorDescription', 'unknown')}",
+                }
+
+            task_id = create_data.get("taskId")
+            if not task_id:
+                return {"success": False, "message": "no_task_id_returned"}
+
+            # Poll for result
+            for _ in range(10):
+                await asyncio.sleep(3)
+                result_resp = await client.post(
+                    "https://api.capsolver.com/getTaskResult",
+                    json={"clientKey": client_key, "taskId": task_id},
+                )
+                result_data = result_resp.json()
+
+                if result_data.get("errorId", 1) != 0:
+                    return {
+                        "success": False,
+                        "message": f"getTaskResult_failed: {result_data.get('errorDescription', 'unknown')}",
+                    }
+
+                status = result_data.get("status")
+                if status == "ready":
+                    solution = result_data.get("solution", {})
+                    if captcha_type in ("recaptchav2", "recaptchav3", "hcaptcha"):
+                        token = solution.get("gRecaptchaResponse", "")
+                    else:
+                        token = solution.get("token", "")
+                    if token:
+                        return {"success": True, "token": token}
+                    return {"success": False, "message": "empty_token_in_solution"}
+
+                if status != "processing":
+                    return {
+                        "success": False,
+                        "message": f"unexpected_status: {status}",
+                    }
+
+            return {"success": False, "message": "timeout_polling"}
+
+    except _httpx.HTTPError as e:
+        return {"success": False, "message": f"http_error: {e}"}
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +379,28 @@ async def _handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         result = await _fill_login_form(ats, email, cdp_port)
+        return {
+            "content": [{"type": "text", "text": json.dumps(result)}],
+        }
+
+    if name == "captcha_solve":
+        captcha_type = arguments.get("captcha_type", "")
+        website_url = arguments.get("website_url", "")
+        website_key = arguments.get("website_key", "")
+        page_action = arguments.get("page_action")
+        metadata = arguments.get("metadata")
+
+        if captcha_type not in CAPTCHA_TYPE_MAP:
+            return {
+                "content": [{"type": "text", "text": json.dumps({
+                    "success": False,
+                    "message": f"unsupported_captcha_type: {captcha_type}"
+                })}],
+            }
+
+        result = await _solve_captcha(
+            captcha_type, website_url, website_key, page_action, metadata,
+        )
         return {
             "content": [{"type": "text", "text": json.dumps(result)}],
         }

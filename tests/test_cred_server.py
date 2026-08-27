@@ -7,11 +7,14 @@ from unittest.mock import AsyncMock, patch
 
 from applypilot.apply.cred_server import (
     ATS_PW_ENV,
+    CAPTCHA_TYPE_MAP,
     TOOLS,
+    _get_capsolver_key,
     _get_password,
     _get_password_from_profile,
     _handle_message,
     _handle_tool_call,
+    _solve_captcha,
 )
 
 
@@ -193,8 +196,9 @@ class TestHandleMessage:
         msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         resp = _run_async(_handle_message(msg))
         assert resp["id"] == 2
-        assert len(resp["result"]["tools"]) == 1
-        assert resp["result"]["tools"][0]["name"] == "ats_login"
+        tool_names = [t["name"] for t in resp["result"]["tools"]]
+        assert "ats_login" in tool_names
+        assert "captcha_solve" in tool_names
 
     def test_unknown_method_returns_error(self):
         msg = {"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}}
@@ -205,3 +209,212 @@ class TestHandleMessage:
         msg = {"jsonrpc": "2.0", "method": "unknown/notification"}
         resp = _run_async(_handle_message(msg))
         assert resp is None
+
+
+class TestCaptchaSolve:
+    """Test captcha_solve tool definition and functionality."""
+
+    def test_tool_definition_present(self):
+        names = [t["name"] for t in TOOLS]
+        assert "captcha_solve" in names
+
+    def test_tool_schema_requires_correct_fields(self):
+        captcha_tool = next(t for t in TOOLS if t["name"] == "captcha_solve")
+        schema = captcha_tool["inputSchema"]
+        assert "captcha_type" in schema["required"]
+        assert "website_url" in schema["required"]
+        assert "website_key" in schema["required"]
+
+    def test_captcha_type_enum_values(self):
+        captcha_tool = next(t for t in TOOLS if t["name"] == "captcha_solve")
+        enum = captcha_tool["inputSchema"]["properties"]["captcha_type"]["enum"]
+        assert set(enum) == {
+            "hcaptcha",
+            "recaptchav2",
+            "recaptchav3",
+            "turnstile",
+            "funcaptcha",
+        }
+
+    def test_missing_key_returns_no_capsolver_key_configured(self):
+        env = os.environ.copy()
+        env.pop("CAPSOLVER_API_KEY", None)
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(_solve_captcha(
+                "hcaptcha", "https://example.com", "sitekey123",
+            ))
+            assert result["success"] is False
+            assert result["message"] == "no_capsolver_key_configured"
+
+    def test_unsupported_captcha_type(self):
+        result = _run_async(_solve_captcha(
+            "unknown_type", "https://example.com", "key",
+        ))
+        assert result["success"] is False
+        assert "unsupported_captcha_type" in result["message"]
+
+    def test_successful_solve_hcaptcha(self):
+        create_response = {"errorId": 0, "taskId": "task_abc123"}
+        result_response = {
+            "errorId": 0,
+            "status": "ready",
+            "solution": {"gRecaptchaResponse": "SOLVED_TOKEN_xyz"},
+        }
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        # First call is createTask, second is getTaskResult
+        mock_client.post = AsyncMock(side_effect=[
+            AsyncMock(json=lambda: create_response),
+            AsyncMock(json=lambda: result_response),
+        ])
+
+        with (
+            patch.dict(os.environ, {"CAPSOLVER_API_KEY": "test_key_123"}),
+            patch("applypilot.apply.cred_server._httpx") as mock_httpx,
+        ):
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.HTTPError = Exception
+
+            result = _run_async(_solve_captcha(
+                "hcaptcha", "https://example.com", "sitekey123",
+            ))
+            assert result["success"] is True
+            assert result["token"] == "SOLVED_TOKEN_xyz"
+
+    def test_successful_solve_turnstile(self):
+        create_response = {"errorId": 0, "taskId": "task_ts1"}
+        result_response = {
+            "errorId": 0,
+            "status": "ready",
+            "solution": {"token": "TURNSTILE_TOKEN_abc"},
+        }
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(side_effect=[
+            AsyncMock(json=lambda: create_response),
+            AsyncMock(json=lambda: result_response),
+        ])
+
+        with (
+            patch.dict(os.environ, {"CAPSOLVER_API_KEY": "test_key_123"}),
+            patch("applypilot.apply.cred_server._httpx") as mock_httpx,
+        ):
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.HTTPError = Exception
+
+            result = _run_async(_solve_captcha(
+                "turnstile", "https://example.com", "ts_sitekey",
+            ))
+            assert result["success"] is True
+            assert result["token"] == "TURNSTILE_TOKEN_abc"
+
+    def test_capsolver_error_returns_failure(self):
+        error_response = {
+            "errorId": 12,
+            "errorDescription": "ERROR sitekey is invalid",
+        }
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=AsyncMock(json=lambda: error_response))
+
+        with (
+            patch.dict(os.environ, {"CAPSOLVER_API_KEY": "test_key_123"}),
+            patch("applypilot.apply.cred_server._httpx") as mock_httpx,
+        ):
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.HTTPError = Exception
+
+            result = _run_async(_solve_captcha(
+                "hcaptcha", "https://example.com", "bad_key",
+            ))
+            assert result["success"] is False
+            assert "createTask_failed" in result["message"]
+
+    def test_result_never_leaks_key(self):
+        create_response = {"errorId": 0, "taskId": "task_xyz"}
+        result_response = {
+            "errorId": 0,
+            "status": "ready",
+            "solution": {"gRecaptchaResponse": "TOK"},
+        }
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(side_effect=[
+            AsyncMock(json=lambda: create_response),
+            AsyncMock(json=lambda: result_response),
+        ])
+
+        fake_key = "CAP_super_secret_key_abc123"
+        with (
+            patch.dict(os.environ, {"CAPSOLVER_API_KEY": fake_key}),
+            patch("applypilot.apply.cred_server._httpx") as mock_httpx,
+        ):
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.HTTPError = Exception
+
+            result = _run_async(_solve_captcha(
+                "hcaptcha", "https://example.com", "sitekey123",
+            ))
+            result_json = json.dumps(result)
+            assert fake_key not in result_json
+
+    def test_get_capsolver_key_reads_env(self):
+        with patch.dict(os.environ, {"CAPSOLVER_API_KEY": "my_test_key"}):
+            assert _get_capsolver_key() == "my_test_key"
+
+    def test_get_capsolver_key_returns_none_when_unset(self):
+        env = os.environ.copy()
+        env.pop("CAPSOLVER_API_KEY", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_capsolver_key() is None
+
+    def test_get_capsolver_key_returns_none_when_empty(self):
+        with patch.dict(os.environ, {"CAPSOLVER_API_KEY": ""}):
+            assert _get_capsolver_key() is None
+
+    def test_captcha_type_map_all_values_cap_solver_format(self):
+        expected = {
+            "hcaptcha": "HCaptchaTaskProxyLess",
+            "recaptchav2": "ReCaptchaV2TaskProxyLess",
+            "recaptchav3": "ReCaptchaV3TaskProxyLess",
+            "turnstile": "AntiTurnstileTaskProxyLess",
+            "funcaptcha": "FunCaptchaTaskProxyLess",
+        }
+        assert CAPTCHA_TYPE_MAP == expected
+
+    def test_handle_tool_call_dispatches_captcha_solve(self):
+        with (
+            patch.dict(os.environ, {"CAPSOLVER_API_KEY": "test_key"}),
+            patch("applypilot.apply.cred_server._solve_captcha", new_callable=AsyncMock) as mock,
+        ):
+            mock.return_value = {"success": True, "token": "TOK"}
+            result = _run_async(_handle_tool_call("captcha_solve", {
+                "captcha_type": "hcaptcha",
+                "website_url": "https://example.com",
+                "website_key": "key123",
+            }))
+            text = json.loads(result["content"][0]["text"])
+            assert text["success"] is True
+            assert text["token"] == "TOK"
+            mock.assert_called_once_with(
+                "hcaptcha", "https://example.com", "key123", None, None,
+            )
+
+    def test_handle_tool_call_rejects_unsupported_type(self):
+        result = _run_async(_handle_tool_call("captcha_solve", {
+            "captcha_type": "bad_type",
+            "website_url": "https://example.com",
+            "website_key": "key123",
+        }))
+        text = json.loads(result["content"][0]["text"])
+        assert text["success"] is False
+        assert "unsupported_captcha_type" in text["message"]

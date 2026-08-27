@@ -117,18 +117,35 @@ class TestNoPasswordsInPrompt:
 
 
 class TestCaptchaSection:
-    """Test CAPTCHA section no longer contains API key."""
+    """Test CAPTCHA section no longer contains API key or broken instructions."""
 
     def test_no_capsolver_key_in_captcha_section(self):
         with patch.dict("os.environ", {"CAPSOLVER_API_KEY": "REAL_KEY_abc123"}):
             section = _build_captcha_section()
             assert "REAL_KEY_abc123" not in section
 
-    def test_captcha_section_mentions_env_var(self):
+    def test_captcha_section_mentions_captcha_solve_tool(self):
         section = _build_captcha_section()
-        assert "CAPSOLVER_API_KEY" in section
-        assert "env var" in section
+        assert "captcha_solve" in section
 
     def test_captcha_section_not_fstring(self):
         section = _build_captcha_section()
         assert "{capsolver_key}" not in section
+
+    def test_no_browser_evaluate_capsolver_api_call(self):
+        section = _build_captcha_section()
+        assert "api.capsolver.com/createTask" not in section
+        assert "api.capsolver.com/getTaskResult" not in section
+
+    def test_no_instruction_to_read_api_key_via_browser(self):
+        section = _build_captcha_section()
+        assert "CAPSOLVER_API_KEY" not in section
+
+    def test_section_instructs_token_injection(self):
+        section = _build_captcha_section()
+        assert "INJECT TOKEN" in section
+        assert "browser_evaluate" in section
+
+    def test_manual_fallback_references_captcha_solve(self):
+        section = _build_captcha_section()
+        assert "captcha_solve" in section

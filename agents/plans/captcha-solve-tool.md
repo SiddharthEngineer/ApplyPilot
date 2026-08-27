@@ -1,7 +1,7 @@
 # Plan: CAPTCHA Solve via cred-server Tool
 
 **Started:** 2026-08-26
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ---
 
@@ -32,7 +32,7 @@ The apply agent's prompt instructs the LLM to read the CapSolver API key and cal
 - `_handle_tool_call("captcha_solve", {...})` returns `success:false, message:"no_capsolver_key_configured"` when the key is absent.
 - A mocked httpx call returning a valid task + `ready` result yields `success:true` and a non-empty `token`; the returned JSON text contains no `clientKey`.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -46,7 +46,7 @@ The apply agent's prompt instructs the LLM to read the CapSolver API key and cal
 - `pytest tests/test_cred_server.py -k captcha` runs and all tests pass.
 - At least one test asserts the returned JSON text does not contain a fake key value.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -61,7 +61,7 @@ The apply agent's prompt instructs the LLM to read the CapSolver API key and cal
 - The section instructs calling `captcha_solve` and references the returned token for injection.
 - `STEP 3` injection JS is unchanged in behavior.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -76,7 +76,7 @@ The apply agent's prompt instructs the LLM to read the CapSolver API key and cal
 - A test fails if the section contains `api.capsolver.com/createTask` (proving the broken instruction is gone).
 - A test confirms `captcha_solve` appears in the section.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -102,4 +102,10 @@ Task 3 (prompt rewrite) → Task 4 (prompt tests)
 
 ## Historical Record
 
-_No tasks completed yet._
+1. **Task 1** — Added `captcha_solve` tool to `cred_server.py`: tool definition with input schema (captcha_type enum, website_url, website_key, page_action, metadata), `_get_capsolver_key()` env reader, `_solve_captcha()` async function with createTask→poll→getTaskResult flow via `_httpx.AsyncClient`, and dispatch in `_handle_tool_call`. Maps 5 captcha types to CapSolver task types. Returns `{"success": bool, "token"|"message": ...}`. Never returns the API key in output. Imported `httpx` as module-level `_httpx` with try/except ImportError for clean testing.
+
+2. **Task 2** — Added 15 unit tests in `TestCaptchaSolve` class in `tests/test_cred_server.py`: tool definition present, schema correct, enum values, missing key error, unsupported type error, mocked successful hcaptcha solve, mocked successful turnstile solve, CapSolver error returns failure, result never leaks key, `_get_capsolver_key` reads/returns none/empty, CAPTCHA_TYPE_MAP values, dispatch test, unsupported type dispatch. Updated `test_tools_list_returns_tools` to expect 2 tools.
+
+3. **Task 3** — Rewrote `_build_captcha_section()` in `prompt.py`: removed FIRST/STEP 1/STEP 2 (browser_evaluate createTask/poll flow with `api.capsolver.com`), replaced with instructions to call `captcha_solve` tool on the cred server. Kept STEP 3 token injection JS (browser_evaluate). Updated MANUAL FALLBACK to reference `captcha_solve` returns. No more `CAPSOLVER_API_KEY` or `api.capsolver.com` in prompt text.
+
+4. **Task 4** — Updated `TestCaptchaSection` in `tests/test_prompt.py`: replaced `test_captcha_section_mentions_env_var` with 5 new tests verifying `captcha_solve` appears, no `api.capsolver.com` in section, no `CAPSOLVER_API_KEY` in section, token injection still present, manual fallback references tool. All 15 prompt tests pass.
