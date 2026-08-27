@@ -1,7 +1,7 @@
 # Plan: Secure Passwords at Rest
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ---
 
@@ -68,7 +68,7 @@ Eliminate plaintext passwords from MCP config JSON files on disk and harden file
 - `_get_password("workday")` returns profile.json password when `APPLYPILOT_APP_DIR` is set (even if env var is also set).
 - `_get_password("workday")` falls back to env var when `APPLYPILOT_APP_DIR` is not set.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -108,7 +108,7 @@ Eliminate plaintext passwords from MCP config JSON files on disk and harden file
 - `gen_prompt()` no longer calls `config.load_profile()` for the purpose of extracting `site_passwords`.
 - Existing playwright/gmail MCP server entries are unchanged.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -151,7 +151,7 @@ Eliminate plaintext passwords from MCP config JSON files on disk and harden file
 - On macOS/Linux, `stat -f "%Lp" ~/.applypilot/profile.json` returns `600`.
 - `set_restricted_permissions()` does not raise on Windows or when permissions cannot be set.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -196,7 +196,7 @@ Eliminate plaintext passwords from MCP config JSON files on disk and harden file
 - All existing tests updated and passing (no broken assertions from removed `site_passwords` parameter).
 - `ruff check src/` returns zero new issues.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -239,3 +239,4 @@ Tasks 1, 2, and 3 are **fully independent** and can be implemented in parallel b
 ## Historical Record
 
 - **2026-08-27:** Plan created. Approach A selected (file permissions + no plaintext MCP configs). Four tasks defined: cred_server.py profile reading, launcher.py password removal, file permission hardening, tests.
+- **2026-08-27:** All four tasks completed and verified. 193 tests pass, ruff clean. MCP configs contain zero `APPLYPILOT_PW_*` keys. `profile.json` and `.env` protected by 0o600 permissions.

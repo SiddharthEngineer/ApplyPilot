@@ -64,19 +64,14 @@ if platform.system() != "Windows":
 # MCP config
 # ---------------------------------------------------------------------------
 
-def _make_mcp_config(cdp_port: int, site_passwords: dict | None = None) -> dict:
+def _make_mcp_config(cdp_port: int) -> dict:
     """Build MCP config dict for a specific CDP port.
 
     Args:
         cdp_port: Chrome DevTools Protocol port.
-        site_passwords: Dict mapping ATS names to passwords. Passed to the
-            cred-server as env vars so the LLM never sees them.
     """
-    pw_env = {
-        "APPLYPILOT_PW_WORKDAY": (site_passwords or {}).get("workday", ""),
-        "APPLYPILOT_PW_GREENHOUSE": (site_passwords or {}).get("greenhouse", ""),
-        "APPLYPILOT_PW_LEVER": (site_passwords or {}).get("lever", ""),
-        "APPLYPILOT_PW_ASHBY": (site_passwords or {}).get("ashby", ""),
+    cred_env = {
+        "APPLYPILOT_APP_DIR": str(config.APP_DIR),
         "CAPSOLVER_API_KEY": os.environ.get("CAPSOLVER_API_KEY", ""),
     }
     return {
@@ -96,24 +91,21 @@ def _make_mcp_config(cdp_port: int, site_passwords: dict | None = None) -> dict:
             "cred": {
                 "command": sys.executable,
                 "args": [str(Path(__file__).parent / "cred_server.py")],
-                "env": pw_env,
+                "env": cred_env,
             },
         }
     }
 
 
-def _make_opencode_config(cdp_port: int, site_passwords: dict | None = None) -> dict:
+def _make_opencode_config(cdp_port: int) -> dict:
     """Build OpenCode config dict for a specific CDP port.
 
     OpenCode uses a project-level opencode.json config file. The MCP server
     names use ``{server}_{tool}`` format (not ``mcp__{server}__{tool}``).
     Permission rules block Gmail tools while allowing Playwright and cred tools.
     """
-    pw_env = {
-        "APPLYPILOT_PW_WORKDAY": (site_passwords or {}).get("workday", ""),
-        "APPLYPILOT_PW_GREENHOUSE": (site_passwords or {}).get("greenhouse", ""),
-        "APPLYPILOT_PW_LEVER": (site_passwords or {}).get("lever", ""),
-        "APPLYPILOT_PW_ASHBY": (site_passwords or {}).get("ashby", ""),
+    cred_env = {
+        "APPLYPILOT_APP_DIR": str(config.APP_DIR),
         "CAPSOLVER_API_KEY": os.environ.get("CAPSOLVER_API_KEY", ""),
     }
     return {
@@ -133,7 +125,7 @@ def _make_opencode_config(cdp_port: int, site_passwords: dict | None = None) -> 
             "cred": {
                 "command": sys.executable,
                 "args": [str(Path(__file__).parent / "cred_server.py")],
-                "env": pw_env,
+                "env": cred_env,
             },
         },
         "permission": {
@@ -301,12 +293,10 @@ def gen_prompt(target_url: str, min_score: int = 7,
     prompt_file = config.LOG_DIR / f"prompt_{site_slug}_{job['title'][:30].replace(' ', '_')}.txt"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    # Write MCP config for reference (with site passwords for cred-server)
-    profile = config.load_profile()
-    site_passwords = profile.get("site_passwords", {})
+    # Write MCP config for reference
     port = BASE_CDP_PORT + worker_id
     mcp_path = config.APP_DIR / f".mcp-apply-{worker_id}.json"
-    mcp_path.write_text(json.dumps(_make_mcp_config(port, site_passwords)), encoding="utf-8")
+    mcp_path.write_text(json.dumps(_make_mcp_config(port)), encoding="utf-8")
 
     return prompt_file
 
@@ -510,21 +500,17 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         cdp_port=port,
     )
 
-    # Load profile for site passwords (passed to cred-server as env vars)
-    profile = config.load_profile()
-    site_passwords = profile.get("site_passwords", {})
-
     worker_dir = reset_worker_dir(worker_id)
 
     # Backend-specific command and config
     if backend == "opencode":
-        opencode_config = _make_opencode_config(port, site_passwords)
+        opencode_config = _make_opencode_config(port)
         opencode_config_path = worker_dir / "opencode.json"
         opencode_config_path.write_text(json.dumps(opencode_config, indent=2), encoding="utf-8")
         cmd = _build_opencode_cmd(model, worker_dir)
     else:
         mcp_config_path = config.APP_DIR / f".mcp-apply-{worker_id}.json"
-        mcp_config_path.write_text(json.dumps(_make_mcp_config(port, site_passwords)), encoding="utf-8")
+        mcp_config_path.write_text(json.dumps(_make_mcp_config(port)), encoding="utf-8")
         cmd = _build_claude_cmd(model, mcp_config_path)
 
     env = os.environ.copy()

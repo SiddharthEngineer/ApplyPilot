@@ -22,47 +22,17 @@ class TestMakeMcpConfig:
         assert cred["command"] == sys.executable
         assert "cred_server.py" in cred["args"][0]
 
-    def test_cred_server_has_env_vars(self):
+    def test_cred_server_has_app_dir_and_capsolver(self):
         config = _make_mcp_config(9222)
         env = config["mcpServers"]["cred"]["env"]
-        assert "APPLYPILOT_PW_WORKDAY" in env
-        assert "APPLYPILOT_PW_GREENHOUSE" in env
-        assert "APPLYPILOT_PW_LEVER" in env
-        assert "APPLYPILOT_PW_ASHBY" in env
+        assert "APPLYPILOT_APP_DIR" in env
         assert "CAPSOLVER_API_KEY" in env
 
-    def test_site_passwords_passed_to_env(self):
-        passwords = {"workday": "secret123", "greenhouse": "gh_pass"}
-        config = _make_mcp_config(9222, site_passwords=passwords)
-        env = config["mcpServers"]["cred"]["env"]
-        assert env["APPLYPILOT_PW_WORKDAY"] == "secret123"
-        assert env["APPLYPILOT_PW_GREENHOUSE"] == "gh_pass"
-        assert env["APPLYPILOT_PW_LEVER"] == ""
-        assert env["APPLYPILOT_PW_ASHBY"] == ""
-
-    def test_empty_site_passwords(self):
-        config = _make_mcp_config(9222, site_passwords={})
-        env = config["mcpServers"]["cred"]["env"]
-        for key in ("APPLYPILOT_PW_WORKDAY", "APPLYPILOT_PW_GREENHOUSE",
-                     "APPLYPILOT_PW_LEVER", "APPLYPILOT_PW_ASHBY"):
-            assert env[key] == ""
-
-    def test_none_site_passwords(self):
-        config = _make_mcp_config(9222, site_passwords=None)
-        env = config["mcpServers"]["cred"]["env"]
-        for key in ("APPLYPILOT_PW_WORKDAY", "APPLYPILOT_PW_GREENHOUSE",
-                     "APPLYPILOT_PW_LEVER", "APPLYPILOT_PW_ASHBY"):
-            assert env[key] == ""
-
-    def test_playwright_server_unchanged(self):
-        config = _make_mcp_config(9333)
-        pw = config["mcpServers"]["playwright"]
-        assert "9333" in pw["args"][1]
-        assert "@playwright/mcp@latest" in pw["args"][0]
-
-    def test_gmail_server_unchanged(self):
+    def test_no_passwords_in_mcp_config(self):
         config = _make_mcp_config(9222)
-        assert "gmail" in config["mcpServers"]
+        env = config["mcpServers"]["cred"]["env"]
+        for key in env:
+            assert not key.startswith("APPLYPILOT_PW_"), f"Unexpected password key: {key}"
 
     def test_capsolver_key_from_env(self):
         with patch.dict(os.environ, {"CAPSOLVER_API_KEY": "test_key_123"}):
@@ -76,6 +46,22 @@ class TestMakeMcpConfig:
             config = _make_mcp_config(9222)
             assert config["mcpServers"]["cred"]["env"]["CAPSOLVER_API_KEY"] == ""
 
+    def test_playwright_server_unchanged(self):
+        config = _make_mcp_config(9333)
+        pw = config["mcpServers"]["playwright"]
+        assert "9333" in pw["args"][1]
+        assert "@playwright/mcp@latest" in pw["args"][0]
+
+    def test_gmail_server_unchanged(self):
+        config = _make_mcp_config(9222)
+        assert "gmail" in config["mcpServers"]
+
+    def test_app_dir_points_to_config_app_dir(self):
+        from applypilot import config
+        config_result = _make_mcp_config(9222)
+        env = config_result["mcpServers"]["cred"]["env"]
+        assert env["APPLYPILOT_APP_DIR"] == str(config.APP_DIR)
+
 
 class TestMakeOpencodeConfig:
     """Test OpenCode config generation with cred-server."""
@@ -84,10 +70,11 @@ class TestMakeOpencodeConfig:
         config = _make_opencode_config(9222)
         assert "cred" in config["mcpServers"]
 
-    def test_site_passwords_passed(self):
-        passwords = {"workday": "s3cret"}
-        config = _make_opencode_config(9222, site_passwords=passwords)
-        assert config["mcpServers"]["cred"]["env"]["APPLYPILOT_PW_WORKDAY"] == "s3cret"
+    def test_no_passwords_in_opencode_config(self):
+        config = _make_opencode_config(9222)
+        env = config["mcpServers"]["cred"]["env"]
+        for key in env:
+            assert not key.startswith("APPLYPILOT_PW_"), f"Unexpected password key: {key}"
 
     def test_permission_rules_include_cred(self):
         config = _make_opencode_config(9222)

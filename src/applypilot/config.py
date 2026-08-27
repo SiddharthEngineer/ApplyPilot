@@ -3,6 +3,7 @@
 import os
 import platform
 import shutil
+import stat
 from pathlib import Path
 
 # User data directory — all user-specific files live here
@@ -114,6 +115,23 @@ def ensure_dirs():
     """Create all required directories."""
     for d in [APP_DIR, TAILORED_DIR, COVER_LETTER_DIR, LOG_DIR, CHROME_WORKER_DIR, APPLY_WORKER_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+    # Owner-only permissions on the app directory
+    try:
+        APP_DIR.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    except (OSError, AttributeError):
+        pass
+
+
+def set_restricted_permissions(path: Path) -> None:
+    """Set file permissions to owner-only read/write (0o600).
+
+    No-op on platforms that don't support Unix permissions (e.g., Windows
+    without NTFS ACLs). Errors are logged but not raised.
+    """
+    try:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except (OSError, AttributeError):
+        pass
 
 
 def load_profile() -> dict:
@@ -139,6 +157,7 @@ def load_profile() -> dict:
         PROFILE_PATH.write_text(
             json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        set_restricted_permissions(PROFILE_PATH)
 
     return profile
 

@@ -9,6 +9,7 @@ from applypilot.apply.cred_server import (
     ATS_PW_ENV,
     TOOLS,
     _get_password,
+    _get_password_from_profile,
     _handle_message,
     _handle_tool_call,
 )
@@ -19,21 +20,84 @@ def _run_async(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-class TestGetPassword:
-    """Test env var reading for passwords."""
+class TestGetPasswordFromProfile:
+    """Test profile.json password reading."""
 
-    def test_returns_password_when_set(self):
-        with patch.dict(os.environ, {"APPLYPILOT_PW_WORKDAY": "secret123"}):
-            assert _get_password("workday") == "secret123"
+    def test_reads_from_profile_json(self, tmp_path):
+        profile = {"site_passwords": {"workday": "secret123", "greenhouse": "gh_pass"}}
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile))
+        with patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}):
+            assert _get_password_from_profile("workday") == "secret123"
+            assert _get_password_from_profile("greenhouse") == "gh_pass"
+
+    def test_returns_none_when_app_dir_not_set(self):
+        env = os.environ.copy()
+        env.pop("APPLYPILOT_APP_DIR", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_password_from_profile("workday") is None
+
+    def test_returns_none_when_profile_missing(self, tmp_path):
+        with patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}):
+            assert _get_password_from_profile("workday") is None
+
+    def test_returns_none_when_malformed_json(self, tmp_path):
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text("not valid json {{{")
+        with patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}):
+            assert _get_password_from_profile("workday") is None
+
+    def test_returns_none_when_ats_not_in_profile(self, tmp_path):
+        profile = {"site_passwords": {"greenhouse": "gh_pass"}}
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile))
+        with patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}):
+            assert _get_password_from_profile("workday") is None
+
+    def test_returns_none_for_empty_password(self, tmp_path):
+        profile = {"site_passwords": {"workday": ""}}
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile))
+        with patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}):
+            assert _get_password_from_profile("workday") is None
+
+
+class TestGetPassword:
+    """Test env var reading for passwords with profile-first fallback."""
+
+    def test_profile_takes_precedence_over_env(self, tmp_path):
+        profile = {"site_passwords": {"workday": "from_profile"}}
+        profile_path = tmp_path / "profile.json"
+        profile_path.write_text(json.dumps(profile))
+        with (
+            patch.dict(os.environ, {"APPLYPILOT_APP_DIR": str(tmp_path)}),
+            patch.dict(os.environ, {"APPLYPILOT_PW_WORKDAY": "from_env"}),
+        ):
+            assert _get_password("workday") == "from_profile"
+
+    def test_falls_back_to_env_when_no_profile(self):
+        env = os.environ.copy()
+        env.pop("APPLYPILOT_APP_DIR", None)
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.dict(os.environ, {"APPLYPILOT_PW_WORKDAY": "env_pass"}),
+        ):
+            assert _get_password("workday") == "env_pass"
 
     def test_returns_none_when_not_set(self):
         env = os.environ.copy()
+        env.pop("APPLYPILOT_APP_DIR", None)
         env.pop("APPLYPILOT_PW_WORKDAY", None)
         with patch.dict(os.environ, env, clear=True):
             assert _get_password("workday") is None
 
     def test_returns_none_for_empty_string(self):
-        with patch.dict(os.environ, {"APPLYPILOT_PW_GREENHOUSE": ""}):
+        env = os.environ.copy()
+        env.pop("APPLYPILOT_APP_DIR", None)
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.dict(os.environ, {"APPLYPILOT_PW_GREENHOUSE": ""}),
+        ):
             assert _get_password("greenhouse") is None
 
     def test_returns_none_for_unknown_ats(self):
@@ -82,6 +146,7 @@ class TestHandleToolCall:
 
     def test_no_password_returns_no_password_configured(self):
         env = os.environ.copy()
+        env.pop("APPLYPILOT_APP_DIR", None)
         for key in ATS_PW_ENV.values():
             env.pop(key, None)
         with patch.dict(os.environ, env, clear=True):

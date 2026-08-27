@@ -29,6 +29,7 @@ from applypilot.config import (
     SITE_PASSWORDS,
     ensure_dirs,
     load_search_config,
+    set_restricted_permissions,
 )
 
 console = Console()
@@ -401,6 +402,7 @@ def _setup_profile(existing: dict | None = None) -> dict:
 
     # Save
     PROFILE_PATH.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+    set_restricted_permissions(PROFILE_PATH)
     console.print(f"\n[green]Profile saved to {PROFILE_PATH}[/green]")
     return profile
 
@@ -561,6 +563,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
 
     env_lines.append("")
     ENV_PATH.write_text("\n".join(env_lines), encoding="utf-8")
+    set_restricted_permissions(ENV_PATH)
     console.print(f"[green]AI configuration saved to {ENV_PATH}[/green]")
 
 
@@ -617,6 +620,7 @@ def _setup_auto_apply() -> None:
                 )
         else:
             ENV_PATH.write_text(f"# ApplyPilot configuration\nCAPSOLVER_API_KEY={capsolver_key}\n", encoding="utf-8")
+        set_restricted_permissions(ENV_PATH)
         console.print("[green]CapSolver key saved.[/green]")
     else:
         console.print("[dim]Skipped. Add CAPSOLVER_API_KEY to .env later if needed.[/dim]")
