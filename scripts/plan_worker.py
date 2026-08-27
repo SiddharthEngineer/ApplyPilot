@@ -48,7 +48,7 @@ def load_queue() -> dict:
         return {
             "queue": [],
             "completed": [],
-            "model": "opencode/nemotron-3.5-lightning-free",
+            "model": "opencode/mimo-v2.5-free",
             "max_iterations": 20,
             "iteration_counts": {},
             "retry_counts": {},
@@ -138,7 +138,6 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
         "run",
         "--model",
         model,
-        "--auto",
         "--dir",
         str(REPO_ROOT),
     ]
@@ -182,7 +181,7 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
 
 def worker_loop(dry_run: bool = False) -> None:
     state = load_queue()
-    model = state.get("model", "opencode/nemotron-3.5-lightning-free")
+    model = state.get("model", "opencode/mimo-v2.5-free")
     max_iter = state.get("max_iterations", 20)
 
     log.info("Plan worker started. Model=%s, max_iterations=%d", model, max_iter)
@@ -277,9 +276,7 @@ def show_status() -> None:
     print(f"\n{'='*60}")
     print("  Plan Queue Worker Status")
     print(f"{'='*60}")
-    print(
-        f"  Model:            {state.get('model', 'opencode/nemotron-3.5-lightning-free')}"
-    )
+    print(f"  Model:            {state.get('model', 'opencode/mimo-v2.5-free')}")
     print(f"  Max iterations:   {state.get('max_iterations', 20)}")
     print(f"\n  Queue ({len(state['queue'])} pending):")
     for i, plan in enumerate(state["queue"]):

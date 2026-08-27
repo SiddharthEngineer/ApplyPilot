@@ -1,8 +1,5 @@
 {
-  "queue": [
-    "agents/plans/ziprecruiter-403-handling.md",
-    "agents/plans/gemini-404-scoring-fix.md"
-  ],
+  "queue": [],
   "completed": [
     {
       "plan": "agents/plans/secure-password-at-rest.md",
@@ -13,13 +10,31 @@
       "plan": "agents/plans/captcha-solve-tool.md",
       "reason": "done",
       "completed_at": "2026-08-27T05:34:05.250327+00:00"
+    },
+    {
+      "plan": "agents/plans/ziprecruiter-403-handling.md",
+      "reason": "error_exit_1",
+      "completed_at": "2026-08-27T16:23:47.600531+00:00"
+    },
+    {
+      "plan": "agents/plans/gemini-404-scoring-fix.md",
+      "reason": "error_exit_1",
+      "completed_at": "2026-08-27T16:23:50.004715+00:00"
+    },
+    {
+      "plan": "agents/plans/fix-workday-ssl-cert.md",
+      "reason": "error_exit_1",
+      "completed_at": "2026-08-27T16:23:52.416971+00:00"
     }
   ],
-  "model": "opencode/nemotron-3.5-lightning-free",
+  "model": "opencode/mimo-v2.5-free",
   "max_iterations": 10,
   "iteration_counts": {
     "agents/plans/secure-password-at-rest.md": 1,
-    "agents/plans/captcha-solve-tool.md": 1
+    "agents/plans/captcha-solve-tool.md": 1,
+    "agents/plans/ziprecruiter-403-handling.md": 3,
+    "agents/plans/gemini-404-scoring-fix.md": 3,
+    "agents/plans/fix-workday-ssl-cert.md": 3
   },
   "retry_counts": {}
 }
