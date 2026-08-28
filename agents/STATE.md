@@ -1,57 +1,56 @@
 # Current State
 
-**Last updated:** 2026-08-27 (Gemini 3.6-Flash Migration session)
+**Last updated:** 2026-08-28 (OpenCode Model Selection session)
 
-## Active Plan: Migrate Default Gemini Model to 3.6-Flash
+## Active Plan: Select Optimal OpenCode Models for ApplyPilot
 
-Plan file: `agents/plans/gemini-3.6-flash-migration.md`
+Plan file: `agents/plans/opencode-model-selection.md`
 
 ### Progress
 
 | Task | Status |
 |------|--------|
-| Task 1: Update core LLM client default model | ✅ Complete |
-| Task 2: Update CLI doctor and init wizard defaults | ✅ Complete |
-| Task 3: Update documentation, configuration examples, and error hints | ✅ Complete |
-| Task 4: Live integration verification | ✅ Complete |
+| Task 1: Change plan worker default model to Nemotron 3.5 Lightning | ✅ Complete |
+| Task 2: Fix auto-apply OpenCode default model | ✅ Complete |
+| Task 3: Add model fallback list to plan worker | ✅ Complete |
+| Task 4: Document model selection | ✅ Complete |
 
 ### Current Task
 
-None — Gemini 3.6-Flash migration plan is fully complete.
+None — OpenCode model selection plan is fully complete.
 
 ### Completed This Session
 
-- **Gemini 3.6-Flash Model Migration** — Migrated ApplyPilot's default Gemini model from `gemini-2.5-flash` (retired/404 for new users) to `gemini-3.6-flash`. Key changes:
-  - `llm.py`: Updated `_detect_provider()` default model to `gemini-3.6-flash`.
-  - `cli.py`: Updated `applypilot doctor` default model validation to `gemini-3.6-flash`.
-  - `wizard/init.py`: Updated setup wizard default model prompt to `gemini-3.6-flash`.
-  - `scoring/scorer.py`: Updated error log hints to reference `gemini-3.6-flash`.
-  - `.env.example`: Updated recommended Gemini model comment.
-  - `tests/test_llm.py`: Updated client mock fixture.
-  - Live verification: Confirmed `LLMClient.chat()` successfully calls `gemini-3.6-flash` via OpenAI compat endpoint (`HTTP 200 OK`, returning `"PONG"`).
+- **OpenCode Model Selection** — Selected optimal OpenCode models for the two agent use cases and added fallback handling:
+  - `scripts/plan_worker.py`: Default model changed from `opencode/mimo-v2.5-free` to `opencode/nemotron-3.5-lightning-free` (NVIDIA execution tier) in the `load_queue()` fallback, `worker_loop()` model lookup, and `show_status()` display. Added a module-level `MODEL_FALLBACKS` ordered list (`[nemotron-3.5-lightning-free, nemotron-3-ultra-free, big-pickle, mimo-v2.5-free]`); on a non-zero `run_agent()` exit the worker retries the same iteration with the next model before counting it as a retry/failure.
+  - `agents/plan_queue.json`: `model` field migrated to `opencode/nemotron-3.5-lightning-free`.
+  - `src/applypilot/cli.py`: `apply --model` is now backend-aware. `--backend opencode` resolves the default to the valid `opencode/nemotron-3-ultra-free` (single-pass patch rewrite, not Lightning); `--backend claude` keeps `haiku`. An explicit `--model` always wins.
+  - `README.md` / `CONTRIBUTING.md`: Documented the OpenCode auto-apply default + override and the plan worker's model default + fallback list.
 
-### Test Results (verified 2026-08-27)
+### Test Results (verified 2026-08-28)
 
 ```
-tests/test_workday_ssl.py: 5 passed ✅
-tests/test_jobspy.py: 25 passed ✅
-ruff check tests/test_workday_ssl.py: All checks passed ✅
+tests/test_launcher.py: 13 passed ✅
+tests/test_config.py, test_prompt.py, test_cred_server.py: 72 passed ✅
 
-Integration test (live Workday endpoints):
-  Manulife: 62 results ✅
-  TD Bank: 93 results ✅
-  Sun Life: 18 results ✅
-  Desjardins: 2 results ✅
-  Intact Financial: 28 results ✅
-  All without SSL errors ✅
+plan_worker.py --dry-run: logs Model=opencode/nemotron-3.5-lightning-free ✅
+plan_worker.py --status: unchanged output ✅
+plan_worker.py fallback logic (mock run_agent):
+  fail light → retry ultra → success on ultra ✅
+  all 4 models fail → preserves failure, tries all 4 ✅
+cli.py model resolution cases (4) all pass ✅
+ruff: no NEW violations from changed files (pre-existing violations still present) ✅
 ```
+
+Note: `tests/test_pipeline.py` and `tests/test_llm.py` were not run to completion because they make live network/LLM calls and hang; they are unaffected by this session's changes.
 
 ### Key Decisions
 
-- **Treat 400/404 like 403 for Gemini only** — all three mean "model not exposed on OpenAI-compat layer"; OpenAI 400/404 must not fallback to avoid masking real errors.
-- **Reuse existing native path and sentinel `_GeminiCompatForbidden`** — no new endpoint code, minimal blast radius.
-- **Default to `gemini-3.6-flash`** — current GA model; `gemini-2.5-flash` returns 404 for new users (verified via live API in 2026-08-27 session).
-- **Verify model name via live list in doctor** — Gemini model IDs rotate; doctor is the right place for validation feedback.
+- **Plan worker runs on the execution tier (Lightning)** — the worker *implements* plans; NVIDIA positions Lightning for long-running agents (wins accuracy-speed Pareto, ~30% faster agentic completion, 262K context, less exposure to the 30-min per-run timeout).
+- **Auto-apply stays on Ultra, not Lightning** — auto-apply is a single-shot patch rewrite with no iteration loop, so raw single-pass reasoning quality outweighs speed; Ultra (1.0M context) also backs up Lightning on large multi-file plans.
+- **Backend-aware default resolution in `cli.py`, not `launcher.py`** — the launcher stays model-agnostic (just forwards `--model`); backend-aware defaults are centralized at the CLI boundary where `backend` is known.
+- **Fallback retries within the same iteration** — alternate-model retries do not consume the per-plan retry/iteration budget, so a transient model outage is invisible to completion tracking.
+- **Persisted queue `model` migrated once** — a stored queue `model` field overrides code defaults, so it was updated alongside the code change.
 
 ### Blockers
 
@@ -59,7 +58,7 @@ None.
 
 ### Recommended Next Step
 
-No remaining work for this plan. All tasks verified and complete.
+No remaining work for this plan. The next plan in the queue is `agents/plans/ziprecruiter-403-handling.md` (already in the live queue).
 
 ## Project Overview
 

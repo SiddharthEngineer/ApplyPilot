@@ -179,7 +179,7 @@ def apply(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications to submit."),
     workers: int = typer.Option(1, "--workers", "-w", help="Number of parallel browser workers."),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for job selection."),
-    model: str = typer.Option("haiku", "--model", "-m", help="Claude model name (Claude) or provider/model (OpenCode)."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Claude model name (Claude) or provider/model (OpenCode). Defaults depend on --backend."),
     backend: str = typer.Option("claude", "--backend", "-b", help="Agent backend: 'claude' (Claude Code CLI) or 'opencode' (OpenCode CLI)."),
     continuous: bool = typer.Option(False, "--continuous", "-c", help="Run forever, polling for new jobs."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview actions without submitting."),
@@ -204,6 +204,13 @@ def apply(
 
     from applypilot.config import check_tier, PROFILE_PATH as _profile_path
     from applypilot.database import get_connection
+
+    # Resolve backend-aware default model
+    if model is None:
+        if backend == "opencode":
+            model = "opencode/nemotron-3-ultra-free"
+        else:
+            model = "haiku"
 
     # --- Utility modes (no Chrome/Claude needed) ---
 

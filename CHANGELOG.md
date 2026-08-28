@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/plan_worker.py`: Added `MODEL_FALLBACKS` ordered fallback list. When an agent run fails (e.g. transient free-tier 403/429/removed-model), the worker retries the same iteration with the next model before counting it as a failure.
+
+### Changed
+- `scripts/plan_worker.py` + `agents/plan_queue.json`: Default plan worker model changed from `opencode/mimo-v2.5-free` to `opencode/nemotron-3.5-lightning-free` (NVIDIA execution tier for long-running agents).
+- `cli.py`: `apply --model` is now backend-aware. `--backend opencode` resolves the default to the valid OpenCode `opencode/nemotron-3-ultra-free` (single-pass reasoning quality); `--backend claude` keeps the `haiku` default. An explicit `--model` always wins.
+- `README.md` / `CONTRIBUTING.md`: Documented the OpenCode auto-apply default model + override, and the plan worker's model default + fallback list.
+
 ### Fixed
 - `plan_worker.py`: Removed invalid `--auto` flag from `opencode run` command that caused immediate failures.
 - `plan_worker.py` + `plan_queue.json`: Corrected model name from `opencode/mimo-2.5-free` to `opencode/mimo-v2.5-free`.

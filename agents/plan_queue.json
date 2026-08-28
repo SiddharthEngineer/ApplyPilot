@@ -1,9 +1,13 @@
 {
   "queue": [
-    "agents/plans/opencode-model-selection.md",
     "agents/plans/ziprecruiter-403-handling.md"
   ],
   "completed": [
+    {
+      "plan": "agents/plans/opencode-model-selection.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T09:05:00.000000+00:00"
+    },
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
       "reason": "done",
@@ -35,14 +39,15 @@
       "completed_at": "2026-08-27T17:28:55.743891+00:00"
     }
   ],
-  "model": "opencode/nemotron-3-ultra-free",
+  "model": "opencode/nemotron-3.5-lightning-free",
   "max_iterations": 10,
   "iteration_counts": {
     "agents/plans/secure-password-at-rest.md": 1,
     "agents/plans/captcha-solve-tool.md": 1,
     "agents/plans/ziprecruiter-403-handling.md": 4,
     "agents/plans/gemini-404-scoring-fix.md": 11,
-    "agents/plans/fix-workday-ssl-cert.md": 5
+    "agents/plans/fix-workday-ssl-cert.md": 5,
+    "agents/plans/opencode-model-selection.md": 1
   },
   "retry_counts": {}
 }

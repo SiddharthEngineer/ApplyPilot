@@ -206,7 +206,7 @@ nohup ./scripts/plan_worker.py >> plan_worker.log 2>&1 &
 {
   "queue": ["agents/plans/captcha-solve-tool.md"],
   "completed": [],
-  "model": "opencode/mimo-2.5-free",
+  "model": "opencode/nemotron-3.5-lightning-free",
   "max_iterations": 20,
   "iteration_counts": {},
   "retry_counts": {}
@@ -226,6 +226,31 @@ A plan is considered done when either:
 - The plan file's status field reads `✅ Completed`
 
 The agent is responsible for updating these markers via the instructions in `agents/BUILD_PROMPT.md`.
+
+### Model Selection & Fallback
+
+The worker defaults to `opencode/nemotron-3.5-lightning-free`. The default is
+defined in the `load_queue()` fallback dict, the `worker_loop()` model lookup,
+and the `show_status()` display. A stored `model` field in the queue file
+overrides the code default.
+
+When an agent run fails (e.g. a transient free-tier 403/429/removed-model), the
+worker retries the same plan iteration with the next model in the ordered
+`MODEL_FALLBACKS` list before counting it as a retry/failure. The list lives at
+the top of `scripts/plan_worker.py`:
+
+```python
+MODEL_FALLBACKS = [
+    "opencode/nemotron-3.5-lightning-free",
+    "opencode/nemotron-3-ultra-free",
+    "opencode/big-pickle",
+    "opencode/mimo-v2.5-free",
+]
+```
+
+To change the default model, update `MODEL_FALLBACKS`, the `load_queue()` and
+`worker_loop()` fallbacks, the `show_status()` display, and (if you want the
+live queue to reflect it) the `model` field in `agents/plan_queue.json`.
 
 ## License
 

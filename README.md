@@ -172,6 +172,10 @@ applypilot apply --reset-failed        # reset all failed jobs for retry
 applypilot apply --gen --url URL       # generate prompt file for manual debugging
 ```
 
+`--backend opencode` defaults to the `opencode/nemotron-3-ultra-free` model, while
+`--backend claude` defaults to the `haiku` model. Override either with
+`--model provider/model` (OpenCode) or `--model claude-short-name` (Claude).
+
 ---
 
 ## CLI Reference

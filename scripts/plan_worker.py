@@ -29,6 +29,17 @@ STATE_FILE = REPO_ROOT / "agents" / "STATE.md"
 
 MAX_RETRIES = 2
 
+# Ordered fallback list of OpenCode model IDs. The first entry is the default
+# model; if a run fails (e.g. transient free-tier 403/429/removed-model), the
+# worker retries the same plan iteration with the next model before counting it
+# as a failure.
+MODEL_FALLBACKS = [
+    "opencode/nemotron-3.5-lightning-free",
+    "opencode/nemotron-3-ultra-free",
+    "opencode/big-pickle",
+    "opencode/mimo-v2.5-free",
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -48,7 +59,7 @@ def load_queue() -> dict:
         return {
             "queue": [],
             "completed": [],
-            "model": "opencode/mimo-v2.5-free",
+            "model": "opencode/nemotron-3.5-lightning-free",
             "max_iterations": 20,
             "iteration_counts": {},
             "retry_counts": {},
@@ -181,7 +192,7 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
 
 def worker_loop(dry_run: bool = False) -> None:
     state = load_queue()
-    model = state.get("model", "opencode/mimo-v2.5-free")
+    model = state.get("model", "opencode/nemotron-3.5-lightning-free")
     max_iter = state.get("max_iterations", 20)
 
     log.info("Plan worker started. Model=%s, max_iterations=%d", model, max_iter)
@@ -209,7 +220,33 @@ def worker_loop(dry_run: bool = False) -> None:
 
         exit_code = run_agent(plan, model, iteration)
 
+        # On a non-zero exit, retry the same iteration with subsequent models
+        # in the fallback list before counting this as a retry/failure.
+        # This guards against transient free-tier failures (403/429/removed).
+        fallback_index = MODEL_FALLBACKS.index(model) if model in MODEL_FALLBACKS else -1
+        while exit_code != 0:
+            next_index = fallback_index + 1
+            if next_index >= len(MODEL_FALLBACKS):
+                break  # No more fallbacks for this iteration
+            fallback_index = next_index
+            next_model = MODEL_FALLBACKS[next_index]
+            log.warning(
+                "Agent exited with code %d for %s (model %s). Retrying with fallback model %s.",
+                exit_code,
+                plan,
+                model,
+                next_model,
+            )
+            exit_code = run_agent(plan, next_model, iteration)
+            model = next_model
+
         if exit_code != 0:
+            log.warning(
+                "Agent exited with code %d for %s using model %s after exhausting fallbacks.",
+                exit_code,
+                plan,
+                model,
+            )
             retries = get_retry_count(state, plan)
             set_retry_count(state, plan, retries + 1)
             log.warning(
@@ -229,6 +266,7 @@ def worker_loop(dry_run: bool = False) -> None:
 
         # Agent succeeded — check if plan is done
         set_retry_count(state, plan, 0)
+        log.info("Plan %s succeeded with model %s.", plan, model)
 
         if check_plan_completed(plan):
             log.info("✅ Plan %s completed!", plan)
@@ -276,7 +314,7 @@ def show_status() -> None:
     print(f"\n{'='*60}")
     print("  Plan Queue Worker Status")
     print(f"{'='*60}")
-    print(f"  Model:            {state.get('model', 'opencode/mimo-v2.5-free')}")
+    print(f"  Model:            {state.get('model', 'opencode/nemotron-3.5-lightning-free')}")
     print(f"  Max iterations:   {state.get('max_iterations', 20)}")
     print(f"\n  Queue ({len(state['queue'])} pending):")
     for i, plan in enumerate(state["queue"]):

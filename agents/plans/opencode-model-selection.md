@@ -1,7 +1,7 @@
 # Plan: Select Optimal OpenCode Models for ApplyPilot
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress
+**Status:** ✅ Completed
 
 ---
 
@@ -59,7 +59,7 @@ existing queue file reflects the new default.
 - `./scripts/plan_worker.py --dry-run` logs `Model=opencode/nemotron-3.5-lightning-free`.
 - An existing queue **without** a stored `model` still falls back to the new default.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -91,7 +91,7 @@ effective model before it is passed to `apply_main` / `gen_prompt`), so
 - `apply --backend claude --model sonnet` uses `sonnet` (override respected).
 - `--gen` with `--backend opencode` prints the debug hint with the resolved model.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -119,7 +119,7 @@ iteration/retry semantics.
 - On success, the worker logs the model that actually succeeded.
 - `./scripts/plan_worker.py --status` and `--dry-run` still work unchanged.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -141,7 +141,7 @@ default and fallback list, and how to change them.
 - CONTRIBUTING documents the plan worker model default and fallback list.
 - No other doc claims `haiku` is the OpenCode default.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -169,4 +169,10 @@ Task 4 (docs) ← depends on Tasks 1-2
 
 ## Historical Record
 
-No tasks completed yet.
+- **2026-08-28** — All four tasks implemented and verified:
+  - Task 1: Plan worker default changed to `opencode/nemotron-3.5-lightning-free` in code fallbacks and queue file.
+  - Task 2: `apply --model` is backend-aware; OpenCode resolves to `opencode/nemotron-3-ultra-free`, Claude stays `haiku`.
+  - Task 3: Added `MODEL_FALLBACKS` retry loop to the plan worker.
+  - Task 4: Documented model selection in README and CONTRIBUTING.
+
+  Verification: `plan_worker.py --dry-run` logs the new model; `--status`/`--dry-run` unchanged; model-resolution cases pass; `tests/test_launcher.py` (13) and fast unit tests (72) pass; no new ruff violations introduced.
