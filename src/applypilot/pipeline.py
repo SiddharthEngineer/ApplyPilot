@@ -59,7 +59,7 @@ _UPSTREAM: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
-def _run_discover(workers: int = 1) -> dict:
+def _run_discover(workers: int = 1, no_cache: bool = False) -> dict:
     """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers."""
     stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
 
@@ -99,7 +99,7 @@ def _run_discover(workers: int = 1) -> dict:
     console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
     try:
         from applypilot.discovery.smartextract import run_smart_extract
-        run_smart_extract(workers=workers)
+        run_smart_extract(workers=workers, no_cache=no_cache)
         stats["smartextract"] = "ok"
     except Exception as e:
         log.error("Smart extract failed: %s", e)
@@ -274,6 +274,7 @@ def _run_stage_streaming(
     workers: int = 1,
     validation_mode: str = "normal",
     source: str = "resume",
+    no_cache: bool = False,
 ) -> None:
     """Run a single stage in streaming mode: loop until upstream done + no work.
 
@@ -290,6 +291,8 @@ def _run_stage_streaming(
         kwargs["source"] = source
     if stage in ("discover", "enrich"):
         kwargs["workers"] = workers
+    if stage == "discover":
+        kwargs["no_cache"] = no_cache
 
     upstream = _UPSTREAM[stage]
 
@@ -339,7 +342,8 @@ def _run_stage_streaming(
 
 def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                     validation_mode: str = "normal",
-                    source: str = "resume") -> dict:
+                    source: str = "resume",
+                    no_cache: bool = False) -> dict:
     """Execute stages one at a time (original behavior)."""
     results: list[dict] = []
     errors: dict[str, str] = {}
@@ -364,6 +368,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                 kwargs["source"] = source
             if name in ("discover", "enrich"):
                 kwargs["workers"] = workers
+            if name == "discover":
+                kwargs["no_cache"] = no_cache
             result = runner(**kwargs)
             elapsed = time.time() - t0
 
@@ -396,7 +402,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
 
 def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
                    validation_mode: str = "normal",
-                   source: str = "resume") -> dict:
+                   source: str = "resume",
+                   no_cache: bool = False) -> dict:
     """Execute stages concurrently with DB as conveyor belt."""
     tracker = _StageTracker()
     stop_event = threading.Event()
@@ -418,7 +425,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         start_times[name] = time.time()
         t = threading.Thread(
             target=_run_stage_streaming,
-            args=(name, tracker, stop_event, min_score, workers, validation_mode, source),
+            args=(name, tracker, stop_event, min_score, workers, validation_mode, source, no_cache),
             name=f"stage-{name}",
             daemon=True,
         )
@@ -467,6 +474,7 @@ def run_pipeline(
     workers: int = 1,
     validation_mode: str = "normal",
     source: str = "resume",
+    no_cache: bool = False,
 ) -> dict:
     """Run pipeline stages.
 
@@ -477,6 +485,7 @@ def run_pipeline(
         stream: If True, run stages concurrently (streaming mode).
         workers: Number of parallel threads for discovery/enrichment stages.
         source: Resume source — "resume" (default) or "content-library".
+        no_cache: If True, bypass per-domain strategy cache in smart-extract.
 
     Returns:
         Dict with keys: stages (list of result dicts), errors (dict), elapsed (float).
@@ -519,10 +528,12 @@ def run_pipeline(
     # Execute
     if stream:
         result = _run_streaming(ordered, min_score, workers=workers,
-                                validation_mode=validation_mode, source=source)
+                                validation_mode=validation_mode, source=source,
+                                no_cache=no_cache)
     else:
         result = _run_sequential(ordered, min_score, workers=workers,
-                                 validation_mode=validation_mode, source=source)
+                                 validation_mode=validation_mode, source=source,
+                                 no_cache=no_cache)
 
     # Summary table
     console.print(f"\n{'=' * 70}")

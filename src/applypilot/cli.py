@@ -109,6 +109,11 @@ def run(
             "content-library: use content_library.md (selects projects from raw facts)."
         ),
     ),
+    no_cache: bool = typer.Option(
+        False,
+        "--no-cache",
+        help="Bypass per-domain strategy cache in smart-extract (forces fresh LLM strategy for every site).",
+    ),
 ) -> None:
     """Run pipeline stages: discover, enrich, score, tailor, cover, pdf."""
     _bootstrap()
@@ -168,6 +173,7 @@ def run(
         workers=workers,
         validation_mode=validation,
         source=source,
+        no_cache=no_cache,
     )
 
     if result.get("errors"):

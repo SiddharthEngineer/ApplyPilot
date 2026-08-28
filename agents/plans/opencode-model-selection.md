@@ -1,7 +1,7 @@
 # Plan: Select Optimal OpenCode Models for ApplyPilot
 
 **Started:** 2026-08-27
-**Status:** ✅ Completed
+**Status:** ✅ Complete
 
 ---
 

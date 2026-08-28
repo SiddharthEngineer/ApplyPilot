@@ -21,7 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 import yaml
@@ -44,6 +44,50 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         pass
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+
+# -- Per-domain strategy cache ------------------------------------------------
+
+# In-memory cache: key = (site_name, domain), value = {"strategy": ..., "extraction": ...}
+_strategy_cache: dict[tuple[str, str], dict] = {}
+_strategy_cache_enabled: bool = True
+
+_CACHE_FILE = CONFIG_DIR / ".smartextract_cache.json"
+
+
+def _get_cache_key(site_name: str, url: str) -> tuple[str, str]:
+    """Derive a (site_name, domain) cache key from a target."""
+    domain = urlparse(url).netloc.lower()
+    return (site_name, domain)
+
+
+def _load_strategy_cache() -> None:
+    """Load on-disk cache into memory (if it exists)."""
+    if not _strategy_cache_enabled:
+        return
+    if _CACHE_FILE.exists():
+        try:
+            data = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
+            for k_str, v in data.items():
+                parts = k_str.split("|", 1)
+                if len(parts) == 2:
+                    _strategy_cache[(parts[0], parts[1])] = v
+            log.debug("Loaded %d cached strategies from disk", len(_strategy_cache))
+        except Exception as e:
+            log.debug("Could not load strategy cache: %s", e)
+
+
+def _save_strategy_cache() -> None:
+    """Persist in-memory cache to disk."""
+    if not _strategy_cache_enabled:
+        return
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        data = {f"{k[0]}|{k[1]}": v for k, v in _strategy_cache.items()}
+        _CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        log.debug("Saved %d cached strategies to disk", len(_strategy_cache))
+    except Exception as e:
+        log.debug("Could not save strategy cache: %s", e)
 
 
 # -- Location filtering -------------------------------------------------------
@@ -1044,28 +1088,64 @@ def _run_one_site(name: str, url: str) -> dict:
         intel["api_responses"] = judge_api_responses(intel["api_responses"])
         log.info("Kept %d relevant responses", len(intel["api_responses"]))
 
-    # Step 2: Strategy selection
-    briefing = format_strategy_briefing(intel)
-    log.info("[2] Phase 1: Strategy selection (%s chars briefing)", f"{len(briefing):,}")
+    # Step 1.7: Check strategy cache (skip LLM strategy call if hit)
+    cache_key = _get_cache_key(name, url)
+    cached = _strategy_cache.get(cache_key) if _strategy_cache_enabled else None
+    strategy = None
+    plan = None
 
-    prompt = STRATEGY_PROMPT.format(briefing=briefing)
-    try:
-        raw, elapsed, meta = ask_llm(prompt)
-    except Exception as e:
-        log.error("LLM_ERROR: %s", e)
-        return {"name": name, "status": "LLM_ERROR", "error": str(e)}
+    if cached and not _is_captcha:
+        cached_strategy = cached.get("strategy", "")
+        cached_extraction = cached.get("extraction", {})
+        shape_ok = True
 
-    log.info("LLM: %d chars, %.1fs", meta["response_chars"], elapsed)
+        if cached_strategy == "css_selectors":
+            # Verify card_candidates shape matches (child_tag count)
+            cached_child_tag = cached.get("child_tag")
+            if cached_child_tag and intel["card_candidates"]:
+                current_child_tag = intel["card_candidates"][0].get("child_tag")
+                shape_ok = current_child_tag == cached_child_tag
+            elif not intel["card_candidates"]:
+                shape_ok = False
+        elif cached_strategy == "json_ld":
+            shape_ok = bool(intel["json_ld"])
+        elif cached_strategy == "api_response":
+            shape_ok = bool(intel["api_responses"])
 
-    try:
-        plan = extract_json(raw)
-    except Exception as e:
-        log.error("PARSE_ERROR: %s | raw: %s", e, raw[:500])
-        return {"name": name, "status": "PARSE_ERROR", "error": str(e), "raw": raw}
+        if shape_ok:
+            strategy = cached_strategy
+            plan = {"strategy": strategy, "extraction": cached_extraction}
+            log.info("Cache HIT for %s -> %s (skipping strategy LLM)", name, strategy)
+        else:
+            log.info("Cache shape mismatch for %s (need fresh LLM)", name)
+            cached = None
+    elif _is_captcha and cached:
+        log.info("CAPTCHA detected — ignoring cache for %s", name)
+        cached = None
 
-    strategy = plan.get("strategy", "?")
-    reasoning = plan.get("reasoning", "?")
-    log.info("Strategy: %s | Reasoning: %s", strategy, reasoning)
+    # Step 2: Strategy selection (only if no cache hit)
+    if strategy is None:
+        briefing = format_strategy_briefing(intel)
+        log.info("[2] Phase 1: Strategy selection (%s chars briefing)", f"{len(briefing):,}")
+
+        prompt = STRATEGY_PROMPT.format(briefing=briefing)
+        try:
+            raw, elapsed, meta = ask_llm(prompt)
+        except Exception as e:
+            log.error("LLM_ERROR: %s", e)
+            return {"name": name, "status": "LLM_ERROR", "error": str(e)}
+
+        log.info("LLM: %d chars, %.1fs", meta["response_chars"], elapsed)
+
+        try:
+            plan = extract_json(raw)
+        except Exception as e:
+            log.error("PARSE_ERROR: %s | raw: %s", e, raw[:500])
+            return {"name": name, "status": "PARSE_ERROR", "error": str(e), "raw": raw}
+
+        strategy = plan.get("strategy", "?")
+        reasoning = plan.get("reasoning", "?")
+        log.info("Strategy: %s | Reasoning: %s", strategy, reasoning)
 
     # Step 3: Execute
     log.info("[3] Executing %s...", strategy)
@@ -1086,6 +1166,15 @@ def _run_one_site(name: str, url: str) -> dict:
     except Exception as e:
         log.error("EXECUTION_ERROR: %s", e)
         return {"name": name, "status": "EXEC_ERROR", "error": str(e), "plan": plan}
+
+    # Step 3.5: Update strategy cache on success
+    if _strategy_cache_enabled and jobs and strategy in ("css_selectors", "json_ld"):
+        cache_entry = {"strategy": strategy, "extraction": plan.get("extraction", {})}
+        if strategy == "css_selectors" and intel["card_candidates"]:
+            cache_entry["child_tag"] = intel["card_candidates"][0].get("child_tag")
+        _strategy_cache[cache_key] = cache_entry
+        _save_strategy_cache()
+        log.info("Cached strategy for %s -> %s", name, strategy)
 
     # Step 4: Report
     titles = sum(1 for j in jobs if j.get("title"))
@@ -1143,6 +1232,7 @@ def build_scrape_targets(
     default_location = locs[0]["location"] if locs else ""
 
     targets: list[dict] = []
+    seen: set[tuple[str, str]] = set()
 
     for site in sites:
         site_url = site.get("url", "")
@@ -1155,6 +1245,11 @@ def build_scrape_targets(
                 expanded_url = expanded_url.replace("{query_encoded}", quote_plus(query))
                 expanded_url = expanded_url.replace("{query}", quote_plus(query))
                 expanded_url = expanded_url.replace("{location_encoded}", quote_plus(default_location))
+                key = (site_name, expanded_url)
+                if key in seen:
+                    log.debug("Dedup skip: %s", key)
+                    continue
+                seen.add(key)
                 targets.append({
                     "name": site_name,
                     "url": expanded_url,
@@ -1163,6 +1258,11 @@ def build_scrape_targets(
         else:
             expanded_url = site_url
             expanded_url = expanded_url.replace("{location_encoded}", quote_plus(default_location))
+            key = (site_name, expanded_url)
+            if key in seen:
+                log.debug("Dedup skip: %s", key)
+                continue
+            seen.add(key)
             targets.append({
                 "name": site_name,
                 "url": expanded_url,
@@ -1250,6 +1350,7 @@ def _run_all(
 def run_smart_extract(
     sites: list[dict] | None = None,
     workers: int = 1,
+    no_cache: bool = False,
 ) -> dict:
     """Main entry point for AI-powered smart extraction.
 
@@ -1259,10 +1360,16 @@ def run_smart_extract(
     Args:
         sites: Override the site list. If None, loads from YAML.
         workers: Number of parallel threads for site scraping. Default 1 (sequential).
+        no_cache: If True, bypass the per-domain strategy cache.
 
     Returns:
         Dict with stats: total_new, total_existing, passed, total.
     """
+    global _strategy_cache_enabled
+    _strategy_cache_enabled = not no_cache
+    if _strategy_cache_enabled:
+        _load_strategy_cache()
+
     search_cfg = config.load_search_config()
     accept_locs, reject_locs = _load_location_filter(search_cfg)
 

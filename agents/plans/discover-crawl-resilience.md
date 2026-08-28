@@ -1,7 +1,7 @@
 # Plan: Discover Crawl Resilience — Site Blocking, Country Validation & Early-Stop Fixes
 
 **Started:** 2026-08-28
-**Status:** ✅ Completed
+**Status:** ✅ Complete
 
 ---
 
