@@ -27,3 +27,9 @@ Don't bundle unrelated changes. 12 files → ~6-8 tasks.
 
 ## Rules (10)
 1. Success criteria before tasks. 2. Every task has `Status:` line. 3. Files explicit with (new)/(modify). 4. Acceptance = verifiable commands, no "looks good". 5. Graph + list shows dependencies. 6. Document non-obvious choices. 7. Don't read existing plans for examples — template is self-contained. 8. Match codebase patterns (search before writing). 9. Data models: include `@dataclass`/typed signatures, match style. 10. Be specific.
+
+
+## Important: Plan Worker Invocation
+- **Never** `@`-mention `scripts/plan_worker.py` from within a plan-mode session.
+- The worker is a standalone script to run in a terminal: `./scripts/plan_worker.py`
+- It spawns build agents via `opencode run --auto` — those agents have full permissions.

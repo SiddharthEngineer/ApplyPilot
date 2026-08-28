@@ -43,9 +43,19 @@
       "plan": "agents/plans/ziprecruiter-403-handling.md",
       "reason": "done",
       "completed_at": "2026-08-28T14:32:32.147153+00:00"
+    },
+    {
+      "plan": "agents/plans/restore-auto-flag.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T16:02:37.577375+00:00"
+    },
+    {
+      "plan": "agents/plans/fix-opencode-plan-permissions.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T16:15:33.464920+00:00"
     }
   ],
-  "model": "opencode/nemotron-3.5-lightning-free",
+  "model": "opencode/mimo-v2.5-free",
   "max_iterations": 10,
   "iteration_counts": {
     "agents/plans/secure-password-at-rest.md": 1,
@@ -53,7 +63,10 @@
     "agents/plans/ziprecruiter-403-handling.md": 4,
     "agents/plans/gemini-404-scoring-fix.md": 11,
     "agents/plans/fix-workday-ssl-cert.md": 5,
-    "agents/plans/opencode-model-selection.md": 1
+    "agents/plans/opencode-model-selection.md": 1,
+    "agents/plans/discover-crawl-resilience.md": 2
   },
-  "retry_counts": {}
+  "retry_counts": {
+    "agents/plans/discover-crawl-resilience.md": 0
+  }
 }

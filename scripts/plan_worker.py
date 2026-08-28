@@ -220,7 +220,9 @@ def worker_loop(dry_run: bool = False) -> None:
             continue
 
         if dry_run:
+            cmd_preview = ["opencode", "run", "--model", model, "--auto", "--dir", str(REPO_ROOT)]
             log.info("[DRY RUN] Would run agent for %s", plan)
+            log.info("[DRY RUN] Command: %s", " ".join(cmd_preview))
             log.info("[DRY RUN] Prompt preview:\n%s", build_agent_prompt(plan)[:500])
             break
 

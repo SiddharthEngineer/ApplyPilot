@@ -10,5 +10,7 @@ Produce `agents/plans/<slug>.md` (kebab-case). Follow its template + 10 rules.
 ## Build Agent → `agents/BUILD_AGENT.md`
 Implement ONE queued task from `agents/plans/**` per session. Follow its checklist. Worker: `scripts/plan_worker.py` (`opencode run --auto`).
 
+**Never** `@`-mention `scripts/plan_worker.py` from within a plan-mode session. The worker is a standalone script to run in a terminal — it spawns build agents via `opencode run --auto`.
+
 ## New role → `agents/<ROLE>_AGENT.md`
 Add `## If you are a <Role> Agent → read agents/<ROLE>_AGENT.md` above. Don't duplicate global rules.
