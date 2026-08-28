@@ -59,7 +59,7 @@
       "completed_at": "2026-08-28T18:07:02.707421+00:00"
     }
   ],
-  "model": "opencode/mimo-v2.5-free",
+  "model": "opencode/hy3-free",
   "max_iterations": 10,
   "iteration_counts": {
     "agents/plans/secure-password-at-rest.md": 1,
@@ -68,7 +68,10 @@
     "agents/plans/gemini-404-scoring-fix.md": 3,
     "agents/plans/fix-workday-ssl-cert.md": 5,
     "agents/plans/opencode-model-selection.md": 1,
-    "agents/plans/discover-crawl-resilience.md": 3
+    "agents/plans/discover-crawl-resilience.md": 3,
+    "agents/plans/llm-rate-limit-mitigation.md": 2
   },
-  "retry_counts": {}
+  "retry_counts": {
+    "agents/plans/llm-rate-limit-mitigation.md": 0
+  }
 }

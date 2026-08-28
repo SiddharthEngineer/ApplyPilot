@@ -489,9 +489,11 @@ def doctor() -> None:
         results.append(("LLM API key", ok_mark, f"OpenCode ({model})"))
     elif has_gemini:
         model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
+        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "gemini-2.0-flash-lite")
         # Validate model against Gemini API model list
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         model_valid = True
+        models: list[str] = []
         try:
             import httpx
             resp = httpx.get(
@@ -501,12 +503,17 @@ def doctor() -> None:
             )
             if resp.status_code == 200:
                 models = [m["name"].split("/")[-1] for m in resp.json().get("models", [])]
+                avail = ', '.join(sorted(models)[:5])
                 if model not in models:
                     model_valid = False
-                    avail = ', '.join(sorted(models)[:5])
                     results.append((
                         "LLM API key", warn_mark,
                         f"Gemini ({model}) — model not found in API model list. Available: {avail}...",
+                    ))
+                if discovery_model not in models:
+                    results.append((
+                        "LLM API key", warn_mark,
+                        f"Gemini discovery model ({discovery_model}) not in API model list. Available: {avail}...",
                     ))
         except Exception:
             pass  # If we can't validate, just show the model name
@@ -520,6 +527,16 @@ def doctor() -> None:
     else:
         results.append(("LLM API key", fail_mark,
                         "Set GEMINI_API_KEY in ~/.applypilot/.env (run 'applypilot init')"))
+
+    # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
+    if has_gemini or has_openai or has_opencode or has_local:
+        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL") or os.environ.get("LLM_MODEL") or (
+            "gemini-2.0-flash-lite" if has_gemini else "gemini-3.6-flash"
+        )
+        results.append(("Discovery model", ok_mark, discovery_model))
+        rpm_limit = os.environ.get("LLM_RPM_LIMIT", "12")
+        rpm_window = os.environ.get("LLM_RPM_WINDOW", "60")
+        results.append(("RPM limit", ok_mark, f"{rpm_limit} (window {rpm_window}s)"))
 
     # --- Tier 3 checks ---
     # Claude Code CLI

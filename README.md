@@ -127,6 +127,17 @@ Job search queries, target titles, locations, boards. Run multiple searches with
 ### `.env`
 API keys and runtime config: `GEMINI_API_KEY`, `LLM_MODEL`, `CAPSOLVER_API_KEY` (optional).
 
+### Cost & Rate Limits
+
+The `discover` stage can make 180-270 LLM calls on a 90-target crawl, which exhausts Gemini's free tier (15 RPM) in minutes. These mitigations keep a full run inside the free tier:
+
+- **`LLM_RPM_LIMIT=12`** — proactive client-side sliding-window limiter (Gemini free tier = 15 RPM; 12 keeps headroom, `0` disables). Set higher for paid tiers.
+- **`LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite`** — cheaper model (≈5× lower input cost) for job-classification/strategy work. Tailoring/cover-letter keep the higher-quality `gemini-3.6-flash` (override with `LLM_TAILOR_MODEL`).
+- **`LLM_SCORING_MODEL` / `LLM_TAILOR_MODEL`** — override scoring/tailoring models independently.
+- **`--validation lenient`** on `applypilot run tailor` saves roughly one LLM call per tailoring attempt.
+- **`--no-cache`** disables the per-domain strategy cache in `discover` (the cache reuses a site's extraction strategy across queries to skip repeat LLM strategy calls).
+- **OpenCode free models** — set `OPENCODE_API_KEY` (or `LLM_URL=https://opencode.ai/zen/v1`) to route all LLM calls through `opencode/*` free models at zero cost. `applypilot doctor` reports the active provider.
+
 ### Package configs (shipped with ApplyPilot)
 - `config/employers.yaml` - Workday employer registry (48 preconfigured)
 - `config/sites.yaml` - Direct career sites (30+), blocked sites, base URLs, manual ATS domains

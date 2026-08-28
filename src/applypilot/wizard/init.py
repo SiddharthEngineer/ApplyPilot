@@ -592,6 +592,22 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         env_lines.append(f"LLM_URL={url}")
         env_lines.append(f"LLM_MODEL={model}")
 
+    # --- Cost & rate-limit tuning (applies to every provider) ---
+    default_discovery_model = "gemini-2.0-flash-lite" if provider == "gemini" else env.get("LLM_MODEL", "")
+    discovery_model = Prompt.ask(
+        "Discovery model (cheaper model for job classification; saves ~5x input cost)",
+        default=env.get("LLM_DISCOVERY_MODEL", default_discovery_model),
+    )
+    if discovery_model:
+        env_lines.append(f"LLM_DISCOVERY_MODEL={discovery_model}")
+
+    rpm_limit = Prompt.ask(
+        "LLM RPM limit (Gemini free tier = 15 RPM; 12 stays safe, 0 = disabled)",
+        default=env.get("LLM_RPM_LIMIT", "12"),
+    )
+    if rpm_limit:
+        env_lines.append(f"LLM_RPM_LIMIT={rpm_limit}")
+
     env_lines.append("")
     ENV_PATH.write_text("\n".join(env_lines), encoding="utf-8")
     set_restricted_permissions(ENV_PATH)

@@ -149,3 +149,67 @@ class TestDoctorContentLibraryCheck:
 
         assert result.exit_code == 0
         assert "Content library mode available" not in result.output
+
+
+class TestDoctorRateLimitTuning:
+    """Tests for discovery model + RPM limit reporting in doctor."""
+
+    def _invoke(self, tmp_path, monkeypatch, env, models):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        for key in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL",
+                    "LLM_MODEL", "LLM_DISCOVERY_MODEL", "LLM_RPM_LIMIT", "LLM_RPM_WINDOW"):
+            monkeypatch.delenv(key, raising=False)
+        for key, val in env.items():
+            monkeypatch.setenv(key, val)
+
+        class _Resp:
+            status_code = 200
+
+            def json(self):
+                return {"models": [{"name": f"models/{m}"} for m in models]}
+
+        runner = CliRunner()
+        with patch("applypilot.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"):
+                with patch("httpx.get", return_value=_Resp()):
+                    with patch("applypilot.config.load_env", lambda: None):
+                        return runner.invoke(app, ["doctor"])
+
+    def test_discovery_model_and_rpm_lines_present(self, tmp_path, monkeypatch) -> None:
+        """doctor prints Discovery model: and RPM limit: lines for Gemini."""
+        result = self._invoke(
+            tmp_path, monkeypatch,
+            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-2.0-flash-lite", "LLM_RPM_LIMIT": "12"},
+            ["gemini-3.6-flash", "gemini-2.0-flash-lite"],
+        )
+        assert result.exit_code == 0
+        assert "Discovery model" in result.output
+        assert "RPM limit" in result.output
+        assert "12" in result.output
+
+    def test_bad_discovery_model_warns_with_available(self, tmp_path, monkeypatch) -> None:
+        """Bad discovery model triggers a WARN with an Available: model list."""
+        result = self._invoke(
+            tmp_path, monkeypatch,
+            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "does-not-exist", "LLM_RPM_LIMIT": "12"},
+            ["gemini-3.6-flash", "gemini-2.0-flash-lite"],
+        )
+        assert result.exit_code == 0
+        assert "WARN" in result.output
+        assert "Available:" in result.output
+
+    def test_opencode_provider_no_gemini_missing(self, tmp_path, monkeypatch) -> None:
+        """With OPENCODE_API_KEY set, Gemini is not reported MISSING."""
+        result = self._invoke(
+            tmp_path, monkeypatch,
+            {"OPENCODE_API_KEY": "sk-test", "LLM_MODEL": "opencode/nemotron-3-nano-free", "LLM_RPM_LIMIT": "12"},
+            [],
+        )
+        assert result.exit_code == 0
+        assert "OpenCode" in result.output
+        assert "Discovery model" in result.output
+        # Gemini must not be reported as the LLM provider / missing key when OpenCode is set
+        assert "LLM API key         OK  OpenCode" in result.output
+

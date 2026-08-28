@@ -1,7 +1,7 @@
 # Plan: LLM Rate-Limit Mitigation & Cost Optimization
 
 **Started:** 2026-08-28
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ---
 
@@ -157,7 +157,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - `.env.example` has all three new vars commented; `README.md` has `### Cost & Rate Limits` mentioning `gemini-2.0-flash-lite`, `LLM_RPM_LIMIT`, `opencode/*`.
 - `ruff check src/` and `PYTHONPATH=src .venv/bin/python -m pytest tests/test_init_wizard.py tests/test_llm.py tests/test_config.py -v` pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-08-28)
 
 ---
 
@@ -166,9 +166,9 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 ```
 Task 1 (RPM limiter) ✅ done
   ├─→ Task 2 (heuristic) ✅ ──→ Task 3 (batch judge) ✅ ──→ Task 4 (strategy cache) ✅
-  └─→ Task 5 (tiered models) ──→ Task 6 (OpenCode provider)
-                                        ↓
-                                  Task 7 (wizard/doctor/docs — needs 5+6)
+   └─→ Task 5 (tiered models) ──→ Task 6 (OpenCode provider)
+                                         ↓
+                                   Task 7 (wizard/doctor/docs — needs 5+6) ✅
 ```
 
 1. Task 1 — RPM limiter ✅ (foundation).

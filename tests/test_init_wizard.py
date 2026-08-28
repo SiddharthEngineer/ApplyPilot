@@ -786,6 +786,8 @@ class TestSetupAiFeaturesPrefill:
             "gemini",  # provider (default should be gemini)
             "my-secret-key",  # API key (pre-filled)
             "gemini-2.0-flash",  # model
+            "gemini-2.0-flash-lite",  # discovery model
+            "12",  # rpm limit
         ]
 
         _setup_ai_features(existing_env=existing_env)
@@ -809,6 +811,8 @@ class TestSetupAiFeaturesPrefill:
             "openai",
             "sk-xxx",
             "gpt-4o",
+            "gpt-4o",  # discovery model (falls back to LLM_MODEL)
+            "12",  # rpm limit
         ]
 
         _setup_ai_features(existing_env=existing_env)
@@ -828,9 +832,71 @@ class TestSetupAiFeaturesPrefill:
             "gemini",
             "new-key",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",  # discovery model
+            "12",  # rpm limit
         ]
 
         _setup_ai_features(existing_env={})
 
         provider_call = mock_ask.call_args_list[0]
         assert provider_call.kwargs.get("default") == "gemini"
+
+    @patch("applypilot.wizard.init.set_restricted_permissions")
+    @patch("applypilot.wizard.init.ENV_PATH")
+    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("applypilot.wizard.init.Confirm.ask")
+    def test_writes_discovery_model_and_rpm_limit(self, mock_confirm, mock_ask, mock_env, mock_perm):
+        """Default answers write LLM_DISCOVERY_MODEL and LLM_RPM_LIMIT to .env."""
+        from applypilot.wizard.init import _setup_ai_features
+
+        written: list[str] = []
+
+        def _capture(text, encoding="utf-8"):
+            written.append(text)
+
+        mock_env.write_text.side_effect = _capture
+        mock_confirm.return_value = True
+        # provider, api_key, model, discovery_model, rpm_limit
+        mock_ask.side_effect = [
+            "gemini",
+            "new-key",
+            "gemini-3.6-flash",
+            "gemini-2.0-flash-lite",
+            "12",
+        ]
+
+        _setup_ai_features(existing_env={})
+
+        content = written[0]
+        assert "LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite" in content
+        assert "LLM_RPM_LIMIT=12" in content
+        assert "GEMINI_API_KEY=new-key" in content
+
+    @patch("applypilot.wizard.init.set_restricted_permissions")
+    @patch("applypilot.wizard.init.ENV_PATH")
+    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("applypilot.wizard.init.Confirm.ask")
+    def test_discovery_model_default_depends_on_provider(self, mock_confirm, mock_ask, mock_env, mock_perm):
+        """Non-gemini providers default discovery model to LLM_MODEL, not flash-lite."""
+        from applypilot.wizard.init import _setup_ai_features
+
+        written: list[str] = []
+
+        def _capture(text, encoding="utf-8"):
+            written.append(text)
+
+        mock_env.write_text.side_effect = _capture
+        mock_confirm.return_value = True
+        mock_ask.side_effect = [
+            "openai",
+            "sk-xxx",
+            "gpt-4o-mini",
+            "gpt-4o-mini",  # discovery model default falls back to LLM_MODEL
+            "12",
+        ]
+
+        _setup_ai_features(existing_env={})
+
+        content = written[0]
+        assert "LLM_DISCOVERY_MODEL=gpt-4o-mini" in content
+
