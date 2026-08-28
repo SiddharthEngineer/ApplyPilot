@@ -31,7 +31,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_connection, init_db, store_jobs, get_stats
-from applypilot.llm import get_client, get_discovery_client
+from applypilot.llm import get_discovery_client
 
 log = logging.getLogger(__name__)
 
@@ -579,7 +579,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
         verdicts = extract_json(raw)
 
         if not isinstance(verdicts, list):
-            raise ValueError(f"Expected JSON array, got {type(verdicts).__name__}")
+            raise TypeError(f"Expected JSON array, got {type(verdicts).__name__}")
 
         # Map index -> verdict
         verdict_map: dict[int, dict] = {}

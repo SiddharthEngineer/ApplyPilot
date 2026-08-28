@@ -45,6 +45,7 @@ None — plan complete. LLM rate-limit mitigation plan fully implemented (Tasks 
 
 ### Completed This Session
 
+- **LLM Rate-Limit Mitigation — lint cleanup (post-Task 7)** — Verified all 7 tasks' acceptance criteria against `trunk`. Fixed the only two net-new ruff errors the plan introduced in `src/applypilot/discovery/smartextract.py`: removed the now-unused `get_client` import (route is fully on `get_discovery_client()`) and changed an invalid-type guard from `raise ValueError` to `raise TypeError` in `judge_api_responses()`. Baseline ruff on the 5 plan files (43) vs `trunk` (48) → net-new reduced to 0. Plan's 133 targeted tests still pass (`test_llm` 28, heuristic 17, batch_judge 16, cache 18, config 5, init_wizard 41, doctor 9 — counts include pre-existing suites). See `agents/CHANGELOG.md`.
 - **LLM Rate-Limit Mitigation — Task 7: Wire new env vars through wizard, doctor, and docs** — Surface `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`/`OPENCODE_API_KEY` across the user-facing surface:
   - `src/applypilot/wizard/init.py:_setup_ai_features()`: after the provider block, prompts `LLM_DISCOVERY_MODEL` (default `gemini-2.0-flash-lite` when provider=gemini, else falls back to `LLM_MODEL`) and `LLM_RPM_LIMIT` (default `12`), appending both to `~/.applypilot/.env`.
   - `src/applypilot/cli.py:doctor()`: `Gemini` branch now also validates the discovery model against the Gemini model list (`Available:` list on miss); after the LLM key block, prints `Discovery model: <...>` and `RPM limit: <...> (window ...s)` lines whenever any LLM provider is configured.
