@@ -1,6 +1,6 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 1 complete)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 2 complete)
 
 ## Active Plan
 
@@ -32,7 +32,7 @@ None — plan complete.
 | Task | Status |
 |------|--------|
 | Task 1: Add client-side RPM limiter to LLMClient | ✅ Complete |
-| Task 2: Heuristic pre-filter for Judge API responses | ❌ Not started |
+| Task 2: Heuristic pre-filter for Judge API responses | ✅ Complete |
 | Task 3: Batch Judge API responses into a single LLM call | ❌ Not started |
 | Task 4: Per-domain strategy cache and target deduplication | ❌ Not started |
 | Task 5: Tiered model configuration and cheaper defaults | ❌ Not started |
@@ -41,20 +41,20 @@ None — plan complete.
 
 ### Current Task
 
-Task 1 complete. Next: Task 2 (heuristic pre-filter for judge API responses).
+Task 2 complete. Next: Task 3 (batch Judge API responses into a single LLM call).
 
 ### Completed This Session
 
-- **LLM Rate-Limit Mitigation — Task 1: RPM limiter** — added client-side rate limiting to `LLMClient`:
-  - `src/applypilot/llm.py`: Added `collections.deque` import, `_rpm_limit`, `_rpm_window`, `_request_timestamps` fields to `LLMClient.__init__()`, `_throttle_if_needed()` method (sliding-window sleep), `_record_request()` method. Updated `chat()` to call throttle before each attempt and record on success. Updated `get_client()` to read `LLM_RPM_LIMIT` (default 0=disabled) and `LLM_RPM_WINDOW` (default 60s) env vars.
-  - `tests/test_llm.py`: Added 4 tests in `TestRPMLimiter` — throttle sleep verification (limit=2, 3rd call sleeps ~30s), limit=0 disables throttling, timestamps expire after window, `get_client()` reads env vars. All 19 LLM tests pass.
+- **LLM Rate-Limit Mitigation — Task 2: Heuristic pre-filter** — added deterministic URL blocklist before LLM judge:
+  - `src/applypilot/discovery/smartextract.py`: Added `_NON_JOB_URL_RE` compiled regex (recaptcha, telemetry, web-vitals, get-session, /auth/, prodregistry, algolia.*telemetry), `_JOB_LIKE_KEYS` frozenset, and `_is_obvably_not_jobs(resp)` function. Modified `judge_api_responses()` to filter responses through heuristic first (zero LLM cost), then pass only candidates to the LLM judge. Logs `Judge heuristic SKIP:` at INFO for each skipped URL.
+  - `tests/test_smartextract_heuristic.py`: 17 new tests — 13 unit tests for `_is_obviously_not_jobs()` covering all blocklist patterns, job-key override, and normal responses; 4 integration tests for `judge_api_responses()` verifying LLM call count drops from N to M when heuristic skips apply. All 41 tests (17 new + 24 existing) pass.
 
 ### Test Results (verified 2026-08-28)
 
 ```
-tests/test_llm.py: 19 passed ✅ (4 new RPM limiter tests)
+tests/test_smartextract_heuristic.py: 17 passed ✅ (new heuristic pre-filter tests)
+tests/test_llm.py: 19 passed ✅
 tests/test_config.py: 5 passed ✅
-tests/test_init_wizard.py: 41 passed ✅
 ruff: clean on changed files ✅
 ```
 

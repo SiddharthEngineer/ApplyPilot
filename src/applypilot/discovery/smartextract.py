@@ -338,6 +338,49 @@ def collect_page_intelligence(url: str, headless: bool = True) -> dict:
     return intel
 
 
+# -- Judge: heuristic pre-filter (zero-LLM skip) ----------------------------
+
+# URLs matching these patterns are almost never job data — skip LLM judge.
+_NON_JOB_URL_RE = re.compile(
+    r"recaptcha|"
+    r"reload\?k=|"
+    r"telemetry|"
+    r"web-vitals|"
+    r"get-session|"
+    r"/auth/|"
+    r"prodregistry|"
+    r"algolia.*telemetry",
+    re.IGNORECASE,
+)
+
+# Keys that strongly suggest job-listing data even in a non-obvious URL.
+_JOB_LIKE_KEYS = frozenset({
+    "title", "job", "position", "company", "location", "salary",
+    "description", "department", "employment_type", "date_posted",
+})
+
+
+def _is_obviously_not_jobs(resp: dict) -> bool:
+    """Deterministic heuristic: return True if this API response is clearly
+    not job data and can be skipped without an LLM judge call."""
+    url = resp.get("url", "")
+
+    # Small responses with auth/session keywords are never job data.
+    size = resp.get("size", 0)
+    if size < 200 and _NON_JOB_URL_RE.search(url):
+        return True
+
+    # Large responses that match the blocklist are almost never job data,
+    # unless they contain job-like keys.
+    if _NON_JOB_URL_RE.search(url):
+        # Check if the structured data has job-like keys
+        first_keys = set(resp.get("first_item_keys", []))
+        keys_set = set(resp.get("keys", []))
+        return not (first_keys & _JOB_LIKE_KEYS or keys_set & _JOB_LIKE_KEYS)
+
+    return False
+
+
 # -- Judge: filter API responses ---------------------------------------------
 
 JUDGE_PROMPT = """You are filtering intercepted API responses from a job listings website.
@@ -360,14 +403,35 @@ No explanation, no markdown, no thinking."""
 
 
 def judge_api_responses(api_responses: list[dict]) -> list[dict]:
-    """Use the LLM to filter API responses, keeping only job-relevant ones."""
+    """Use the LLM to filter API responses, keeping only job-relevant ones.
+
+    Applies a deterministic heuristic pre-filter first to skip obvious
+    non-job responses (recaptcha, telemetry, auth endpoints) without
+    consuming LLM quota.
+    """
     if not api_responses:
         return []
 
+    # Step 1: deterministic heuristic filter (zero LLM cost)
+    candidates: list[dict] = []
+    skipped = 0
+    for resp in api_responses:
+        if _is_obviously_not_jobs(resp):
+            log.info("Judge heuristic SKIP: %s", resp.get("url", "?")[:80])
+            skipped += 1
+        else:
+            candidates.append(resp)
+    if skipped:
+        log.info("Heuristic skipped %d/%d responses (zero LLM cost)", skipped, len(api_responses))
+
+    if not candidates:
+        return []
+
+    # Step 2: LLM judge on remaining candidates
     client = get_client()
     relevant: list[dict] = []
 
-    for resp in api_responses:
+    for resp in candidates:
         fields = ""
         sample = ""
         resp_type = resp.get("type", "unknown")

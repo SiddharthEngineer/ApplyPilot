@@ -52,7 +52,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - Smart-extract log for the 90-target fixture shows `Kept 0/1 relevant` only for non-telemetry responses; no LLM calls for recaptcha URLs.
 - Tests pass: new heuristic tests + any existing smartextract tests.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
