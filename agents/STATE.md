@@ -108,3 +108,7 @@ Users choose via `applypilot apply --backend <claude|opencode>`.
 
 - Run `PYTHONPATH=src .venv/bin/python -m pytest tests/ -v` for unit tests
 - Run `ruff check src/` for linting
+
+### Historical Context — --auto Flag Restoration (2026-08-28)
+
+- **Restore --auto flag to plan_worker.py** — The `--auto` flag was removed from `scripts/plan_worker.py` by a previous agent, preventing build agents from having all permissions enabled. Restored the flag in `run_agent()` at line 156. This flag is the OpenCode equivalent of Claude Code's `--permission-mode bypassPermissions`, allowing agents to run autonomously without user confirmation. Command structure now matches `launcher.py:_build_opencode_cmd()`.

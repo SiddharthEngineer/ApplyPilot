@@ -153,6 +153,7 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
         "run",
         "--model",
         model,
+        "--auto",
         "--dir",
         str(REPO_ROOT),
     ]

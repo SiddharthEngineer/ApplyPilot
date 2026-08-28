@@ -133,3 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable score threshold filtering
 - Safety limits for maximum applications per run
 - Detailed application results logging
+
+## [Unreleased]
+
+### Completed
+- **Restore --auto flag to plan_worker.py** (2026-08-28) — Restored the `--auto` flag to `scripts/plan_worker.py:run_agent()` that was removed by a previous agent. This flag is the OpenCode equivalent of Claude Code's `--permission-mode bypassPermissions`, enabling build agents to run autonomously with all permissions enabled. Without this flag, spawned agents would prompt for permissions, breaking the continuous operation of the plan worker. Command structure now matches `launcher.py:_build_opencode_cmd()`. Python syntax check passed.
