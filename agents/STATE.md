@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 2 complete)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 3 complete)
 
 ## Active Plan
 
-`llm-rate-limit-mitigation.md` — In Progress (Task 1 done, Tasks 2–7 remaining)
+`llm-rate-limit-mitigation.md` — In Progress (Tasks 1–3 done, Tasks 4–7 remaining)
 
 ### Progress — Discover Crawl Resilience
 
@@ -33,7 +33,7 @@ None — plan complete.
 |------|--------|
 | Task 1: Add client-side RPM limiter to LLMClient | ✅ Complete |
 | Task 2: Heuristic pre-filter for Judge API responses | ✅ Complete |
-| Task 3: Batch Judge API responses into a single LLM call | ❌ Not started |
+| Task 3: Batch Judge API responses into a single LLM call | ✅ Complete |
 | Task 4: Per-domain strategy cache and target deduplication | ❌ Not started |
 | Task 5: Tiered model configuration and cheaper defaults | ❌ Not started |
 | Task 6: Integrate OpenCode free models as an LLM provider | ❌ Not started |
@@ -41,18 +41,18 @@ None — plan complete.
 
 ### Current Task
 
-Task 2 complete. Next: Task 3 (batch Judge API responses into a single LLM call).
+Task 3 complete. Next: Task 4 (per-domain strategy cache and target deduplication).
 
 ### Completed This Session
 
-- **LLM Rate-Limit Mitigation — Task 2: Heuristic pre-filter** — added deterministic URL blocklist before LLM judge:
-  - `src/applypilot/discovery/smartextract.py`: Added `_NON_JOB_URL_RE` compiled regex (recaptcha, telemetry, web-vitals, get-session, /auth/, prodregistry, algolia.*telemetry), `_JOB_LIKE_KEYS` frozenset, and `_is_obvably_not_jobs(resp)` function. Modified `judge_api_responses()` to filter responses through heuristic first (zero LLM cost), then pass only candidates to the LLM judge. Logs `Judge heuristic SKIP:` at INFO for each skipped URL.
-  - `tests/test_smartextract_heuristic.py`: 17 new tests — 13 unit tests for `_is_obviously_not_jobs()` covering all blocklist patterns, job-key override, and normal responses; 4 integration tests for `judge_api_responses()` verifying LLM call count drops from N to M when heuristic skips apply. All 41 tests (17 new + 24 existing) pass.
+- **LLM Rate-Limit Mitigation — Task 3: Batch judge** — Collapsed per-response judge loop into a single batched LLM call with fallback:
+  - `src/applypilot/discovery/smartextract.py`: Added `JUDGE_BATCH_PROMPT` that lists all candidates numbered `[1]..[N]` and asks the LLM to return a JSON array of verdicts. Added `_format_response_summary()` helper that formats each response (url, status, size, type, fields, sample truncated to 300 chars). Extracted `_judge_sequential()` for fallback. Refactored `judge_api_responses()`: with >1 candidate, builds a batched prompt and makes 1 LLM call; parses the array response and maps index→verdict; falls back to sequential if batch parsing fails (invalid JSON, non-list response, missing verdicts). Single candidate still uses sequential path directly. 16 new tests in `tests/test_smartextract_batch_judge.py`: 4 summary formatter tests, 5 happy-path batch tests (5 responses→1 call, prompt content, all-relevant, all-irrelevant, single-candidate sequential), 4 fallback tests (invalid JSON, missing verdicts, non-list response, error handling), 3 integration tests (heuristic+batch combined, prompt size budget, empty-after-heuristic). All 33 tests (17 heuristic + 16 batch) pass, ruff clean.
 
 ### Test Results (verified 2026-08-28)
 
 ```
-tests/test_smartextract_heuristic.py: 17 passed ✅ (new heuristic pre-filter tests)
+tests/test_smartextract_heuristic.py: 17 passed ✅
+tests/test_smartextract_batch_judge.py: 16 passed ✅ (new batch judge tests)
 tests/test_llm.py: 19 passed ✅
 tests/test_config.py: 5 passed ✅
 ruff: clean on changed files ✅

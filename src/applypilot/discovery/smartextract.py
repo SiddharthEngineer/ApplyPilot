@@ -402,35 +402,56 @@ or
 No explanation, no markdown, no thinking."""
 
 
-def judge_api_responses(api_responses: list[dict]) -> list[dict]:
-    """Use the LLM to filter API responses, keeping only job-relevant ones.
+JUDGE_BATCH_PROMPT = """You are filtering intercepted API responses from a job listings website.
+Decide which of the following API responses contain actual job listing data.
 
-    Applies a deterministic heuristic pre-filter first to skip obvious
-    non-job responses (recaptcha, telemetry, auth endpoints) without
-    consuming LLM quota.
-    """
-    if not api_responses:
-        return []
+For each response below, judge whether it contains job listings (titles, companies, locations, etc).
 
-    # Step 1: deterministic heuristic filter (zero LLM cost)
-    candidates: list[dict] = []
-    skipped = 0
-    for resp in api_responses:
-        if _is_obviously_not_jobs(resp):
-            log.info("Judge heuristic SKIP: %s", resp.get("url", "?")[:80])
-            skipped += 1
-        else:
-            candidates.append(resp)
-    if skipped:
-        log.info("Heuristic skipped %d/%d responses (zero LLM cost)", skipped, len(api_responses))
+{response_summaries}
 
-    if not candidates:
-        return []
+Return a JSON array with one object per response, in order:
+[{{"index": 1, "relevant": true, "reason": "job objects with title/company"}}, ...]
 
-    # Step 2: LLM judge on remaining candidates
-    client = get_client()
+Each object must have:
+- "index": the response number (1-based)
+- "relevant": true if job data, false otherwise
+- "reason": brief explanation (< 10 words)
+
+Return ONLY valid JSON array. No markdown, no explanation."""
+
+
+def _format_response_summary(resp: dict, index: int) -> str:
+    """Format a single API response into a numbered summary for the batch judge prompt."""
+    resp_type = resp.get("type", "unknown")
+    fields = ""
+    sample = ""
+
+    if "first_item_keys" in resp:
+        fields = str(resp["first_item_keys"])
+        sample = json.dumps(resp.get("first_item_sample", {}), indent=2)[:300]
+    elif "keys" in resp:
+        fields = str(resp["keys"])
+        for k, v in resp.items():
+            if k.startswith("nested_"):
+                fields += f"\n  .{k.replace('nested_', '')}: {v.get('count', '?')} items, keys={v.get('first_item_keys', '?')}"
+                sample = json.dumps(v.get("first_item_sample", {}), indent=2)[:300]
+    else:
+        fields = "no structured data"
+
+    return (
+        f"[{index}] URL: {resp.get('url', '?')[:200]}\n"
+        f"    Status: {resp.get('status', '?')} | Size: {resp.get('size', '?')} chars | Type: {resp_type}\n"
+        f"    Fields: {fields}\n"
+        f"    Sample: {sample or 'n/a'}"
+    )
+
+
+def _judge_sequential(
+    candidates: list[dict],
+    client,
+) -> list[dict]:
+    """Fallback: judge each response individually (one LLM call per response)."""
     relevant: list[dict] = []
-
     for resp in candidates:
         fields = ""
         sample = ""
@@ -470,6 +491,83 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
             relevant.append(resp)
 
     return relevant
+
+
+def judge_api_responses(api_responses: list[dict]) -> list[dict]:
+    """Use the LLM to filter API responses, keeping only job-relevant ones.
+
+    Applies a deterministic heuristic pre-filter first to skip obvious
+    non-job responses (recaptcha, telemetry, auth endpoints) without
+    consuming LLM quota. Remaining candidates are judged in a single
+    batched LLM call. Falls back to sequential per-response calls if
+    the batched response is unparseable.
+    """
+    if not api_responses:
+        return []
+
+    # Step 1: deterministic heuristic filter (zero LLM cost)
+    candidates: list[dict] = []
+    skipped = 0
+    for resp in api_responses:
+        if _is_obviously_not_jobs(resp):
+            log.info("Judge heuristic SKIP: %s", resp.get("url", "?")[:80])
+            skipped += 1
+        else:
+            candidates.append(resp)
+    if skipped:
+        log.info("Heuristic skipped %d/%d responses (zero LLM cost)", skipped, len(api_responses))
+
+    if not candidates:
+        return []
+
+    # Step 2: LLM judge — batch if >1 candidate, sequential if exactly 1
+    client = get_client()
+
+    if len(candidates) == 1:
+        return _judge_sequential(candidates, client)
+
+    # Build batched prompt
+    summaries = "\n\n".join(
+        _format_response_summary(resp, i + 1)
+        for i, resp in enumerate(candidates)
+    )
+    batch_prompt = JUDGE_BATCH_PROMPT.format(response_summaries=summaries)
+
+    try:
+        raw = client.ask(batch_prompt, temperature=0.0, max_tokens=4096)
+        verdicts = extract_json(raw)
+
+        if not isinstance(verdicts, list):
+            raise ValueError(f"Expected JSON array, got {type(verdicts).__name__}")
+
+        # Map index -> verdict
+        verdict_map: dict[int, dict] = {}
+        for v in verdicts:
+            idx = v.get("index")
+            if isinstance(idx, int) and 1 <= idx <= len(candidates):
+                verdict_map[idx] = v
+
+        if len(verdict_map) < len(candidates):
+            raise ValueError(
+                f"Got {len(verdict_map)} verdicts for {len(candidates)} responses"
+            )
+
+        relevant: list[dict] = []
+        for i, resp in enumerate(candidates):
+            v = verdict_map[i + 1]
+            is_relevant = v.get("relevant", False)
+            reason = v.get("reason", "?")
+            log.info("Judge: %s -> %s (%s)", resp.get("url", "?")[:80],
+                     "KEEP" if is_relevant else "DROP", reason)
+            if is_relevant:
+                relevant.append(resp)
+
+        log.info("Batch judge: %d/%d responses kept (1 LLM call)", len(relevant), len(candidates))
+        return relevant
+
+    except Exception as e:
+        log.warning("Batch judge failed (%s), falling back to sequential", e)
+        return _judge_sequential(candidates, client)
 
 
 # -- Phase 1: strategy selection ---------------------------------------------

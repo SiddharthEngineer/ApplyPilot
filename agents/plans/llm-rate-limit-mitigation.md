@@ -68,7 +68,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - Token budget: batched prompt is <=4000 chars for 5 responses (truncate `sample` to 300 chars each); verified by asserting `len(prompt) < 6000`.
 - No change to `format_strategy_briefing` or `STRATEGY_PROMPT` behavior.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
