@@ -50,7 +50,7 @@ Integration test (live Workday endpoints):
 
 - **Treat 400/404 like 403 for Gemini only** — all three mean "model not exposed on OpenAI-compat layer"; OpenAI 400/404 must not fallback to avoid masking real errors.
 - **Reuse existing native path and sentinel `_GeminiCompatForbidden`** — no new endpoint code, minimal blast radius.
-- **Default to `gemini-2.5-flash`** — current GA model (released June 2025, retiring October 2026); `gemini-2.0-flash` may be deprecated or not exposed on compat.
+- **Default to `gemini-3.6-flash`** — current GA model; `gemini-2.5-flash` returns 404 for new users (verified via live API in 2026-08-27 session).
 - **Verify model name via live list in doctor** — Gemini model IDs rotate; doctor is the right place for validation feedback.
 
 ### Blockers
