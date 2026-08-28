@@ -1,10 +1,23 @@
 # Current State
 
-**Last updated:** 2026-08-28 (ZipRecruiter 403 follow-up + plan worker fix session)
+**Last updated:** 2026-08-28 (Discover crawl resilience plan complete)
 
 ## Active Plan
 
-None — both queued plans (`opencode-model-selection.md`, `ziprecruiter-403-handling.md`) are fully complete. See below.
+None — `discover-crawl-resilience.md` is fully complete. See below.
+
+### Progress — Discover Crawl Resilience
+
+| Task | Status |
+|------|--------|
+| Task 1: Normalize & validate `country_indeed` before JobSpy call | ✅ Complete |
+| Task 3: Exclude hard scrape errors from consecutive empty counting | ✅ Complete |
+| Task 2: Revert wizard default `site_fail_threshold` to 3 | ✅ Complete |
+| Task 4: Document board flakiness and auto-skip in README | ✅ Complete |
+
+### Current Task
+
+None — plan complete.
 
 ### Progress — ZipRecruiter 403 follow-up (Tasks 5–7)
 
@@ -29,24 +42,26 @@ None — both plans complete.
 
 ### Completed This Session
 
-- **ZipRecruiter 403 follow-up (Tasks 5–7)** — finished the reopened plan:
-  - `src/applypilot/wizard/init.py`: `_setup_searches` now writes an explicit `sites:` list (`indeed`, `linkedin`, `glassdoor`, `google` — no `zip_recruiter`) and `defaults.site_fail_threshold: 1` so new configs no longer inherit the blocked board.
-  - `~/.applypilot/searches.yaml`: migrated the user's live config to add the same `sites` list and threshold — verified it loads with no `zip_recruiter` and threshold 1, preserving all existing queries/locations.
-  - `README.md`: added the `site_fail_threshold` ERROR-line clarification (a board kept in `sites` logs up to `site_fail_threshold` lines before auto-skip; removing it is the only path to zero lines).
-- **Plan worker false-completion fix** — `scripts/plan_worker.py` `check_plan_completed()` previously returned True whenever STATE.md contained "No remaining work"/"All tasks complete". Because STATE.md is shared across all plans, an agent finishing one plan could falsely mark an unrelated queued plan (here, `ziprecruiter-403-handling.md`) as done, leaving real tasks incomplete. It now relies exclusively on the plan file's own `Status: ✅ Completed` line (plan-specific). Removed the now-unused `STATE_FILE` constant.
+- **Discover Crawl Resilience (Tasks 1–4)** — finished the plan:
+  - `src/applypilot/discovery/jobspy.py`: Added `_normalize_country()` helper that validates against JobSpy's supported country allowlist; falls back to `"usa"` with a warning for unknown values. Wired into `_run_one_search` and `search_jobs`. Modified `_full_crawl` to skip `tracker.note()` when `result["errors"] > 0` so hard errors don't penalize boards.
+  - `src/applypilot/wizard/init.py`: Changed `site_fail_threshold` default from `1` to `3` in generated `searches.yaml`.
+  - `tests/test_jobspy.py`: Added 6 `_normalize_country` unit tests + 1 integration test for error-excluded tracker.
+  - `tests/test_init_wizard.py`: Updated threshold assertion to `== 3`.
+  - `README.md`: Documented board flakiness, auto-skip behavior, and country validation fallback.
 
 ### Test Results (verified 2026-08-28)
 
 ```
-tests/test_init_wizard.py: 41 passed ✅ (incl. 3 new sites/threshold tests)
-tests/test_launcher.py: 13 passed ✅
+tests/test_init_wizard.py: 41 passed ✅
+tests/test_jobspy.py: 32 passed ✅
 tests/test_pipeline.py: 9 passed ✅
-tests/test_jobspy.py: 36 passed ✅
-Full suite (config/prompt/cred_server/etc.): 245 passed ✅
+tests/test_launcher.py: 13 passed ✅
 ruff: clean on changed files ✅
 ```
 
-Note: `tests/test_pipeline.py` and `tests/test_llm.py` may make live network/LLM calls; run the full suite once to confirm the exact count.
+### Recommended Next Step
+
+No queued plans. Next session can enqueue a new plan, or run the full test suite to reconfirm counts.
 
 ### Key Decisions
 

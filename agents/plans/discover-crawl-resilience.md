@@ -1,7 +1,7 @@
 # Plan: Discover Crawl Resilience — Site Blocking, Country Validation & Early-Stop Fixes
 
 **Started:** 2026-08-28
-**Status:** 🔄 In Progress
+**Status:** ✅ Completed
 
 ---
 
@@ -35,7 +35,7 @@ Make `applypilot run discover` (`pipeline.py:62-109` -> `discovery/jobspy.py:539
 - `run_discovery` with an invalid `country_indeed` in `defaults` runs successfully without raising `ValueError`.
 - `python -m pytest tests/test_jobspy.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -51,7 +51,7 @@ Make `applypilot run discover` (`pipeline.py:62-109` -> `discovery/jobspy.py:539
 - Wizard-generated `searches.yaml` has `defaults.site_fail_threshold: 3` and `sites` without `zip_recruiter`.
 - `python -m pytest tests/test_init_wizard.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -67,7 +67,7 @@ Make `applypilot run discover` (`pipeline.py:62-109` -> `discovery/jobspy.py:539
 - When `_run_one_search` encounters an error, the error count is incremented but active site consecutive empty counters are not incremented.
 - `python -m pytest tests/test_jobspy.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -82,7 +82,7 @@ Make `applypilot run discover` (`pipeline.py:62-109` -> `discovery/jobspy.py:539
 - README contains notes on board flakiness and auto-skip.
 - `ruff check` and `python -m pytest -q` pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -108,3 +108,4 @@ Task 2 (Wizard threshold 3 + test) → Task 4 (README docs)
 ## Historical Record
 
 - 2026-08-28 — Plan created to fix invalid country validation crashes and over-aggressive site disabling during job discovery crawl.
+- 2026-08-28 — All 4 tasks completed: `_normalize_country` helper, error-excluded tracker, wizard threshold 3, README docs.

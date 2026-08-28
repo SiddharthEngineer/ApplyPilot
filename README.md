@@ -141,6 +141,10 @@ Queries Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs via JobSpy. Scrap
 
 Boards that repeatedly return 0 results are auto-skipped for the rest of a crawl (configurable via `defaults.site_fail_threshold` in `searches.yaml`, default 3). Note that a board kept in `sites` can still log up to `site_fail_threshold` ERROR lines per crawl before it is auto-skipped, so removing it from the `sites:` list is the only way to get zero such lines. Permanently disable a board by removing it from the `sites:` list. ZipRecruiter is currently subject to a known Cloudflare 403 anti-bot block upstream (`python-jobspy` latest, upstream issue [#302](https://github.com/speedyapply/JobSpy/issues/302) open).
 
+**Board flakiness:** Glassdoor and Google Jobs can intermittently return 0 results or 403 blocks without indicating a permanent block. ApplyPilot's tracker only disables a board after `site_fail_threshold` *consecutive* empty searches — a single 0-result hit does not trigger disabling. Network errors and invalid-config failures are excluded from the consecutive-empty count so they don't penalise boards. To permanently exclude a board (e.g. `glassdoor` or `google`), remove it from the `sites:` list in `searches.yaml`.
+
+**Country validation:** The `country_indeed` field in `defaults` is validated against JobSpy's supported country list. An unsupported value (e.g. `"sri lanka"`) logs a warning and falls back to `"usa"` instead of crashing the crawl.
+
 ### Enrich
 Visits each job URL and extracts the full description. 3-tier cascade: JSON-LD structured data, then CSS selector patterns, then AI-powered extraction for unknown layouts.
 

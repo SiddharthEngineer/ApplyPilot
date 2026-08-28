@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from applypilot.discovery.jobspy import _SiteTracker, _site_counts
+from applypilot.discovery.jobspy import _SiteTracker, _site_counts, _normalize_country
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +254,33 @@ class TestFullCrawlTracker:
 
         assert result["disabled_sites"] == ["zip_recruiter"]
 
+    def test_errors_dont_increment_consecutive_empty(self):
+        """Hard errors should not penalize a board's consecutive-empty count."""
+        import unittest.mock as mock
+        import applypilot.discovery.jobspy as mod
+
+        # First two calls raise (simulating network errors), third returns 0 results.
+        # With threshold=2, a real empty board would be disabled after 2 calls,
+        # but since those were errors, it should NOT be disabled yet.
+        call_count = {"i": 0}
+
+        def fake_scrape(**kwargs):
+            call_count["i"] += 1
+            if call_count["i"] <= 2:
+                raise ConnectionError("simulated network failure")
+            return _make_df({"indeed": 2, "linkedin": 1, "zip_recruiter": 0})
+
+        conn = _make_mock_conn()
+        with mock.patch.object(mod, 'init_db', return_value=conn), \
+             mock.patch.object(mod, 'get_connection', return_value=conn), \
+             mock.patch.object(mod, 'scrape_jobs', fake_scrape):
+            cfg = _make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=2, n_locations=3)
+            result = mod._full_crawl(cfg)
+
+        # zip_recruiter should NOT be disabled — errors don't count as empty
+        assert "zip_recruiter" not in result["disabled_sites"]
+        assert result["errors"] == 2
+
     def test_result_dict_has_disabled_sites_and_site_stats(self):
         """_full_crawl always returns disabled_sites and site_stats keys."""
         import unittest.mock as mock
@@ -300,3 +327,35 @@ class TestFullCrawlTracker:
 
         assert result["site_stats"] == {}
         assert result["disabled_sites"] == []
+
+
+# ---------------------------------------------------------------------------
+# _normalize_country
+# ---------------------------------------------------------------------------
+
+class TestNormalizeCountry:
+    def test_valid_country_lowercased(self):
+        assert _normalize_country("UK") == "uk"
+        assert _normalize_country("USA") == "usa"
+        assert _normalize_country("Worldwide") == "worldwide"
+
+    def test_none_returns_fallback(self):
+        assert _normalize_country(None) == "usa"
+
+    def test_empty_string_returns_fallback(self):
+        assert _normalize_country("") == "usa"
+        assert _normalize_country("   ") == "usa"
+
+    def test_unknown_country_returns_fallback(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            result = _normalize_country("sri lanka")
+        assert result == "usa"
+        assert "Unsupported country_indeed" in caplog.text
+
+    def test_case_insensitive(self):
+        assert _normalize_country("Australia") == "australia"
+        assert _normalize_country("CANADA") == "canada"
+
+    def test_strip_whitespace(self):
+        assert _normalize_country("  uk  ") == "uk"

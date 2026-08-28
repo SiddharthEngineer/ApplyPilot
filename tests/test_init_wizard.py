@@ -723,7 +723,7 @@ class TestSetupSearchesSitesThreshold:
     @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
     @patch("applypilot.wizard.init.Prompt.ask")
     def test_writes_site_fail_threshold(self, mock_ask, mock_path):
-        """Generated YAML contains defaults.site_fail_threshold == 1."""
+        """Generated YAML contains defaults.site_fail_threshold == 3."""
         import yaml
 
         from applypilot.wizard.init import _setup_searches
@@ -739,7 +739,7 @@ class TestSetupSearchesSitesThreshold:
         _setup_searches(existing=None)
 
         cfg = yaml.safe_load(written[0])
-        assert cfg["defaults"]["site_fail_threshold"] == 1
+        assert cfg["defaults"]["site_fail_threshold"] == 3
 
     @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
     @patch("applypilot.wizard.init.Prompt.ask")

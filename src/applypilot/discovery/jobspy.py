@@ -21,6 +21,45 @@ from applypilot.database import get_connection, init_db, store_jobs
 
 log = logging.getLogger(__name__)
 
+# JobSpy supported country codes for Indeed
+_SUPPORTED_COUNTRIES = frozenset({
+    "usa", "uk", "canada", "australia", "germany", "india", "france",
+    "spain", "italy", "brazil", "mexico", "netherlands", "switzerland",
+    "sweden", "norway", "denmark", "finland", "ireland", "new zealand",
+    "singapore", "south africa", "poland", "portugal", "belgium",
+    "austria", "argentina", "chile", "colombia", "peru", "japan",
+    "south korea", "taiwan", "hong kong", "malaysia", "indonesia",
+    "philippines", "thailand", "vietnam", "turkey", "united arab emirates",
+    "saudi arabia", "israel", "egypt", "nigeria", "pakistan", "bangladesh",
+    "romania", "czech republic", "hungary", "greece", "ukraine", "worldwide",
+})
+
+_COUNTRY_FALLBACK = "usa"
+
+
+def _normalize_country(raw: str | None) -> str:
+    """Validate *raw* against JobSpy's supported country list.
+
+    Returns the normalised (lower-cased) country string if valid.
+    If *raw* is ``None``, empty, or not in the allow-list a warning is
+    logged and the fallback (``"usa"``) is returned so that crawls remain
+    fail-open.
+    """
+    if not raw:
+        return _COUNTRY_FALLBACK
+
+    normalised = raw.strip().lower()
+    if normalised in _SUPPORTED_COUNTRIES:
+        return normalised
+
+    log.warning(
+        "Unsupported country_indeed %r — falling back to %r. "
+        "Supported: %s",
+        raw, _COUNTRY_FALLBACK,
+        ", ".join(sorted(_SUPPORTED_COUNTRIES)),
+    )
+    return _COUNTRY_FALLBACK
+
 
 # -- Proxy parsing -----------------------------------------------------------
 
@@ -220,7 +259,7 @@ def _run_one_search(
             "results_wanted": results_per_site,
             "hours_old": hours_old,
             "description_format": "markdown",
-            "country_indeed": defaults.get("country_indeed", "usa"),
+            "country_indeed": _normalize_country(defaults.get("country_indeed")),
             "verbose": 0,
         }
         if s.get("remote"):
@@ -321,7 +360,7 @@ def search_jobs(
         "results_wanted": results_per_site,
         "hours_old": hours_old,
         "description_format": "markdown",
-        "country_indeed": country_indeed,
+        "country_indeed": _normalize_country(country_indeed),
         "verbose": 2,
     }
 
@@ -434,14 +473,20 @@ def _full_crawl(
         total_existing += result["existing"]
         total_errors += result["errors"]
 
-        newly_disabled = tracker.note(active, result["sites"])
-        for site_name in newly_disabled:
-            log.warning(
-                "%s returned 0 results on %d consecutive searches — likely blocked. "
-                "Skipping for the rest of the crawl. Remove it from 'sites' in "
-                "searches.yaml to permanently disable.",
-                site_name, tracker.threshold,
-            )
+        # Only feed non-error results to the tracker; hard errors
+        # (network failures, invalid config, etc.) should not penalize
+        # a board's consecutive-empty count.
+        if result["errors"] > 0:
+            log.debug("Skipping tracker note for %r — search had %d error(s)", s["query"], result["errors"])
+        else:
+            newly_disabled = tracker.note(active, result["sites"])
+            for site_name in newly_disabled:
+                log.warning(
+                    "%s returned 0 results on %d consecutive searches — likely blocked. "
+                    "Skipping for the rest of the crawl. Remove it from 'sites' in "
+                    "searches.yaml to permanently disable.",
+                    site_name, tracker.threshold,
+                )
 
         if completed % 5 == 0 or completed == len(searches):
             log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",

@@ -472,7 +472,7 @@ def _setup_searches(existing: dict | None = None) -> None:
         f"  distance: {distance}",
         "  hours_old: 72",
         "  results_per_site: 50",
-        "  site_fail_threshold: 1",
+        "  site_fail_threshold: 3",
         "",
         "sites:",
         "  - indeed",
