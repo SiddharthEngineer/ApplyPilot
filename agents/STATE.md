@@ -1,6 +1,6 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 5 complete — tiered discovery model)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 6 complete — OpenCode provider)
 
 ## Active Plan
 
@@ -36,14 +36,20 @@ None — plan complete.
 | Task 3: Batch Judge API responses into a single LLM call | ✅ Complete |
 | Task 4: Per-domain strategy cache and target deduplication | ✅ Complete |
 | Task 5: Tiered model configuration and cheaper defaults | ✅ Complete |
-| Task 6: Integrate OpenCode free models as an LLM provider | ❌ Not started |
+| Task 6: Integrate OpenCode free models as an LLM provider | ✅ Complete |
 | Task 7: Wire new env vars through wizard, doctor, and docs | ❌ Not started |
 
 ### Current Task
 
-Task 5 complete (tiered model config: `get_discovery_client()` + `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`/`LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` + `gemini-2.0-flash-lite` discovery default). Next: Task 6 (OpenCode provider).
+Task 6 complete (OpenCode Zen gateway provider: `OPENCODE_API_KEY` → `opencode/nemotron-3-nano-free`, explicit local URL keeps priority). Next: Task 7 (wizard/doctor/docs wiring for `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`/`OPENCODE_API_KEY`).
 
 ### Completed This Session
+
+- **LLM Rate-Limit Mitigation — Task 6: Integrate OpenCode free models as an LLM provider** — First-class OpenCode Zen gateway provider reusing the OpenAI-compatible transport:
+  - `src/applypilot/llm.py`: `_detect_provider()` now checks `OPENCODE_API_KEY` before Gemini/OpenAI; returns `https://opencode.ai/zen/v1` + `opencode/nemotron-3-nano-free` (or `LLM_MODEL` override). `LLM_URL` containing `opencode.ai` also routes there. An explicit local URL (`127.0.0.1`/`localhost`) keeps priority and is NOT hijacked by `OPENCODE_API_KEY`.
+  - `src/applypilot/cli.py:doctor()`: `has_opencode` branch before Gemini/OpenAI prints `OpenCode (model)` and never prints `MISSING` for Gemini when `OPENCODE_API_KEY` is set.
+  - `src/applypilot/wizard/init.py:_setup_ai_features()`: `choices` gains `opencode`; prompts `OPENCODE_API_KEY` (with `opencode auth` hint) + `LLM_MODEL` default `opencode/nemotron-3-nano-free`, optional `LLM_URL` gateway override. `detected_provider`/`has_existing_llm` include `OPENCODE_API_KEY`.
+  - `tests/test_llm.py:TestDetectProvider`: added 4 tests (opencode default, respects `LLM_MODEL`, via `LLM_URL`, local `127.0.0.1` not hijacked). All 28 `test_llm.py` tests pass; `test_init_wizard.py` (41) and `test_config.py` (5) pass; ruff: no new errors (17 pre-existing, unrelated to this change).
 
 - **LLM Rate-Limit Mitigation — Task 5: Tiered model configuration and cheaper defaults** — Per-stage models so discovery uses a cheaper model than tailoring:
   - `src/applypilot/llm.py`: `_detect_provider(purpose)` now accepts `purpose="discovery"`; on Gemini with no `LLM_MODEL`/`LLM_DISCOVERY_MODEL` set it defaults to `gemini-2.0-flash-lite` (vs `gemini-3.6-flash` for all other stages). Added `get_discovery_client()` singleton (independently memoized from `get_client()`), reading `LLM_RPM_LIMIT`/`LLM_RPM_WINDOW` like `get_client()`. `LLM_DISCOVERY_MODEL`/`LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` honored.

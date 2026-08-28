@@ -4,7 +4,8 @@ Unified LLM client for ApplyPilot.
 Auto-detects provider from environment:
   GEMINI_API_KEY  -> Google Gemini (default: gemini-3.6-flash)
   OPENAI_API_KEY  -> OpenAI (default: gpt-4o-mini)
-  LLM_URL         -> Local llama.cpp / Ollama compatible endpoint
+  OPENCODE_API_KEY -> OpenCode Zen gateway (default: opencode/nemotron-3-nano-free)
+  LLM_URL         -> Local llama.cpp / Ollama / OpenCode gateway compatible endpoint
 
 LLM_MODEL env var overrides the model name for any provider.
 """
@@ -37,8 +38,32 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
     """
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     openai_key = os.environ.get("OPENAI_API_KEY", "")
+    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
     local_url = os.environ.get("LLM_URL", "")
     model_override = os.environ.get("LLM_MODEL", "")
+
+    # Explicit local endpoint (Ollama/llama.cpp) always wins when LLM_URL points
+    # somewhere other than the OpenCode gateway. An OpenCode gateway URL is
+    # handled by the OpenCode branch below so OPENCODE_API_KEY + a local URL do
+    # not hijack each other.
+    if local_url and "opencode.ai" not in local_url:
+        return (
+            local_url.rstrip("/"),
+            model_override or "local-model",
+            os.environ.get("LLM_API_KEY", ""),
+        )
+
+    # OpenCode Zen gateway (free models) — first-class provider reusing the
+    # OpenAI-compatible transport. Priority: explicit OPENCODE_API_KEY, then a
+    # LLM_URL pointing at opencode.ai.
+    if opencode_key:
+        base = local_url.rstrip("/") if "opencode.ai" in local_url else "https://opencode.ai/zen/v1"
+        model = model_override or "opencode/nemotron-3-nano-free"
+        return (base, model, opencode_key)
+    if "opencode.ai" in local_url:
+        model = model_override or "opencode/nemotron-3-nano-free"
+        api_key = opencode_key or os.environ.get("LLM_API_KEY", "")
+        return (local_url.rstrip("/"), model, api_key)
 
     if gemini_key and not local_url:
         base_model = model_override or "gemini-3.6-flash"

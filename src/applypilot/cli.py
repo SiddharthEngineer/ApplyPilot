@@ -482,8 +482,12 @@ def doctor() -> None:
     import os
     has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_opencode = bool(os.environ.get("OPENCODE_API_KEY"))
     has_local = bool(os.environ.get("LLM_URL"))
-    if has_gemini:
+    if has_opencode:
+        model = os.environ.get("LLM_MODEL", "opencode/nemotron-3-nano-free")
+        results.append(("LLM API key", ok_mark, f"OpenCode ({model})"))
+    elif has_gemini:
         model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
         # Validate model against Gemini API model list
         gemini_key = os.environ.get("GEMINI_API_KEY", "")

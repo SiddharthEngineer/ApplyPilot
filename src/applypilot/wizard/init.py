@@ -521,7 +521,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
     )
 
     env = existing_env or {}
-    has_existing_llm = any(env.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
+    has_existing_llm = any(env.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL"))
 
     if not Confirm.ask("Enable AI scoring and resume tailoring?", default=has_existing_llm or True):
         console.print("[dim]Discovery-only mode. You can configure AI later with [bold]applypilot init[/bold].[/dim]")
@@ -532,15 +532,20 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         detected_provider = "gemini"
     elif env.get("OPENAI_API_KEY"):
         detected_provider = "openai"
-    elif env.get("LLM_URL"):
+    elif env.get("OPENCODE_API_KEY"):
+        detected_provider = "opencode"
+    elif env.get("LLM_URL") and "opencode.ai" not in env.get("LLM_URL", ""):
         detected_provider = "local"
     else:
         detected_provider = "gemini"
 
-    console.print("Supported providers: [bold]Gemini[/bold] (recommended, free tier), OpenAI, local (Ollama/llama.cpp)")
+    console.print(
+        "Supported providers: [bold]Gemini[/bold] (recommended, free tier), "
+        "OpenAI, OpenCode (free models), local (Ollama/llama.cpp)"
+    )
     provider = Prompt.ask(
         "Provider",
-        choices=["gemini", "openai", "local"],
+        choices=["gemini", "openai", "opencode", "local"],
         default=detected_provider,
     )
 
@@ -562,6 +567,25 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         model = Prompt.ask("Model", default=env.get("LLM_MODEL", "gpt-4o-mini"))
         env_lines.append(f"OPENAI_API_KEY={api_key}")
         env_lines.append(f"LLM_MODEL={model}")
+    elif provider == "opencode":
+        existing_key = env.get("OPENCODE_API_KEY", "")
+        api_key = Prompt.ask(
+            "OpenCode API key (get from https://opencode.ai/zen or leave blank for 'opencode auth' local)",
+            default=existing_key,
+        )
+        if not api_key and existing_key:
+            api_key = existing_key
+        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "opencode/nemotron-3-nano-free"))
+        env_lines.append(f"OPENCODE_API_KEY={api_key}")
+        env_lines.append(f"LLM_MODEL={model}")
+        # Optional gateway override (defaults to https://opencode.ai/zen/v1)
+        existing_url = env.get("LLM_URL", "")
+        if "opencode.ai" in existing_url:
+            url = Prompt.ask(
+                "OpenCode gateway URL (leave default unless self-hosting)",
+                default=existing_url,
+            )
+            env_lines.append(f"LLM_URL={url}")
     elif provider == "local":
         url = Prompt.ask("Local LLM endpoint URL", default=env.get("LLM_URL", "http://localhost:8080/v1"))
         model = Prompt.ask("Model name", default=env.get("LLM_MODEL", "local-model"))

@@ -106,6 +106,34 @@ class TestDetectProvider:
             _, model, _ = _detect_provider("discovery")
             assert model == "explicit-model"
 
+    def test_opencode_default_model(self):
+        with patch.dict(os.environ, {"OPENCODE_API_KEY": "sk-test"}, clear=True):
+            base_url, model, api_key = _detect_provider()
+            assert base_url == "https://opencode.ai/zen/v1"
+            assert model == "opencode/nemotron-3-nano-free"
+            assert api_key == "sk-test"
+
+    def test_opencode_respects_llm_model(self):
+        with patch.dict(os.environ, {"OPENCODE_API_KEY": "sk-test", "LLM_MODEL": "custom"}, clear=True):
+            base_url, model, api_key = _detect_provider()
+            assert base_url == "https://opencode.ai/zen/v1"
+            assert model == "custom"
+            assert api_key == "sk-test"
+
+    def test_opencode_via_llm_url(self):
+        with patch.dict(os.environ, {"LLM_URL": "https://opencode.ai/zen/v1"}, clear=True):
+            os.environ.pop("OPENCODE_API_KEY", None)
+            base_url, model, api_key = _detect_provider()
+            assert base_url == "https://opencode.ai/zen/v1"
+            assert model == "opencode/nemotron-3-nano-free"
+
+    def test_local_127_not_hijacked_by_opencode(self):
+        # Explicit local URL must keep priority over OPENCODE_API_KEY.
+        with patch.dict(os.environ, {"LLM_URL": "http://127.0.0.1:4096/v1", "LLM_MODEL": "opencode/nemotron-3-nano-free", "OPENCODE_API_KEY": "sk-test"}, clear=True):
+            os.environ.pop("GEMINI_API_KEY", None)
+            base_url, _, _ = _detect_provider()
+            assert base_url == "http://127.0.0.1:4096/v1"
+
 
 class TestDiscoveryClient:
     def test_discovery_client_uses_flash_lite(self):

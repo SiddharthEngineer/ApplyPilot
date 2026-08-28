@@ -135,7 +135,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - Mocked `httpx.Client.post` to `https://opencode.ai/zen/v1/chat/completions` returns success via `LLMClient.chat()`.
 - `applypilot doctor` with `OPENCODE_API_KEY` shows `OpenCode (model)` line, does not print `MISSING` for Gemini.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-08-28)
 
 ---
 
