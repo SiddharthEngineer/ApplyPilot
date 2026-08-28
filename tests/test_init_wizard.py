@@ -685,6 +685,87 @@ class TestSetupSearchesPrefill:
 
 
 # ---------------------------------------------------------------------------
+# Wizard-generated searches.yaml: sites + site_fail_threshold
+# ---------------------------------------------------------------------------
+
+
+class TestSetupSearchesSitesThreshold:
+    """Test that _setup_searches writes explicit sites (no zip_recruiter) and site_fail_threshold."""
+
+    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_writes_sites_without_zip_recruiter(self, mock_ask, mock_path):
+        """Generated YAML contains a sites list that excludes zip_recruiter."""
+        import yaml
+
+        from applypilot.wizard.init import _setup_searches
+
+        written: list[str] = []
+
+        def _capture_write(text, encoding="utf-8"):
+            written.append(text)
+
+        mock_path.write_text.side_effect = _capture_write
+        mock_ask.side_effect = ["Chicago", "0", "Chicago, Remote, US", "Software Engineer"]
+
+        _setup_searches(existing=None)
+
+        cfg = yaml.safe_load(written[0])
+        assert "sites" in cfg
+        sites = cfg["sites"]
+        assert isinstance(sites, list)
+        assert "zip_recruiter" not in sites
+        assert "indeed" in sites
+        assert "linkedin" in sites
+        assert "glassdoor" in sites
+        assert "google" in sites
+
+    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_writes_site_fail_threshold(self, mock_ask, mock_path):
+        """Generated YAML contains defaults.site_fail_threshold == 1."""
+        import yaml
+
+        from applypilot.wizard.init import _setup_searches
+
+        written: list[str] = []
+
+        def _capture_write(text, encoding="utf-8"):
+            written.append(text)
+
+        mock_path.write_text.side_effect = _capture_write
+        mock_ask.side_effect = ["Chicago", "0", "Chicago, Remote, US", "Software Engineer"]
+
+        _setup_searches(existing=None)
+
+        cfg = yaml.safe_load(written[0])
+        assert cfg["defaults"]["site_fail_threshold"] == 1
+
+    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("applypilot.wizard.init.Prompt.ask")
+    def test_valid_yaml(self, mock_ask, mock_path):
+        """Generated YAML is valid and parseable."""
+        import yaml
+
+        from applypilot.wizard.init import _setup_searches
+
+        written: list[str] = []
+
+        def _capture_write(text, encoding="utf-8"):
+            written.append(text)
+
+        mock_path.write_text.side_effect = _capture_write
+        mock_ask.side_effect = ["Chicago", "0", "Chicago, Remote, US", "Software Engineer"]
+
+        _setup_searches(existing=None)
+
+        cfg = yaml.safe_load(written[0])
+        assert isinstance(cfg, dict)
+        assert cfg["defaults"]["location"] == "Chicago"
+        assert cfg["defaults"]["distance"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Pre-fill behaviour: AI features
 # ---------------------------------------------------------------------------
 

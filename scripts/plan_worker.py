@@ -25,7 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 QUEUE_FILE = REPO_ROOT / "agents" / "plan_queue.json"
 LOG_FILE = REPO_ROOT / "plan_worker.log"
 BUILD_PROMPT_FILE = REPO_ROOT / "agents" / "BUILD_PROMPT.md"
-STATE_FILE = REPO_ROOT / "agents" / "STATE.md"
 
 MAX_RETRIES = 2
 
@@ -105,21 +104,26 @@ def mark_completed(state: dict, plan: str, reason: str = "done") -> None:
 
 
 def check_plan_completed(plan_path: str) -> bool:
-    """Check if a plan is done by inspecting STATE.md and the plan file."""
-    # 1. Check STATE.md for completion markers
-    if STATE_FILE.exists():
-        state_text = STATE_FILE.read_text(encoding="utf-8")
-        if re.search(
-            r"No remaining work|All tasks complete", state_text, re.IGNORECASE
-        ):
-            log.info("STATE.md indicates no remaining work")
-            return True
+    """Check if a specific plan is done by inspecting the plan file's status.
 
-    # 2. Check the plan file's status field
+    Completion is determined from the plan file's own `Status:` line (e.g.
+    `Status: ✅ Completed`). This is strictly plan-specific: a successful run
+    must update the plan it is working on, never a globally-shared marker.
+    We deliberately do NOT treat STATE.md's "No remaining work" / "All tasks
+    complete" as a completion signal, because STATE.md is shared across all
+    plans and an agent finishing one plan can leave a phrase that falsely
+    marks an unrelated queued plan as done.
+    """
     full_plan = REPO_ROOT / plan_path
     if full_plan.exists():
         plan_text = full_plan.read_text(encoding="utf-8")
-        if re.search(r"Status:\s*✅\s*Completed", plan_text):
+        # Match the plan file's own status line (e.g. `**Status:** ✅ Completed`
+        # or `Status: ✅ Completed`) anchored to a whole line, so that prose
+        # elsewhere in the file (e.g. a historical-record sentence that merely
+        # mentions the marker) cannot be mistaken for a completion status.
+        if re.search(
+            r"(?m)^\*{0,2}Status\*{0,2}:\s*\*{0,2}\s*✅\s*Completed\s*$", plan_text
+        ):
             log.info("Plan file status is ✅ Completed")
             return True
 
@@ -166,6 +170,7 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
             errors="replace",
             timeout=1800,  # 30-minute hard timeout per run
             cwd=str(REPO_ROOT),
+            check=False,
         )
 
         # Log output
@@ -182,7 +187,7 @@ def run_agent(plan_path: str, model: str, iteration: int) -> int:
     except FileNotFoundError:
         log.error("opencode binary not found. Is it installed and on PATH?")
         return -1
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - broad catch-all for launcher robustness
         log.error("Unexpected error running agent: %s", e)
         return -1
 

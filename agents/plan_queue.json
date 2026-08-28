@@ -1,13 +1,6 @@
 {
-  "queue": [
-    "agents/plans/ziprecruiter-403-handling.md"
-  ],
+  "queue": [],
   "completed": [
-    {
-      "plan": "agents/plans/opencode-model-selection.md",
-      "reason": "done",
-      "completed_at": "2026-08-28T09:05:00.000000+00:00"
-    },
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
       "reason": "done",
@@ -37,6 +30,16 @@
       "plan": "agents/plans/fix-workday-ssl-cert.md",
       "reason": "done",
       "completed_at": "2026-08-27T17:28:55.743891+00:00"
+    },
+    {
+      "plan": "agents/plans/opencode-model-selection.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T14:10:21.786735+00:00"
+    },
+    {
+      "plan": "agents/plans/ziprecruiter-403-handling.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T14:32:32.147153+00:00"
     }
   ],
   "model": "opencode/nemotron-3.5-lightning-free",

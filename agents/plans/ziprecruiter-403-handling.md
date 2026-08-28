@@ -1,7 +1,7 @@
 # Plan: ZipRecruiter 403 Handling for JobSpy Crawl
 
 **Started:** 2026-08-27
-**Status:** 🔄 In Progress
+**Status:** ✅ Completed
 
 ---
 
@@ -153,7 +153,7 @@ Add a short note to the README discovery section (around the JobSpy lines, READM
 - Existing `TestSetupSearchesPrefill` tests continue to pass unchanged.
 - `python -m pytest tests/test_init_wizard.py -q` passes.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -169,7 +169,7 @@ Add a short note to the README discovery section (around the JobSpy lines, READM
 - Simulated crawl (test_jobspy-style monkeypatch of `scrape_jobs`) never receives `zip_recruiter` in `site_name`; `disabled_sites == []`; zero `JobSpy:ZipRecruiter` log lines.
 - Optional manual check: a real `applypilot run discover` log contains 0 `JobSpy:ZipRecruiter` matches.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -184,7 +184,7 @@ Add a short note to the README discovery section (around the JobSpy lines, READM
 - README contains the above phrasing.
 - Full suite `python -m pytest -q` and `ruff check` still pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
@@ -226,3 +226,4 @@ Implementation order:
 - 2026-08-27 — Plan created. Root cause confirmed as a server-side ZipRecruiter Cloudflare 403 block of JobSpy's requests (upstream issue #302 open, `python-jobspy` 1.1.82 already latest); plan scopes ApplyPilot's fix to detect-and-skip + observability rather than attempting to unblock the board.
 - 2026-08-27 — Plan completed. All 4 tasks implemented and verified: `_site_counts`/`_SiteTracker` helpers, tracker wired through `_full_crawl`/`run_discovery`, pipeline yellow banner for disabled sites, `site_fail_threshold` in example config and README. 25 jobspy tests + 4 pipeline tests added, 158 total tests pass.
 - 2026-08-27 — Plan reopened. Root cause of lingering 403 logs: the init wizard generates `searches.yaml` without a `sites:` list or `site_fail_threshold`, so configs silently inherit `zip_recruiter` + threshold 3 and still call the blocked board up to 3 times per crawl. Plan extended with Tasks 5–7: wizard writes explicit `sites` (no `zip_recruiter`) + `site_fail_threshold: 1`, migrate the user's live `~/.applypilot/searches.yaml`, and clarify auto-skip log behavior in README.
+- 2026-08-28 — Reopened plan fully completed. Task 5 (wizard) and its 3 tests implemented. Task 6: migrated the user's live `~/.applypilot/searches.yaml` — added top-level `sites` (`indeed`, `linkedin`, `glassdoor`, `google`) and `defaults.site_fail_threshold: 1`, preserving all queries/locations; verified `load` returns no `zip_recruiter` and threshold 1. Task 7: added the `site_fail_threshold` ERROR-line clarification to the README discover section. Also fixed a plan-worker false-completion bug: `check_plan_completed()` no longer treats the global STATE.md "No remaining work" phrase as completion (it is shared across plans), relying solely on the plan file's own status line being marked completed.

@@ -139,7 +139,7 @@ API keys and runtime config: `GEMINI_API_KEY`, `LLM_MODEL`, `CAPSOLVER_API_KEY` 
 ### Discover
 Queries Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs via JobSpy. Scrapes 48 Workday employer portals (configurable in `employers.yaml`). Hits 30 direct career sites with custom extractors. Deduplicates by URL.
 
-Boards that repeatedly return 0 results are auto-skipped for the rest of a crawl (configurable via `defaults.site_fail_threshold` in `searches.yaml`, default 3). Permanently disable a board by removing it from the `sites:` list. ZipRecruiter is currently subject to a known Cloudflare 403 anti-bot block upstream (`python-jobspy` latest, upstream issue [#302](https://github.com/speedyapply/JobSpy/issues/302) open).
+Boards that repeatedly return 0 results are auto-skipped for the rest of a crawl (configurable via `defaults.site_fail_threshold` in `searches.yaml`, default 3). Note that a board kept in `sites` can still log up to `site_fail_threshold` ERROR lines per crawl before it is auto-skipped, so removing it from the `sites:` list is the only way to get zero such lines. Permanently disable a board by removing it from the `sites:` list. ZipRecruiter is currently subject to a known Cloudflare 403 anti-bot block upstream (`python-jobspy` latest, upstream issue [#302](https://github.com/speedyapply/JobSpy/issues/302) open).
 
 ### Enrich
 Visits each job URL and extracts the full description. 3-tier cascade: JSON-LD structured data, then CSS selector patterns, then AI-powered extraction for unknown layouts.

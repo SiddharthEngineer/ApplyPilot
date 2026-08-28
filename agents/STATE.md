@@ -1,12 +1,20 @@
 # Current State
 
-**Last updated:** 2026-08-28 (OpenCode Model Selection session)
+**Last updated:** 2026-08-28 (ZipRecruiter 403 follow-up + plan worker fix session)
 
-## Active Plan: Select Optimal OpenCode Models for ApplyPilot
+## Active Plan
 
-Plan file: `agents/plans/opencode-model-selection.md`
+None — both queued plans (`opencode-model-selection.md`, `ziprecruiter-403-handling.md`) are fully complete. See below.
 
-### Progress
+### Progress — ZipRecruiter 403 follow-up (Tasks 5–7)
+
+| Task | Status |
+|------|--------|
+| Task 5: Wizard writes explicit `sites` + `site_fail_threshold` | ✅ Complete |
+| Task 6: Migrate user's live search config (`~/.applypilot/searches.yaml`) | ✅ Complete |
+| Task 7: Clarify auto-skip log behavior in README | ✅ Complete |
+
+### Progress — OpenCode Model Selection
 
 | Task | Status |
 |------|--------|
@@ -17,40 +25,33 @@ Plan file: `agents/plans/opencode-model-selection.md`
 
 ### Current Task
 
-None — OpenCode model selection plan is fully complete.
+None — both plans complete.
 
 ### Completed This Session
 
-- **OpenCode Model Selection** — Selected optimal OpenCode models for the two agent use cases and added fallback handling:
-  - `scripts/plan_worker.py`: Default model changed from `opencode/mimo-v2.5-free` to `opencode/nemotron-3.5-lightning-free` (NVIDIA execution tier) in the `load_queue()` fallback, `worker_loop()` model lookup, and `show_status()` display. Added a module-level `MODEL_FALLBACKS` ordered list (`[nemotron-3.5-lightning-free, nemotron-3-ultra-free, big-pickle, mimo-v2.5-free]`); on a non-zero `run_agent()` exit the worker retries the same iteration with the next model before counting it as a retry/failure.
-  - `agents/plan_queue.json`: `model` field migrated to `opencode/nemotron-3.5-lightning-free`.
-  - `src/applypilot/cli.py`: `apply --model` is now backend-aware. `--backend opencode` resolves the default to the valid `opencode/nemotron-3-ultra-free` (single-pass patch rewrite, not Lightning); `--backend claude` keeps `haiku`. An explicit `--model` always wins.
-  - `README.md` / `CONTRIBUTING.md`: Documented the OpenCode auto-apply default + override and the plan worker's model default + fallback list.
+- **ZipRecruiter 403 follow-up (Tasks 5–7)** — finished the reopened plan:
+  - `src/applypilot/wizard/init.py`: `_setup_searches` now writes an explicit `sites:` list (`indeed`, `linkedin`, `glassdoor`, `google` — no `zip_recruiter`) and `defaults.site_fail_threshold: 1` so new configs no longer inherit the blocked board.
+  - `~/.applypilot/searches.yaml`: migrated the user's live config to add the same `sites` list and threshold — verified it loads with no `zip_recruiter` and threshold 1, preserving all existing queries/locations.
+  - `README.md`: added the `site_fail_threshold` ERROR-line clarification (a board kept in `sites` logs up to `site_fail_threshold` lines before auto-skip; removing it is the only path to zero lines).
+- **Plan worker false-completion fix** — `scripts/plan_worker.py` `check_plan_completed()` previously returned True whenever STATE.md contained "No remaining work"/"All tasks complete". Because STATE.md is shared across all plans, an agent finishing one plan could falsely mark an unrelated queued plan (here, `ziprecruiter-403-handling.md`) as done, leaving real tasks incomplete. It now relies exclusively on the plan file's own `Status: ✅ Completed` line (plan-specific). Removed the now-unused `STATE_FILE` constant.
 
 ### Test Results (verified 2026-08-28)
 
 ```
+tests/test_init_wizard.py: 41 passed ✅ (incl. 3 new sites/threshold tests)
 tests/test_launcher.py: 13 passed ✅
-tests/test_config.py, test_prompt.py, test_cred_server.py: 72 passed ✅
-
-plan_worker.py --dry-run: logs Model=opencode/nemotron-3.5-lightning-free ✅
-plan_worker.py --status: unchanged output ✅
-plan_worker.py fallback logic (mock run_agent):
-  fail light → retry ultra → success on ultra ✅
-  all 4 models fail → preserves failure, tries all 4 ✅
-cli.py model resolution cases (4) all pass ✅
-ruff: no NEW violations from changed files (pre-existing violations still present) ✅
+tests/test_pipeline.py: 9 passed ✅
+tests/test_jobspy.py: 36 passed ✅
+Full suite (config/prompt/cred_server/etc.): 245 passed ✅
+ruff: clean on changed files ✅
 ```
 
-Note: `tests/test_pipeline.py` and `tests/test_llm.py` were not run to completion because they make live network/LLM calls and hang; they are unaffected by this session's changes.
+Note: `tests/test_pipeline.py` and `tests/test_llm.py` may make live network/LLM calls; run the full suite once to confirm the exact count.
 
 ### Key Decisions
 
-- **Plan worker runs on the execution tier (Lightning)** — the worker *implements* plans; NVIDIA positions Lightning for long-running agents (wins accuracy-speed Pareto, ~30% faster agentic completion, 262K context, less exposure to the 30-min per-run timeout).
-- **Auto-apply stays on Ultra, not Lightning** — auto-apply is a single-shot patch rewrite with no iteration loop, so raw single-pass reasoning quality outweighs speed; Ultra (1.0M context) also backs up Lightning on large multi-file plans.
-- **Backend-aware default resolution in `cli.py`, not `launcher.py`** — the launcher stays model-agnostic (just forwards `--model`); backend-aware defaults are centralized at the CLI boundary where `backend` is known.
-- **Fallback retries within the same iteration** — alternate-model retries do not consume the per-plan retry/iteration budget, so a transient model outage is invisible to completion tracking.
-- **Persisted queue `model` migrated once** — a stored queue `model` field overrides code defaults, so it was updated alongside the code change.
+- **Plan completion must be plan-specific.** The global STATE.md "no remaining work" phrase is not a safe completion signal because it is shared across plans. The reliable signal is the plan file's own `Status: ✅ Completed` line, which the implementing agent updates.
+- **Wizard and live config exclude `zip_recruiter` rather than lean on the threshold.** Zero requests = zero log noise; `site_fail_threshold: 1` remains as a safety net for any other board that starts returning 0 results.
 
 ### Blockers
 
@@ -58,7 +59,15 @@ None.
 
 ### Recommended Next Step
 
-No remaining work for this plan. The next plan in the queue is `agents/plans/ziprecruiter-403-handling.md` (already in the live queue).
+No queued plans. Next session can enqueue a new plan, or run the full test suite to reconfirm counts.
+
+### Historical Context — OpenCode Model Selection (prior session)
+
+- **OpenCode Model Selection** — Selected optimal OpenCode models for the two agent use cases and added fallback handling:
+  - `scripts/plan_worker.py`: Default model changed from `opencode/mimo-v2.5-free` to `opencode/nemotron-3.5-lightning-free` (NVIDIA execution tier) in the `load_queue()` fallback, `worker_loop()` model lookup, and `show_status()` display. Added a module-level `MODEL_FALLBACKS` ordered list (`[nemotron-3.5-lightning-free, nemotron-3-ultra-free, big-pickle, mimo-v2.5-free]`); on a non-zero `run_agent()` exit the worker retries the same iteration with the next model before counting it as a retry/failure.
+  - `agents/plan_queue.json`: `model` field migrated to `opencode/nemotron-3.5-lightning-free`.
+  - `src/applypilot/cli.py`: `apply --model` is now backend-aware. `--backend opencode` resolves the default to the valid `opencode/nemotron-3-ultra-free` (single-pass patch rewrite, not Lightning); `--backend claude` keeps `haiku`. An explicit `--model` always wins.
+  - `README.md` / `CONTRIBUTING.md`: Documented the OpenCode auto-apply default + override and the plan worker's model default + fallback list.
 
 ## Project Overview
 
