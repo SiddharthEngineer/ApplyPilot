@@ -24,7 +24,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 QUEUE_FILE = REPO_ROOT / "agents" / "plan_queue.json"
 LOG_FILE = REPO_ROOT / "plan_worker.log"
-BUILD_PROMPT_FILE = REPO_ROOT / "agents" / "BUILD_PROMPT.md"
+BUILD_AGENT_FILE = REPO_ROOT / "agents" / "BUILD_AGENT.md"
 
 MAX_RETRIES = 2
 
@@ -135,7 +135,7 @@ def check_plan_completed(plan_path: str) -> bool:
 
 def build_agent_prompt(plan_path: str) -> str:
     """Build the full prompt to pipe to opencode."""
-    build_prompt = BUILD_PROMPT_FILE.read_text(encoding="utf-8")
+    build_prompt = BUILD_AGENT_FILE.read_text(encoding="utf-8")
     return (
         f"{build_prompt}\n\n"
         f"---\n\n"

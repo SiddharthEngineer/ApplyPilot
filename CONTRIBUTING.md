@@ -139,7 +139,7 @@ ApplyPilot/
 │   ├── apply/            # Stage 6: browser automation
 │   └── utils/            # Shared utilities
 ├── agents/                 # Agent plans, state, and queue
-│   ├── BUILD_PROMPT.md     # Prompt template for build agents
+│   ├── BUILD_AGENT.md      # Build agent prompt
 │   ├── STATE.md            # Current implementation state
 │   ├── CHANGELOG.md        # Agent-maintained changelog
 │   ├── plan_queue.json     # Plan queue for continuous implementation
@@ -172,7 +172,7 @@ The plan queue worker continuously implements plans using agentic sessions. It r
 ### How It Works
 
 1. Picks the top plan from the queue
-2. Launches `opencode run --auto` with `agents/BUILD_PROMPT.md` + plan path
+2. Launches `opencode run --auto` with `agents/BUILD_AGENT.md` + plan path
 3. After the agent exits, checks completion via `agents/STATE.md` and the plan file's status field
 4. If done: dequeues the plan, immediately starts the next one
 5. If not done: next iteration continues (agent reads STATE.md to resume)
@@ -215,7 +215,7 @@ nohup ./scripts/plan_worker.py >> plan_worker.log 2>&1 &
 
 ### Adding a New Plan
 
-1. Create a plan file in `agents/plans/` following the template in `agents/PLAN_PROMPT.md`
+1. Create a plan file in `agents/plans/` following the template in `agents/PLAN_AGENT.md`
 2. Enqueue it: `./scripts/plan_worker.py --enqueue agents/plans/your_plan.md`
 3. The worker will pick it up on the next iteration
 
@@ -225,7 +225,7 @@ A plan is considered done when either:
 - `agents/STATE.md` contains "No remaining work" or "All tasks complete"
 - The plan file's status field reads `✅ Completed`
 
-The agent is responsible for updating these markers via the instructions in `agents/BUILD_PROMPT.md`.
+The agent is responsible for updating these markers via the instructions in `agents/BUILD_AGENT.md`.
 
 ### Model Selection & Fallback
 
