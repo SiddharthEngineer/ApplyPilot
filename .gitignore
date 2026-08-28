@@ -45,3 +45,4 @@ Thumbs.db
 *.code-workspace
 personal/
 plan_worker.log
+opencode.json

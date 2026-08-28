@@ -1,5 +1,8 @@
 {
-  "queue": [],
+  "queue": [
+    "agents/plans/discover-crawl-resilience.md",
+    "agents/plans/llm-rate-limit-mitigation.md"
+  ],
   "completed": [
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
