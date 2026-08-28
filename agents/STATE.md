@@ -4,7 +4,7 @@
 
 ## Active Plan
 
-`llm-rate-limit-mitigation.md` — In Progress (Tasks 1–4 done, Tasks 5–7 remaining)
+`llm-rate-limit-mitigation.md` — ✅ Complete (all 7 tasks done)
 
 ### Progress — Discover Crawl Resilience
 

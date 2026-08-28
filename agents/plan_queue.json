@@ -69,7 +69,7 @@
     "agents/plans/fix-workday-ssl-cert.md": 5,
     "agents/plans/opencode-model-selection.md": 1,
     "agents/plans/discover-crawl-resilience.md": 3,
-    "agents/plans/llm-rate-limit-mitigation.md": 2
+    "agents/plans/llm-rate-limit-mitigation.md": 3
   },
   "retry_counts": {
     "agents/plans/llm-rate-limit-mitigation.md": 0
