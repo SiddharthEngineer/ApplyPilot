@@ -31,7 +31,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_connection, init_db, store_jobs, get_stats
-from applypilot.llm import get_client
+from applypilot.llm import get_client, get_discovery_client
 
 log = logging.getLogger(__name__)
 
@@ -492,7 +492,6 @@ def _format_response_summary(resp: dict, index: int) -> str:
 
 def _judge_sequential(
     candidates: list[dict],
-    client,
 ) -> list[dict]:
     """Fallback: judge each response individually (one LLM call per response)."""
     relevant: list[dict] = []
@@ -522,7 +521,7 @@ def _judge_sequential(
         )
 
         try:
-            raw = client.ask(prompt, temperature=0.0, max_tokens=1024)
+            raw, _, _ = ask_llm(prompt, max_tokens=1024)
             verdict = extract_json(raw)
             is_relevant = verdict.get("relevant", False)
             reason = verdict.get("reason", "?")
@@ -565,10 +564,8 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
         return []
 
     # Step 2: LLM judge — batch if >1 candidate, sequential if exactly 1
-    client = get_client()
-
     if len(candidates) == 1:
-        return _judge_sequential(candidates, client)
+        return _judge_sequential(candidates)
 
     # Build batched prompt
     summaries = "\n\n".join(
@@ -578,7 +575,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
     batch_prompt = JUDGE_BATCH_PROMPT.format(response_summaries=summaries)
 
     try:
-        raw = client.ask(batch_prompt, temperature=0.0, max_tokens=4096)
+        raw, _, _ = ask_llm(batch_prompt)
         verdicts = extract_json(raw)
 
         if not isinstance(verdicts, list):
@@ -611,7 +608,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
 
     except Exception as e:
         log.warning("Batch judge failed (%s), falling back to sequential", e)
-        return _judge_sequential(candidates, client)
+        return _judge_sequential(candidates)
 
 
 # -- Phase 1: strategy selection ---------------------------------------------
@@ -844,11 +841,16 @@ PAGE HTML:
 
 # -- LLM helpers -------------------------------------------------------------
 
-def ask_llm(prompt: str) -> tuple[str, float, dict]:
-    """Send prompt to LLM. Returns (response_text, seconds_taken, metadata)."""
-    client = get_client()
+def ask_llm(prompt: str, max_tokens: int = 4096) -> tuple[str, float, dict]:
+    """Send prompt to LLM. Returns (response_text, seconds_taken, metadata).
+
+    Uses the cheaper discovery-stage client/model by default so smart-extract
+    (strategy selection + API judging) stays on ``gemini-2.0-flash-lite`` while
+    scoring/tailoring keep the full-quality model.
+    """
+    client = get_discovery_client()
     t0 = time.time()
-    text = client.ask(prompt, temperature=0.0, max_tokens=4096)
+    text = client.ask(prompt, temperature=0.0, max_tokens=max_tokens)
     elapsed = time.time() - t0
     meta = {
         "finish_reason": "stop",

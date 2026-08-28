@@ -12,6 +12,7 @@ from applypilot.llm import (
     _detect_provider,
     _GeminiCompatForbidden,
     get_client,
+    get_discovery_client,
 )
 
 
@@ -77,6 +78,71 @@ class TestDetectProvider:
             os.environ.pop("OPENAI_API_KEY", None)
             _, model, _ = _detect_provider()
             assert model == "my-model"
+
+    def test_discovery_default_is_flash_lite(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            os.environ.pop("LLM_MODEL", None)
+            os.environ.pop("LLM_DISCOVERY_MODEL", None)
+            _, model, _ = _detect_provider("discovery")
+            assert model == "gemini-2.0-flash-lite"
+            # Non-discovery purpose keeps the full-quality default
+            _, model, _ = _detect_provider()
+            assert model == "gemini-3.6-flash"
+
+    def test_discovery_model_override_beats_llm_model(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "explicit-model", "LLM_DISCOVERY_MODEL": "custom"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            _, model, _ = _detect_provider("discovery")
+            assert model == "custom"
+
+    def test_discovery_inherits_llm_model_when_set(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "explicit-model"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            os.environ.pop("LLM_DISCOVERY_MODEL", None)
+            _, model, _ = _detect_provider("discovery")
+            assert model == "explicit-model"
+
+
+class TestDiscoveryClient:
+    def test_discovery_client_uses_flash_lite(self):
+        import applypilot.llm as llm_mod
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            os.environ.pop("LLM_MODEL", None)
+            os.environ.pop("LLM_DISCOVERY_MODEL", None)
+            llm_mod._instance = None
+            llm_mod._discovery_instance = None
+            try:
+                assert get_client().model == "gemini-3.6-flash"
+                assert get_discovery_client().model == "gemini-2.0-flash-lite"
+            finally:
+                llm_mod._instance = None
+                llm_mod._discovery_instance = None
+
+    def test_discovery_client_independent_singleton(self):
+        import applypilot.llm as llm_mod
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            os.environ.pop("LLM_MODEL", None)
+            os.environ.pop("LLM_DISCOVERY_MODEL", None)
+            llm_mod._instance = None
+            llm_mod._discovery_instance = None
+            try:
+                d1 = get_discovery_client()
+                d2 = get_discovery_client()
+                assert d1 is d2
+                # main client is a separate instance
+                assert get_client() is not d1
+            finally:
+                llm_mod._instance = None
+                llm_mod._discovery_instance = None
+
 
 
 # ---------------------------------------------------------------------------

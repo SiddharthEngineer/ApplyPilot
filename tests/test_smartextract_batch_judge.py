@@ -82,7 +82,7 @@ class TestFormatResponseSummary:
 class TestJudgeBatchHappyPath:
     """Verify batch judge makes exactly 1 LLM call for multiple candidates."""
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_five_responses_one_llm_call(self, mock_get_client):
         """5 non-heuristic-skipped responses -> exactly 1 LLM call."""
         mock_client = MagicMock()
@@ -115,7 +115,7 @@ class TestJudgeBatchHappyPath:
         assert result[1]["url"] == "https://api.example.com/endpoint/2"
         assert result[2]["url"] == "https://api.example.com/endpoint/4"
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_prompt_contains_all_response_summaries(self, mock_get_client):
         """Batch prompt includes summaries for all candidates."""
         mock_client = MagicMock()
@@ -151,7 +151,7 @@ class TestJudgeBatchHappyPath:
         assert "https://api.example.com/jobs" in prompt_used
         assert "https://api.example.com/auth" in prompt_used
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_batch_all_relevant(self, mock_get_client):
         """All responses judged relevant are kept."""
         mock_client = MagicMock()
@@ -182,7 +182,7 @@ class TestJudgeBatchHappyPath:
         assert mock_client.ask.call_count == 1
         assert len(result) == 2
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_batch_all_irrelevant(self, mock_get_client):
         """All responses judged irrelevant -> empty result."""
         mock_client = MagicMock()
@@ -213,7 +213,7 @@ class TestJudgeBatchHappyPath:
         assert mock_client.ask.call_count == 1
         assert len(result) == 0
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_batch_single_candidate_uses_sequential(self, mock_get_client):
         """With exactly 1 candidate after heuristic, uses sequential (single-call) path."""
         mock_client = MagicMock()
@@ -242,7 +242,7 @@ class TestJudgeBatchHappyPath:
 class TestJudgeBatchFallback:
     """Verify fallback to sequential when batch response is unparseable."""
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_invalid_json_falls_back_to_sequential(self, mock_get_client):
         """If batch response is unparseable, falls back to N sequential calls."""
         mock_client = MagicMock()
@@ -277,7 +277,7 @@ class TestJudgeBatchFallback:
         assert len(result) == 1
         assert result[0]["url"] == "https://api.example.com/a"
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_missing_verdicts_falls_back(self, mock_get_client):
         """If batch returns fewer verdicts than candidates, falls back."""
         mock_client = MagicMock()
@@ -311,7 +311,7 @@ class TestJudgeBatchFallback:
         assert mock_client.ask.call_count == 3
         assert len(result) == 1
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_non_list_response_falls_back(self, mock_get_client):
         """If batch returns a dict instead of array, falls back."""
         mock_client = MagicMock()
@@ -343,7 +343,7 @@ class TestJudgeBatchFallback:
         assert mock_client.ask.call_count == 3
         assert len(result) == 2
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_sequential_fallback_keeps_on_error(self, mock_get_client):
         """Sequential fallback keeps responses on LLM error (defensive)."""
         mock_client = MagicMock()
@@ -385,7 +385,7 @@ class TestJudgeBatchFallback:
 class TestJudgeHeuristicPlusBatch:
     """Combined heuristic filter + batch judge integration."""
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_heuristic_skips_then_batch_judges(self, mock_get_client):
         """3 telemetry + 2 real -> heuristic skips 3, batch judges 2 in 1 call."""
         mock_client = MagicMock()
@@ -424,7 +424,7 @@ class TestJudgeHeuristicPlusBatch:
         assert len(result) == 1
         assert result[0]["url"] == "https://api.example.com/jobs/search"
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_batch_prompt_size_within_budget(self, mock_get_client):
         """Batched prompt is <=6000 chars for 5 responses (plan criterion)."""
         mock_client = MagicMock()
@@ -456,7 +456,7 @@ class TestJudgeHeuristicPlusBatch:
         prompt_used = mock_client.ask.call_args[0][0]
         assert len(prompt_used) < 6000, f"Prompt too long: {len(prompt_used)} chars"
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_empty_after_heuristic_no_call(self, mock_get_client):
         """If heuristic skips all, no LLM call regardless of batch capability."""
         mock_client = MagicMock()

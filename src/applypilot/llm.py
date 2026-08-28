@@ -22,11 +22,18 @@ log = logging.getLogger(__name__)
 # Provider detection
 # ---------------------------------------------------------------------------
 
-def _detect_provider() -> tuple[str, str, str]:
+def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
     """Return (base_url, model, api_key) based on environment variables.
 
     Reads env at call time (not module import time) so that load_env() called
     in _bootstrap() is always visible here.
+
+    `purpose` selects a per-stage model override. When "discovery" and a
+    Gemini key is configured without an explicit model, the cheaper
+    `gemini-2.0-flash-lite` is used (sufficient for classification/judge and
+    ~5x cheaper on input than `gemini-3.6-flash`). `LLM_DISCOVERY_MODEL` can
+    override the discovery model; `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` are
+    read by callers through `_detect_provider` with their own purpose.
     """
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     openai_key = os.environ.get("OPENAI_API_KEY", "")
@@ -34,9 +41,20 @@ def _detect_provider() -> tuple[str, str, str]:
     model_override = os.environ.get("LLM_MODEL", "")
 
     if gemini_key and not local_url:
+        base_model = model_override or "gemini-3.6-flash"
+        if purpose == "discovery":
+            discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "")
+            if discovery_model:
+                model = discovery_model
+            elif model_override:
+                model = model_override
+            else:
+                model = "gemini-2.0-flash-lite"
+        else:
+            model = base_model
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",
-            model_override or "gemini-3.6-flash",
+            model,
             gemini_key,
         )
 
@@ -337,6 +355,7 @@ class _GeminiCompatForbidden(Exception):
 # ---------------------------------------------------------------------------
 
 _instance: LLMClient | None = None
+_discovery_instance: LLMClient | None = None
 
 
 def get_client() -> LLMClient:
@@ -349,3 +368,21 @@ def get_client() -> LLMClient:
         log.info("LLM provider: %s  model: %s", base_url, model)
         _instance = LLMClient(base_url, model, api_key, rpm_limit=rpm_limit, rpm_window=rpm_window)
     return _instance
+
+
+def get_discovery_client() -> LLMClient:
+    """Return (or create) the discovery-stage LLMClient singleton.
+
+    Mirrors :func:`get_client` but resolves the per-stage model with
+    ``purpose="discovery"`` (cheaper ``gemini-2.0-flash-lite`` default on
+    Gemini free tier). Independently memoized so discovery and tailoring
+    can use different models within the same process.
+    """
+    global _discovery_instance
+    if _discovery_instance is None:
+        base_url, model, api_key = _detect_provider("discovery")
+        rpm_limit = int(os.environ.get("LLM_RPM_LIMIT", "0"))
+        rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
+        log.info("LLM provider (discovery): %s  model: %s", base_url, model)
+        _discovery_instance = LLMClient(base_url, model, api_key, rpm_limit=rpm_limit, rpm_window=rpm_window)
+    return _discovery_instance

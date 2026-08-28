@@ -95,7 +95,7 @@ class TestIsObviouslyNotJobs:
 class TestJudgeApiResponsesHeuristic:
     """Verify that judge_api_responses applies heuristic before LLM."""
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_skips_obvious_non_jobs_without_llm(self, mock_get_client):
         """3 telemetry + 1 real response -> only 1 LLM call, not 4."""
         mock_client = MagicMock()
@@ -124,7 +124,7 @@ class TestJudgeApiResponsesHeuristic:
         assert len(result) == 1
         assert result[0]["url"] == "https://api.example.com/jobs/search"
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_all_skipped_no_llm_call(self, mock_get_client):
         """If all responses are heuristic-skipped, no LLM call is made."""
         mock_client = MagicMock()
@@ -140,13 +140,13 @@ class TestJudgeApiResponsesHeuristic:
         assert mock_client.ask.call_count == 0
         assert result == []
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_no_responses_returns_empty(self, mock_get_client):
         result = judge_api_responses([])
         assert result == []
         mock_get_client.assert_not_called()
 
-    @patch("applypilot.discovery.smartextract.get_client")
+    @patch("applypilot.discovery.smartextract.get_discovery_client")
     def test_telemetry_with_job_keys_gets_llm_judged(self, mock_get_client):
         """A telemetry URL with job-like keys should NOT be heuristic-skipped."""
         mock_client = MagicMock()

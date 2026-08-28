@@ -114,7 +114,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - `.env.example` contains all four commented vars.
 - `ruff check src/applypilot/llm.py src/applypilot/discovery/smartextract.py` clean; `PYTHONPATH=src .venv/bin/python -m pytest tests/test_llm.py -v` pass.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-08-28)
 
 ---
 

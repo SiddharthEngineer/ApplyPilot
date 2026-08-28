@@ -229,6 +229,8 @@ DEFAULTS = {
     "poll_interval": 60,
     "apply_timeout": 300,
     "viewport": "1280x900",
+    "llm_rpm_limit": 12,
+    "llm_discovery_model": "gemini-2.0-flash-lite",
 }
 
 

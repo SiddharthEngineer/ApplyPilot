@@ -1,6 +1,6 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 4 complete — plan corrected, d8ee86b)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 5 complete — tiered discovery model)
 
 ## Active Plan
 
@@ -35,16 +35,22 @@ None — plan complete.
 | Task 2: Heuristic pre-filter for Judge API responses | ✅ Complete |
 | Task 3: Batch Judge API responses into a single LLM call | ✅ Complete |
 | Task 4: Per-domain strategy cache and target deduplication | ✅ Complete |
-| Task 5: Tiered model configuration and cheaper defaults | ❌ Not started |
+| Task 5: Tiered model configuration and cheaper defaults | ✅ Complete |
 | Task 6: Integrate OpenCode free models as an LLM provider | ❌ Not started |
 | Task 7: Wire new env vars through wizard, doctor, and docs | ❌ Not started |
 
 ### Current Task
 
-Task 4 complete (code landed in d8ee86b, plan status corrected). Next: Task 5 (tiered model configuration and cheaper defaults).
+Task 5 complete (tiered model config: `get_discovery_client()` + `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`/`LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` + `gemini-2.0-flash-lite` discovery default). Next: Task 6 (OpenCode provider).
 
 ### Completed This Session
 
+- **LLM Rate-Limit Mitigation — Task 5: Tiered model configuration and cheaper defaults** — Per-stage models so discovery uses a cheaper model than tailoring:
+  - `src/applypilot/llm.py`: `_detect_provider(purpose)` now accepts `purpose="discovery"`; on Gemini with no `LLM_MODEL`/`LLM_DISCOVERY_MODEL` set it defaults to `gemini-2.0-flash-lite` (vs `gemini-3.6-flash` for all other stages). Added `get_discovery_client()` singleton (independently memoized from `get_client()`), reading `LLM_RPM_LIMIT`/`LLM_RPM_WINDOW` like `get_client()`. `LLM_DISCOVERY_MODEL`/`LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` honored.
+  - `src/applypilot/discovery/smartextract.py`: `ask_llm()` now routes through `get_discovery_client()`; `judge_api_responses()` (batch + sequential fallback) and strategy selection consume the cheaper discovery model (`grep -c get_discovery_client == 2`, `scorer.py` untouched → `== 0`).
+  - `src/applypilot/config.py:DEFAULTS`: added `llm_rpm_limit: 12`, `llm_discovery_model: gemini-2.0-flash-lite`.
+  - `.env.example`: documented `LLM_RPM_LIMIT`, `LLM_RPM_WINDOW`, `LLM_DISCOVERY_MODEL`, `LLM_SCORING_MODEL`, `LLM_TAILOR_MODEL`.
+  - `tests/test_llm.py`: added `TestDiscoveryClient` (2) + 3 `_detect_provider` purpose tests; updated `test_smartextract_heuristic.py`/`test_smartextract_batch_judge.py` patches to `get_discovery_client`. 77 relevant tests pass; ruff: no new errors on changed files.
 - **LLM Rate-Limit Mitigation — Plan correction + Task 4 reconciliation** — Audited `llm-rate-limit-mitigation.md` against `HEAD` and `git log`; rewrote plan to unblock BigPickle:
   - Task 1: corrected defaults (`LLM_RPM_LIMIT=0` disabled vs plan's stale `12`), pinned line refs `src/applypilot/llm.py:88-110,342`.
   - Task 2/3: pinned exact refs `smartextract.py:385-425,449-614` and test paths.
@@ -63,9 +69,9 @@ Task 4 complete (code landed in d8ee86b, plan status corrected). Next: Task 5 (t
 tests/test_smartextract_heuristic.py: 17 passed ✅
 tests/test_smartextract_batch_judge.py: 16 passed ✅
 tests/test_smartextract_cache.py: 18 passed ✅ (Task 4 — previously uncounted)
-tests/test_llm.py: 19 passed ✅
+tests/test_llm.py: 24 passed ✅ (Task 5 added 5: TestDiscoveryClient x2 + 3 purpose tests)
 tests/test_config.py: 5 passed ✅
-ruff: clean on changed files ✅
+ruff: no new errors on changed files ✅
 ```
 
 | Task | Status |
