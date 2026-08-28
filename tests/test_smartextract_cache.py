@@ -175,7 +175,7 @@ class TestRunOneSiteCache:
         mock_intel.return_value = intel
 
         # First call: LLM returns json_ld strategy
-        mock_ask.return_value = '{"strategy":"json_ld","reasoning":"jsonld found","extraction":{"title":"title"}}'
+        mock_ask.return_value = ('{"strategy":"json_ld","reasoning":"jsonld found","extraction":{"title":"title"}}', 0.1, {"response_chars": 80})
         r1 = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
         assert r1["strategy"] == "json_ld"
         assert mock_ask.call_count == 1
@@ -185,11 +185,12 @@ class TestRunOneSiteCache:
         assert r2["strategy"] == "json_ld"
         assert mock_ask.call_count == 1  # No additional LLM calls
 
+    @patch("applypilot.discovery.smartextract.execute_css_selectors", return_value=({}, []))
     @patch("applypilot.discovery.smartextract._save_strategy_cache")
     @patch("applypilot.discovery.smartextract.collect_page_intelligence")
     @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
     @patch("applypilot.discovery.smartextract.ask_llm")
-    def test_cache_shape_mismatch_falls_back_to_llm(self, mock_ask, mock_judge, mock_intel, mock_save):
+    def test_cache_shape_mismatch_falls_back_to_llm(self, mock_ask, mock_judge, mock_intel, mock_save, mock_css):
         """If card_candidates shape changes, cache is bypassed and LLM is called."""
         from applypilot.discovery.smartextract import _run_one_site
 
@@ -205,7 +206,7 @@ class TestRunOneSiteCache:
             "full_html": "<html><body>jobs</body></html>",
         }
         mock_intel.return_value = intel1
-        mock_ask.return_value = '{"strategy":"css_selectors","reasoning":"cards","extraction":{}}'
+        mock_ask.return_value = ('{"strategy":"css_selectors","reasoning":"cards","extraction":{}}', 0.1, {"response_chars": 60})
         r1 = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
         assert r1["strategy"] == "css_selectors"
         assert mock_ask.call_count == 1
@@ -222,7 +223,7 @@ class TestRunOneSiteCache:
             "full_html": "<html><body>jobs</body></html>",
         }
         mock_intel.return_value = intel2
-        mock_ask.return_value = '{"strategy":"css_selectors","reasoning":"new shape","extraction":{}}'
+        mock_ask.return_value = ('{"strategy":"css_selectors","reasoning":"new shape","extraction":{}}', 0.1, {"response_chars": 60})
         r2 = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer2")
         assert mock_ask.call_count == 2  # LLM called again
 
@@ -252,7 +253,7 @@ class TestRunOneSiteCache:
             "full_html": "<html><body>captcha verify you are human</body></html>",
         }
         mock_intel.return_value = intel
-        mock_ask.return_value = '{"strategy":"json_ld","reasoning":"none","extraction":{}}'
+        mock_ask.return_value = ('{"strategy":"json_ld","reasoning":"none","extraction":{}}', 0.1, {"response_chars": 50})
 
         r = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
         # CAPTCHA detected -> cache ignored -> LLM called
@@ -280,7 +281,7 @@ class TestRunOneSiteCache:
                 "full_html": "<html><body>jobs</body></html>",
             }
             mock_intel.return_value = intel
-            mock_ask.return_value = '{"strategy":"json_ld","reasoning":"jsonld","extraction":{"title":"title"}}'
+            mock_ask.return_value = ('{"strategy":"json_ld","reasoning":"jsonld","extraction":{"title":"title"}}', 0.1, {"response_chars": 60})
 
             _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
             assert mock_ask.call_count == 1
@@ -311,7 +312,7 @@ class TestRunOneSiteCache:
             "full_html": "<html><body>jobs</body></html>",
         }
         mock_intel.return_value = intel
-        mock_ask.return_value = '{"strategy":"api_response","reasoning":"api found","extraction":{"url_pattern":"api.eluta.ca","items_path":"jobs","title":"title"}}'
+        mock_ask.return_value = ('{"strategy":"api_response","reasoning":"api found","extraction":{"url_pattern":"api.eluta.ca","items_path":"jobs","title":"title"}}', 0.1, {"response_chars": 90})
 
         _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
         # api_response should NOT be cached

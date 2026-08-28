@@ -26,65 +26,67 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 
 ### Task 1: Add client-side RPM limiter to LLMClient
 
-**Files:** `src/applypilot/llm.py` (modify), `tests/test_llm.py` (modify)
+**Files:** `src/applypilot/llm.py` (modify - DONE), `tests/test_llm.py` (modify - DONE)
 
-**What:** Add a token-bucket / sliding-window rate limiter inside `LLMClient` that proactively throttles before hitting the provider. Read `LLM_RPM_LIMIT` env (default `12` for Gemini compat base, `60` for OpenAI/local) at `get_client()` time and store `self._rpm_limit`. Before each `chat()` attempt (including retries), check `self._request_timestamps` deque of last 60s; if `len >= limit`, sleep `60 - (now - oldest) + 0.5` seconds. Make window and limit configurable via `LLM_RPM_LIMIT` and `LLM_RPM_WINDOW` (default 60s). Log at `DEBUG` when throttling. This complements the existing reactive `429` backoff (`_RATE_LIMIT_BASE_WAIT`) rather than replacing it. Add unit test that verifies 3 rapid calls with limit=2 inserts a sleep (mock `time.sleep`).
+**What:** Added sliding-window rate limiter inside `LLMClient` that proactively throttles before hitting the provider. `LLMClient.__init__()` at `src/applypilot/llm.py:88` now accepts `rpm_limit:int` and `rpm_window:float` and stores `self._rpm_limit`, `self._rpm_window`, `self._request_timestamps: deque[float]` (`:104-106`). `get_client()` at `:342` reads `LLM_RPM_LIMIT` (default `0` = disabled; set `12` for Gemini free-tier compat) and `LLM_RPM_WINDOW` (default `60.0`) from env. `_throttle_if_needed()` (`:110`) drops expired timestamps, sleeps `window - (now - oldest) + 0.5` when `len >= limit`, logs at DEBUG; `_record_request()` (`:136`) appends `time.monotonic()`. `chat()` (`:247`) calls throttle before each attempt and records on success. Complements existing reactive 429 backoff (`_RATE_LIMIT_BASE_WAIT=10`, `:72`).
 
 **Acceptance criteria:**
-- `LLMClient` has `_rpm_limit: int` and `_request_timestamps: deque[float]` and a `_throttle_if_needed()` method that enforces `LLM_RPM_LIMIT`.
-- With `LLM_RPM_LIMIT=2`, three sequential `client.chat()` calls (mocked `httpx.Client.post` returning 200) result in exactly one `time.sleep` call of ~30s (verify via monkeypatched sleep).
-- Existing `tests/test_llm.py` pass and new test `test_rpm_limiter` passes.
-- `ruff check src/applypilot/llm.py` reports no violations.
+- `LLMClient` has `_rpm_limit:int`, `_rpm_window:float`, `_request_timestamps:deque[float]` and `_throttle_if_needed()` enforcing `LLM_RPM_LIMIT`.
+- With `LLM_RPM_LIMIT=2`, three sequential `client.chat()` (mocked `httpx.Client.post` 200) result in exactly one `time.sleep` of ~30s (verify via `time.monotonic`/`time.sleep` monkeypatch — `tests/test_llm.py:217`).
+- `PYTHONPATH=src .venv/bin/python -m pytest tests/test_llm.py::TestRPMLimiter -v` passes (4 tests).
+- `ruff check src/applypilot/llm.py` clean.
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete (2026-08-28, commit cca5c7a)
 
 ---
 
 ### Task 2: Heuristic pre-filter for Judge API responses (zero-LLM skip)
 
-**Files:** `src/applypilot/discovery/smartextract.py` (modify), `tests/test_smartextract_heuristic.py` (new) or add to existing smartextract tests
+**Files:** `src/applypilot/discovery/smartextract.py` (modify - DONE), `tests/test_smartextract_heuristic.py` (new - DONE)
 
-**What:** Before calling `judge_api_responses()` LLM, filter `api_responses` with deterministic heuristics that already appear in logs as wasted calls: drop URLs matching `recaptcha`, `reload?k=`, `telemetry`, `web-vitals`, `get-session`, `auth/`, `prodregistry`, `algolia.*telemetry` unless the response `data` contains job-like keys (`title`, `job`, `position`, `company`, `location`). Implement `def _is_obviously_not_jobs(resp: dict) -> bool` that checks `resp["url"]` against a blocklist regex and `resp.get("type")`/`size` thresholds (e.g., `size < 200` with auth keys). Log `Judge heuristic SKIP: <url>` at INFO. Only remaining candidates go to the LLM judge. This removes the 1-2 telemetry/captcha calls per page that currently consume LLM quota for no value (visible in the user log: 4 telemetry/recaptcha judges before any real data).
+**What:** Deterministic blocklist filter before `judge_api_responses()` LLM. Implemented at `src/applypilot/discovery/smartextract.py:385-425`: `_NON_JOB_URL_RE` (recaptcha|reload\?k=|telemetry|web-vitals|get-session|/auth/|prodregistry|algolia.*telemetry), `_JOB_LIKE_KEYS` frozenset (title, job, position, company, location, salary, description, department, employment_type, date_posted), `def _is_obviously_not_jobs(resp: dict) -> bool` (if `size<200` and blocklist match → True; else blocklist match without job-like keys in `first_item_keys`/`keys` → True). `judge_api_responses()` (`:540`) filters first, logs `Judge heuristic SKIP: <url>` at INFO + `Heuristic skipped N/M (zero LLM cost)`.
 
 **Acceptance criteria:**
-- `_is_obviously_not_jobs()` returns `True` for URLs containing `recaptcha.net`, `telemetry`, `get-session` and `False` for a mock job API response with `first_item_keys=["title","company"]`.
-- `judge_api_responses()` calls the heuristic first and only invokes `client.ask()` for non-skipped responses; verify by mocking `get_client` and asserting `ask` call count drops from N to M for a fixture with 3 telemetry + 1 real response.
-- Smart-extract log for the 90-target fixture shows `Kept 0/1 relevant` only for non-telemetry responses; no LLM calls for recaptcha URLs.
-- Tests pass: new heuristic tests + any existing smartextract tests.
+- `_is_obviously_not_jobs()` returns `True` for recaptcha/telemetry/get-session URLs, `False` for mock job API with `first_item_keys=["title","company"]` — 13 unit tests at `tests/test_smartextract_heuristic.py:17`.
+- `judge_api_responses()` with 3 telemetry + 1 real → exactly 1 `ask` call (integration at `tests/test_smartextract_heuristic.py:99`); all-skipped → 0 calls (`:128`).
+- `PYTHONPATH=src .venv/bin/python -m pytest tests/test_smartextract_heuristic.py -v` — 17 passed; `ruff check` clean.
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete (2026-08-28, commit 35a3ace)
 
 ---
 
 ### Task 3: Batch Judge API responses into a single LLM call
 
-**Files:** `src/applypilot/discovery/smartextract.py` (modify)
+**Files:** `src/applypilot/discovery/smartextract.py` (modify - DONE), `tests/test_smartextract_batch_judge.py` (new - DONE)
 
-**What:** Replace the current per-response loop in `judge_api_responses()` (`for resp in api_responses: client.ask(JUDGE_PROMPT.format(...))` at `smartextract.py:362-408`) with a single batched prompt that lists all remaining (post-heuristic) API responses numbered `[1]..[N]` and asks the LLM to return a JSON array `[{"index": 1, "relevant": true/false, "reason": "..."}, ...]`. New prompt `JUDGE_BATCH_PROMPT` formats each response summary (url, status, size, type, keys, sample truncated to 300 chars) and instructs `Return ONLY valid JSON array, no markdown`. Parse with `extract_json()`, map `index -> relevant`, and fall back to sequential per-response calls if parsing fails. This collapses `N=5` judge calls (as seen in `Talent.com` log) into 1, saving 80% of judge calls.
+**What:** Collapse per-response judge loop into one batched call with sequential fallback. Added `JUDGE_BATCH_PROMPT` (`src/applypilot/discovery/smartextract.py:449`) listing `[1]..[N]` summaries via `_format_response_summary()` (`:467`, sample truncated 300 chars). `judge_api_responses()` (`:540-614`): if `len(candidates)==1` uses `_judge_sequential()` (`:493`); else builds batch prompt → single `client.ask()` → `extract_json()` expecting `list[dict{"index","relevant","reason"}]` → validates `len(verdict_map)==len(candidates)` else fallback. Fallback replays per-response `JUDGE_PROMPT` calls, keeping on LLM error.
 
 **Acceptance criteria:**
-- `judge_api_responses()` with 5 input responses makes exactly 1 `client.ask()` call (mocked) and returns `relevant` list correctly when the LLM returns `[{"index":1,"relevant":true,...}, ...]`.
-- Fallback path: if the batch response is unparseable JSON, the function retries sequentially per-response (verify by returning invalid JSON from mock and asserting N follow-up calls).
-- Token budget: batched prompt is <=4000 chars for 5 responses (truncate `sample` to 300 chars each); verified by asserting `len(prompt) < 6000`.
-- No change to `format_strategy_briefing` or `STRATEGY_PROMPT` behavior.
+- 5 inputs → exactly 1 `client.ask()` and correct `relevant` filtering (`tests/test_smartextract_batch_judge.py:86`); invalid JSON / non-list / missing verdicts → fallback to N+1 calls (`:245,:280,:314`).
+- Batched prompt `len < 6000` for 5 responses (sample truncation) (`:428`); single-candidate path uses sequential (`:217`).
+- `PYTHONPATH=src .venv/bin/python -m pytest tests/test_smartextract_batch_judge.py -v` — 16 passed (33 with heuristic suite); `ruff check` clean.
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete (2026-08-28, commit f661e77)
 
 ---
 
 ### Task 4: Per-domain strategy cache and target deduplication for smart-extract
 
-**Files:** `src/applypilot/discovery/smartextract.py` (modify), `src/applypilot/config/sites.yaml` (modify - optional comment), `tests/test_smartextract_cache.py` (new)
+**Files:** `src/applypilot/discovery/smartextract.py` (modify - DONE), `src/applypilot/cli.py` (modify - DONE), `src/applypilot/pipeline.py` (modify - DONE), `tests/test_smartextract_cache.py` (new - DONE)
 
-**What:** Add an in-memory (and optionally on-disk `~/.applypilot/.smartextract_cache.json`) cache keyed by `(site_name, domain)` that stores the last successful `strategy` + `extraction` plan (e.g., `Eluta -> css_selectors` with selectors). When `build_scrape_targets()` produces 6 queries for the same searchable site (`Eluta x 6`), `_run_one_site()` first checks `cache.get(site_name)`; if hit and the cached strategy was `css_selectors` or `json_ld` and the page's `card_candidates` shape matches (same `child_tag` count), reuse it by directly calling `execute_css_selectors()` / `execute_json_ld()` without the LLM strategy call. Add a CLI flag `--no-cache` to bypass. Also deduplicate targets: if `sites.yaml` has duplicate search sites or the same `(name, query)` appears twice, `build_scrape_targets()` deduplicates via `set()`. Log `Cache HIT for Eluta -> css_selectors (skipping strategy LLM)` at INFO. This saves 5/6 strategy calls per searchable site (e.g., 12 sites x 6 queries = 72 targets -> 12 strategy calls instead of 72).
+**What:** In-memory + on-disk strategy cache keyed by `(site_name, domain)` and target deduplication. Implementation at `src/applypilot/discovery/smartextract.py:49-91,1091-1178,1234-1272,1368-1371`:
+
+- ` _strategy_cache: dict[tuple[str,str],dict]` (`:52`), `_strategy_cache_enabled:bool` (`:53`), `_CACHE_FILE = CONFIG_DIR / ".smartextract_cache.json"` (`:55`, i.e. `src/applypilot/config/.smartextract_cache.json`, not `~/.applypilot/`), `_get_cache_key()` (`:58` via `urlparse`), `_load/_save_strategy_cache()` (`:64/:80`).
+- `_run_one_site()` (`:1091`) checks cache before LLM strategy: `css_selectors` requires `child_tag` match, `json_ld` requires `json_ld` present, `api_response` **not cached** (API data is per-query — see `tests/test_smartextract_cache.py:299`). Invalidates on CAPTCHA signals in `full_html` or empty `card_candidates` / shape mismatch (`:1104-1124`). Persists on success for `css_selectors`/`json_ld` (`:1170`).
+- `build_scrape_targets()` (`:1234`) dedup via `seen:set[tuple[str,str]]` for identical `(name, expanded_url)` — covers duplicate `sites.yaml` entries and same-query duplication.
+- CLI `applypilot run --no-cache` (`src/applypilot/cli.py:112`) + pipeline plumbing `src/applypilot/pipeline.py:62,294,342,368` sets `_strategy_cache_enabled = not no_cache` in `run_smart_extract()` (`:1368`).
 
 **Acceptance criteria:**
-- With `sites=[Eluta]` and `queries=[Data Scientist, Software Engineer, AI Engineer]`, a mocked `ask_llm` for strategy is called exactly once (first query); subsequent queries reuse cache and make 0 strategy calls (verify via mock call count).
-- `build_scrape_targets()` deduplicates identical `(name, url)` pairs; 90-target expansion with 6 queries x 12 sites produces <=72 search targets + 18 static = 90, not 90+duplicates.
-- Cache is invalidated if `page_title` contains CAPTCHA signals or `card_candidates` is empty (fallback to fresh LLM).
-- Test `test_strategy_cache_hit_and_miss` passes.
+- With mocked `ask_llm`, `sites=[Eluta] x 3 queries` → exactly 1 strategy `ask` call, next 2 hit cache (`tests/test_smartextract_cache.py:161`); shape-mismatch and CAPTCHA bypass cache (`:192,:233`); `no_cache` disables entirely (`:265`); `api_response` not cached (`:299`).
+- `build_scrape_targets()` with 12 search × 6 queries + 18 static → exactly 90 targets, duplicate entries dedup to 1 (`:74,:39`).
+- `PYTHONPATH=src .venv/bin/python -m pytest tests/test_smartextract_cache.py -v` — 18 passed.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-08-28, commit d8ee86b — previously unmarked; corrected here)
 
 ---
 
@@ -92,14 +94,25 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 
 **Files:** `src/applypilot/llm.py` (modify), `src/applypilot/config.py` (modify), `src/applypilot/discovery/smartextract.py` (modify), `.env.example` (modify)
 
-**What:** Introduce environment variables for per-stage models so discovery can use a cheaper/lighter model than tailoring: `LLM_DISCOVERY_MODEL` (default `gemini-2.0-flash-lite` when `GEMINI_API_KEY` is set, else inherits `LLM_MODEL`), `LLM_SCORING_MODEL`, `LLM_TAILOR_MODEL` (both default to `LLM_MODEL`). Refactor `_detect_provider()` to accept an optional `purpose: str` argument and add helper `def get_discovery_client() -> LLMClient` that memoizes a separate singleton per purpose (or passes `model=LLM_DISCOVERY_MODEL` to `LLMClient`). Update `smartextract.py:ask_llm()` and `judge_api_responses()` to call `get_discovery_client()` instead of `get_client()`, while `scorer.py`, `tailor.py`, `cover_letter.py` keep `get_client()` (higher-quality model). For Gemini, default discovery to `gemini-2.0-flash-lite` (5x cheaper input tokens, ~2x higher free-tier RPM in practice, and sufficient for classification tasks). Document in `.env.example` with comments explaining `LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite` saves cost.
+**What:** Per-stage models so discovery uses cheaper model than tailoring. *Single-responsibility task — do not touch OpenCode/wizard/doctor.*
+
+1. In `src/applypilot/llm.py`: change `def _detect_provider() -> tuple[str,str,str]` to `def _detect_provider(purpose: str | None = None) -> tuple[str,str,str]`. Add env `LLM_DISCOVERY_MODEL`, `LLM_SCORING_MODEL`, `LLM_TAILOR_MODEL`. When `purpose=="discovery"` and `GEMINI_API_KEY` set and neither `LLM_DISCOVERY_MODEL` nor `LLM_MODEL` set, default model is `"gemini-2.0-flash-lite"` (not `"gemini-3.6-flash"`); otherwise `LLM_DISCOVERY_MODEL` overrides, else inherits `LLM_MODEL`. `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` default to `LLM_MODEL` when unset. Memoize second singleton: `_discovery_instance: LLMClient | None = None` and `def get_discovery_client() -> LLMClient` (mirrors `get_client()` at `llm.py:342` but calls `_detect_provider("discovery")` and reads `LLM_RPM_LIMIT`/`LLM_RPM_WINDOW` separately). Ensure `_instance` and `_discovery_instance` are independently reset on `env` change in tests (set to `None` in fixtures).
+2. In `src/applypilot/discovery/smartextract.py`: change `from applypilot.llm import get_client` (`:34`) to `from applypilot.llm import get_client, get_discovery_client`; update `ask_llm()` (`:848`) and `judge_api_responses()` candidate path (`:568` `client = get_client()` → `get_discovery_client()`). Keep `scorer.py:18,98`, `tailor.py:21,504,599,644,701`, `cover_letter.py:16,148`, `enrichment/detail.py:28,466` on `get_client()`.
+3. In `src/applypilot/config.py:225` add to `DEFAULTS`: `"llm_rpm_limit": 12, "llm_discovery_model": "gemini-2.0-flash-lite"`.
+4. In `.env.example` add commented entries:
+   ```
+   # LLM_RPM_LIMIT=12            # Gemini free tier =15 RPM; 12 keeps headroom (0=disabled)
+   # LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite  # cheaper for judge/strategy; tailoring keeps gemini-3.6-flash
+   # LLM_SCORING_MODEL=            # override scoring model (defaults to LLM_MODEL)
+   # LLM_TAILOR_MODEL=             # override tailoring model (defaults to LLM_MODEL)
+   ```
 
 **Acceptance criteria:**
-- `GEMINI_API_KEY=key` with no `LLM_MODEL`/`LLM_DISCOVERY_MODEL` set results in `get_client().model == "gemini-3.6-flash"` and `get_discovery_client().model == "gemini-2.0-flash-lite"` (verify via env patching in test).
-- `LLM_DISCOVERY_MODEL=custom` overrides the discovery default regardless of `LLM_MODEL`.
-- `smartextract.py` imports and uses `get_discovery_client()`; `scorer.py` still uses `get_client()` (grep check).
-- `.env.example` contains commented `LLM_DISCOVERY_MODEL` and `LLM_RPM_LIMIT` entries.
-- `applypilot doctor` reports both models when they differ.
+- `GEMINI_API_KEY=key` with no `LLM_MODEL`/`LLM_DISCOVERY_MODEL` → `get_client().model=="gemini-3.6-flash"` and `get_discovery_client().model=="gemini-2.0-flash-lite"` (patch `os.environ`, reset both singletons, assert — add 3 tests in `tests/test_llm.py` adjacent to `TestRPMLimiter`).
+- `LLM_DISCOVERY_MODEL=custom` overrides regardless of `LLM_MODEL`.
+- `grep -c get_discovery_client src/applypilot/discovery/smartextract.py` == 2 and `grep get_discovery_client src/applypilot/scoring/scorer.py` == 0.
+- `.env.example` contains all four commented vars.
+- `ruff check src/applypilot/llm.py src/applypilot/discovery/smartextract.py` clean; `PYTHONPATH=src .venv/bin/python -m pytest tests/test_llm.py -v` pass.
 
 **Status:** ❌ Not started
 
@@ -107,16 +120,20 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 
 ### Task 6: Integrate OpenCode free models as an LLM provider
 
-**Files:** `src/applypilot/llm.py` (modify), `src/applypilot/cli.py` (modify), `src/applypilot/wizard/init.py` (modify), `tests/test_llm.py` (modify)
+**Files:** `src/applypilot/llm.py` (modify), `src/applypilot/cli.py` (modify - doctor only), `src/applypilot/wizard/init.py` (modify), `tests/test_llm.py` (modify)
 
-**What:** Add first-class support for OpenCode's Zen gateway / free models as an LLM provider alongside Gemini/OpenAI/local. Detection order in `_detect_provider(purpose)`: if `OPENCODE_API_KEY` is set (or `LLM_URL` points to `opencode.ai`), return `(base_url="https://opencode.ai/zen/v1" or LLM_URL, model=LLM_MODEL or "opencode/nemotron-3-nano-free", api_key=OPENCODE_API_KEY)`. The Zen gateway is OpenAI-compatible, so `LLMClient` needs no new transport; just ensure `Authorization: Bearer <key>` header is set and `model` is forwarded verbatim (e.g., `opencode/nemotron-3-nano-free`, `opencode/gemini-2.0-flash-lite-free`). If the user has `opencode` CLI installed, `wizard/init.py` should offer "Use OpenCode free models (no API key needed if you run `opencode auth`)" and set `LLM_URL=http://127.0.0.1:4096/v1` (local OpenCode server) if they choose it. Add `doctor` check that validates OpenCode provider: `GET {base_url}/models` with the key and lists availability. This is the user-requested "explore somehow using the opencode free models" path.
+**What:** First-class OpenCode Zen gateway provider reusing OpenAI-compatible transport. *Depends on Task 5's `_detect_provider(purpose)` signature — implement Task 5 first.*
+
+1. In `src/applypilot/llm.py:_detect_provider(purpose)`: check before Gemini/OpenAI/local. Priority: (a) if `OPENCODE_API_KEY` set → `base_url = os.environ.get("LLM_URL","").rstrip("/") or "https://opencode.ai/zen/v1"`, `model = LLM_MODEL or "opencode/nemotron-3-nano-free"`, `api_key = OPENCODE_API_KEY`; (b) elif `LLM_URL` contains `opencode.ai` → use that `LLM_URL`, same model default, `api_key = OPENCODE_API_KEY or LLM_API_KEY or ""`. Return early. Do not special-case `http://127.0.0.1:4096/v1` separately — existing `if local_url:` block already handles it and must keep priority when `LLM_URL` explicitly points there (verify `OPENCODE_API_KEY` does not override an explicit local URL test).
+2. In `src/applypilot/cli.py:doctor()` (`:412`): near LLM key checks (`:481-518`) add `has_opencode = bool(os.environ.get("OPENCODE_API_KEY"))` branch before Gemini/OpenAI. When true, `model = LLM_MODEL or "opencode/nemotron-3-nano-free"`, result label `OpenCode (model)`. Do not require `GEMINI_API_KEY` in this branch. Keep existing `LLM_URL` (Local) branch as fallback.
+3. In `src/applypilot/wizard/init.py:_setup_ai_features()` (`:509`): `choices=["gemini","openai","local","opencode"]` (add `opencode`). When `opencode` selected, prompt `OPENCODE_API_KEY` (default `env.get("OPENCODE_API_KEY","")`, mention "get from https://opencode.ai/zen or leave blank for `opencode auth` local"), prompt `LLM_MODEL` default `opencode/nemotron-3-nano-free`, write `OPENCODE_API_KEY=...` + `LLM_MODEL=...` (and optional `LLM_URL` if user chose gateway override). Keep `local` option unchanged (`http://127.0.0.1:4096/v1`).
+4. In `tests/test_llm.py:TestDetectProvider` add 4 tests: opencode default model, opencode respects `LLM_MODEL`, opencode via `LLM_URL` containing `opencode.ai`, local `127.0.0.1` not hijacked.
 
 **Acceptance criteria:**
-- With `OPENCODE_API_KEY=sk-test` and no Gemini key, `_detect_provider()` returns `("https://opencode.ai/zen/v1", "opencode/nemotron-3-nano-free", "sk-test")` (or respects `LLM_MODEL` override).
-- With `LLM_URL=http://127.0.0.1:4096/v1` and `LLM_MODEL=opencode/nemotron-3-nano-free`, `get_client()` connects to that URL regardless of Gemini key (existing local-url path already handles this; verify no regression).
-- `LLMClient.chat()` against a mocked `https://opencode.ai/zen/v1/chat/completions` returns success (httpx MockTransport).
-- `applypilot doctor` shows `LLM API key: OpenCode (opencode/nemotron-3-nano-free)` when `OPENCODE_API_KEY` is set, and does not require `GEMINI_API_KEY`.
-- Wizard offers OpenCode as a provider option and writes correct `.env` lines.
+- `OPENCODE_API_KEY=sk-test` alone → `_detect_provider() == ("https://opencode.ai/zen/v1","opencode/nemotron-3-nano-free","sk-test")`; with `LLM_MODEL=custom` → model `custom`.
+- `LLM_URL=http://127.0.0.1:4096/v1` + `LLM_MODEL=opencode/nemotron-3-nano-free` → `base_url` that local URL regardless of `GEMINI_API_KEY` (existing local-url test must still pass).
+- Mocked `httpx.Client.post` to `https://opencode.ai/zen/v1/chat/completions` returns success via `LLMClient.chat()`.
+- `applypilot doctor` with `OPENCODE_API_KEY` shows `OpenCode (model)` line, does not print `MISSING` for Gemini.
 
 **Status:** ❌ Not started
 
@@ -124,16 +141,21 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 
 ### Task 7: Wire new env vars through wizard, doctor, and docs
 
-**Files:** `src/applypilot/wizard/init.py` (modify), `src/applypilot/cli.py` (modify), `.env.example` (modify), `src/applypilot/config.py` (modify), `README.md` (modify)
+**Files:** `src/applypilot/wizard/init.py` (modify), `src/applypilot/cli.py` (modify - doctor), `.env.example` (modify), `src/applypilot/config.py` (modify - DEFAULTS already in Task 5 if not yet), `README.md` (modify)
 
-**What:** Update the first-time setup wizard (`wizard/init.py:550-580`) to prompt for `LLM_DISCOVERY_MODEL` (default `gemini-2.0-flash-lite` with explanation "Cheaper model for discovery; saves 5x cost") and `LLM_RPM_LIMIT` (default `12`, with note "Gemini free tier = 15 RPM; set 12 to stay safe"), and to offer OpenCode provider (from Task 6). Update `cli.py:doctor()` to validate `LLM_DISCOVERY_MODEL` against the Gemini model list (if Gemini provider) and to print `Discovery model: ...`, `RPM limit: ...`, `Provider: ...`. Update `.env.example` to document all new vars with comments and example values. Add a short "Cost & Rate Limits" section to `README.md` explaining free-tier limits, `--validation lenient` (already saves 1 call per tailor attempt), `--workers 1` (default), and the new `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT` knobs. Update `config.py:DEFAULTS` to include `llm_rpm_limit=12` and `llm_discovery_model="gemini-2.0-flash-lite"`.
+**What:** Surface `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`/`OPENCODE_API_KEY` in wizard, doctor, and docs. *Requires Tasks 5+6 finalized — implement last.*
+
+1. `src/applypilot/wizard/init.py:_setup_ai_features()` after provider block: prompt `LLM_DISCOVERY_MODEL` (default `"gemini-2.0-flash-lite"` when provider gemini else `LLM_MODEL`, explain "Cheaper model for discovery classification; saves 5× input cost") and `LLM_RPM_LIMIT` (default `"12"`, note "Gemini free =15 RPM; 12 stays safe, 0=disabled"). Write both to `~/.applypilot/.env` (append `LLM_DISCOVERY_MODEL`/`LLM_RPM_LIMIT`). Offer OpenCode path from Task 6.
+2. `src/applypilot/cli.py:doctor()` after LLM key block: print `Discovery model: <LLM_DISCOVERY_MODEL or LLM_MODEL or default>` and `RPM limit: <LLM_RPM_LIMIT> (window <LLM_RPM_WINDOW>s)` lines. If Gemini provider, validate `model` *and* `discovery_model` against `GET https://generativelanguage.googleapis.com/v1beta/models?key=...` same pattern as `:488-510`; warn with available models list if not found.
+3. `.env.example`: ensure commented `LLM_DISCOVERY_MODEL`, `LLM_RPM_LIMIT`, `LLM_RPM_WINDOW`, `OPENCODE_API_KEY` with explanatory comments.
+4. `src/applypilot/config.py:DEFAULTS` — if Task 5 not yet merged, add `llm_rpm_limit`/`llm_discovery_model` here as fallback.
+5. `README.md`: after Requirements table (`:104`) or under `## Configuration` (`:117`) add `### Cost & Rate Limits` subsection covering: Gemini free 15 RPM, `LLM_RPM_LIMIT=12`, `LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite` vs `gemini-3.6-flash` for tailoring, `--validation lenient` saves ~1 call/tailor attempt, `opencode/*` free models via `OPENCODE_API_KEY`/`LLM_URL`, `--no-cache` flag.
 
 **Acceptance criteria:**
-- `applypilot init` (mocked `Prompt.ask`) writes `LLM_DISCOVERY_MODEL` and `LLM_RPM_LIMIT` to `~/.applypilot/.env` when the user accepts defaults.
-- `applypilot doctor` prints `Discovery model:` and `RPM limit:` lines and validates the discovery model against the live Gemini model list (or warns if not found, same pattern as existing `cli.py:480-501`).
-- `.env.example` contains `LLM_DISCOVERY_MODEL`, `LLM_RPM_LIMIT`, `OPENCODE_API_KEY` with comments.
-- `README.md` has a "Cost & Rate Limits" subsection under Requirements or Configuration that mentions `gemini-2.0-flash-lite`, `LLM_RPM_LIMIT`, and `opencode/*` free models.
-- `ruff check src/` and `pytest tests/test_init_wizard.py tests/test_llm.py tests/test_config.py` pass.
+- Mocked `Prompt.ask` run of `applypilot init` writes `LLM_DISCOVERY_MODEL` and `LLM_RPM_LIMIT` to `.env` on defaults.
+- `applypilot doctor` output contains `Discovery model:` and `RPM limit:` lines; with bad discovery model warns with `Available:` list (stub httpx.get in test).
+- `.env.example` has all three new vars commented; `README.md` has `### Cost & Rate Limits` mentioning `gemini-2.0-flash-lite`, `LLM_RPM_LIMIT`, `opencode/*`.
+- `ruff check src/` and `PYTHONPATH=src .venv/bin/python -m pytest tests/test_init_wizard.py tests/test_llm.py tests/test_config.py -v` pass.
 
 **Status:** ❌ Not started
 
@@ -142,34 +164,36 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 ## Implementation Order
 
 ```
-Task 1 (RPM limiter — foundation, blocks all other LLM tasks)
-  ├─→ Task 2 (heuristic filter) ──→ Task 3 (batch judge) ──→ Task 4 (strategy cache)
-  │         independent of each other but sequential for clean diffs
+Task 1 (RPM limiter) ✅ done
+  ├─→ Task 2 (heuristic) ✅ ──→ Task 3 (batch judge) ✅ ──→ Task 4 (strategy cache) ✅
   └─→ Task 5 (tiered models) ──→ Task 6 (OpenCode provider)
                                         ↓
-                                  Task 7 (wizard/doctor/docs — needs Tasks 5-6)
+                                  Task 7 (wizard/doctor/docs — needs 5+6)
 ```
 
-1. Task 1 — RPM limiter (correctness foundation; all subsequent LLM calls benefit).
-2. Task 2 — Heuristic pre-filter (zero-risk, immediate 20-30% call reduction).
-3. Task 3 — Batched judge (biggest single win; depends on Task 2's filtered list shape).
-4. Task 4 — Strategy cache + dedup (amortizes strategy calls; independent of Tasks 2-3 but logically after).
-5. Task 5 — Tiered model config (cheaper discovery model; needs Task 1's RPM limit to be tunable per purpose).
-6. Task 6 — OpenCode provider (alternative zero-cost path; builds on Task 5's provider abstraction).
-7. Task 7 — Wizard/doctor/docs (requires Tasks 5-6 env vars finalized).
+1. Task 1 — RPM limiter ✅ (foundation).
+2. Task 2 — Heuristic pre-filter ✅.
+3. Task 3 — Batched judge ✅.
+4. Task 4 — Strategy cache + dedup ✅ — this plan revision marks it complete (code landed in d8ee86b).
+5. Task 5 — Tiered model config (next, cheapest cost win; needs RPM limiter).
+6. Task 6 — OpenCode provider (alternative zero-cost; depends on Task 5 provider abstraction).
+7. Task 7 — Wizard/doctor/docs (requires 5+6 env vars finalized).
 
-Tasks 2 and 5 could be parallelized after Task 1 if two sessions are available, but the sequential order above minimizes merge conflicts in `smartextract.py` and `llm.py`.
+Tasks 2 and 5 could parallelize after Task 1 but sequential minimizes `smartextract.py`/`llm.py` merge conflicts.
 
 ## Key Design Decisions
 
-1. **Client-side RPM limiter instead of just increasing backoff** — Reactive backoff (existing `10s * 2^attempt`) still burns quota and wall time; a proactive sliding-window prevents 429 entirely and is the only way to stay under Gemini's 15 RPM without relying on `Retry-After` headers that often omit the true quota window.
-2. **Heuristic pre-filter before LLM judge** — Captures the obvious `recaptcha`/`telemetry`/`get-session` calls that the log shows wasting 4 LLM calls per page; deterministic filtering is free and has zero false negatives when checking URL blocklist + job-key absence.
-3. **Batch judge into one LLM call** — The current per-response judge is the worst call-multiplier (`N` calls where `N` is intercepted API count); batching is safe because the judge task is classification, not extraction, and the array output is easy to parse with fallback to sequential.
-4. **Per-domain strategy cache** — Searchable sites like `Eluta` use the same DOM across 6 queries; caching `css_selectors` for the same `site_name` saves 5/6 strategy calls with near-zero risk since the selector is validated against `card_candidates` shape before reuse.
-5. **`gemini-2.0-flash-lite` as discovery default** — Flash-Lite is ~5x cheaper than Flash on input tokens and handles classification (judge/strategy) at equal quality; `gemini-3.6-flash` remains the tailoring default where reasoning quality matters, preserving user-visible resume/cover quality while cutting discovery cost ~80%.
-6. **OpenCode Zen gateway as a provider, not a separate CLI** — The `llm.py` client already supports OpenAI-compatible endpoints via `LLM_URL`; adding `OPENCODE_API_KEY` as a detected provider reuses that transport and lets users switch to free `opencode/*` models with a single env var, without forking the pipeline or requiring `opencode` CLI to be running (though `http://127.0.0.1:4096/v1` local path is also supported).
+1. **Client-side RPM limiter complements reactive 429 backoff** — proactive sliding-window prevents 429 entirely; `LLM_RPM_LIMIT=0` keeps local/OpenAI unthrottled, `12` recommended for Gemini free tier.
+2. **Heuristic pre-filter before LLM judge** — captures `recaptcha`/`telemetry` wasting 4 calls/page; deterministic filter is free, zero false negatives when job-key absence checked.
+3. **Batch judge into one LLM call** — worst multiplier `N`→1; array output with sequential fallback safe for classification.
+4. **Per-domain strategy cache** — searchable sites share DOM across 6 queries; validates `child_tag` shape; `api_response` excluded (per-query data).
+5. **`gemini-2.0-flash-lite` as discovery default** — ~5× cheaper input than Flash, sufficient for classification; `gemini-3.6-flash` remains tailoring default for quality.
+6. **OpenCode Zen gateway as provider, not separate CLI** — reuses `LLM_URL` OpenAI-compatible path; single `OPENCODE_API_KEY` env var, optional local `http://127.0.0.1:4096/v1`.
 
 ## Historical Record
 
-- 2026-08-28 — Plan created. Root cause: smart-extract makes 180-270 LLM calls per 90-target crawl (1 judge per API response + 1 strategy + 1 Phase2 per site), exceeding Gemini free tier 15 RPM. Plan proposes 7 tasks: RPM limiter, heuristic filter, batched judge, strategy cache, tiered models, OpenCode provider, wizard/docs wiring.
-
+- 2026-08-28 — Plan created. Root cause: 180-270 LLM calls /90-target crawl (1 judge/API +1 strategy +1 Phase2 per site), exceeding Gemini 15 RPM. Proposed 7 tasks.
+- 2026-08-28 — Task 1 complete (cca5c7a): `src/applypilot/llm.py` RPM limiter (`_throttle_if_needed`, `_record_request`, env `LLM_RPM_LIMIT`/`LLM_RPM_WINDOW`) + 4 tests.
+- 2026-08-28 — Task 2 complete (35a3ace): `smartextract.py:_is_obviously_not_jobs` + heuristic in `judge_api_responses` + 17 tests.
+- 2026-08-28 — Task 3 complete (f661e77): `JUDGE_BATCH_PROMPT` + `_format_response_summary` + `_judge_sequential` fallback + 16 tests.
+- 2026-08-28 — Task 4 complete (d8ee86b): per-domain strategy cache `(site,domain)` at `CONFIG_DIR/.smartextract_cache.json`, `build_scrape_targets` dedup `seen` set, `run --no-cache` + pipeline plumbing, 18 tests — plan status corrected in this revision (commit message was "Clean up plan queue").

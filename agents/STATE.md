@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 3 complete)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 4 complete — plan corrected, d8ee86b)
 
 ## Active Plan
 
-`llm-rate-limit-mitigation.md` — In Progress (Tasks 1–3 done, Tasks 4–7 remaining)
+`llm-rate-limit-mitigation.md` — In Progress (Tasks 1–4 done, Tasks 5–7 remaining)
 
 ### Progress — Discover Crawl Resilience
 
@@ -34,17 +34,26 @@ None — plan complete.
 | Task 1: Add client-side RPM limiter to LLMClient | ✅ Complete |
 | Task 2: Heuristic pre-filter for Judge API responses | ✅ Complete |
 | Task 3: Batch Judge API responses into a single LLM call | ✅ Complete |
-| Task 4: Per-domain strategy cache and target deduplication | ❌ Not started |
+| Task 4: Per-domain strategy cache and target deduplication | ✅ Complete |
 | Task 5: Tiered model configuration and cheaper defaults | ❌ Not started |
 | Task 6: Integrate OpenCode free models as an LLM provider | ❌ Not started |
 | Task 7: Wire new env vars through wizard, doctor, and docs | ❌ Not started |
 
 ### Current Task
 
-Task 3 complete. Next: Task 4 (per-domain strategy cache and target deduplication).
+Task 4 complete (code landed in d8ee86b, plan status corrected). Next: Task 5 (tiered model configuration and cheaper defaults).
 
 ### Completed This Session
 
+- **LLM Rate-Limit Mitigation — Plan correction + Task 4 reconciliation** — Audited `llm-rate-limit-mitigation.md` against `HEAD` and `git log`; rewrote plan to unblock BigPickle:
+  - Task 1: corrected defaults (`LLM_RPM_LIMIT=0` disabled vs plan's stale `12`), pinned line refs `src/applypilot/llm.py:88-110,342`.
+  - Task 2/3: pinned exact refs `smartextract.py:385-425,449-614` and test paths.
+  - Task 4: marked ✅ Complete — code already in `d8ee86b` (`smartextract.py:49-91` cache, `cli.py:112` --no-cache, `pipeline.py:62,294`, 18 tests at `tests/test_smartextract_cache.py`) but plan still said ❌ Not started; corrected cache path `CONFIG_DIR/.smartextract_cache.json`, noted `api_response` not cached.
+  - Tasks 5-7: expanded to single-responsibility steps with explicit `DEFAULTS` keys, `get_discovery_client()` singleton, `OPENCODE_API_KEY` priority, and doctor/wizard wiring to prevent implementation guesswork.
+- **LLM Rate-Limit Mitigation — Task 4: Per-domain strategy cache and target deduplication** — (landed in `d8ee86b` as "Clean up plan queue"):
+  - `src/applypilot/discovery/smartextract.py`: `_strategy_cache`, `_CACHE_FILE`, `_get_cache_key()`, `_load/_save_strategy_cache()`, `_run_one_site()` cache hit/miss + CAPTCHA/shape invalidation, `build_scrape_targets()` `seen` dedup. `api_response` intentionally not cached.
+  - `src/applypilot/cli.py` + `src/applypilot/pipeline.py`: `--no-cache` flag plumbing.
+  - `tests/test_smartextract_cache.py`: 18 tests (5 dedup, 2 key, 3 persistence, 8 cache-hit/miss/no-cache/captcha).
 - **LLM Rate-Limit Mitigation — Task 3: Batch judge** — Collapsed per-response judge loop into a single batched LLM call with fallback:
   - `src/applypilot/discovery/smartextract.py`: Added `JUDGE_BATCH_PROMPT` that lists all candidates numbered `[1]..[N]` and asks the LLM to return a JSON array of verdicts. Added `_format_response_summary()` helper that formats each response (url, status, size, type, fields, sample truncated to 300 chars). Extracted `_judge_sequential()` for fallback. Refactored `judge_api_responses()`: with >1 candidate, builds a batched prompt and makes 1 LLM call; parses the array response and maps index→verdict; falls back to sequential if batch parsing fails (invalid JSON, non-list response, missing verdicts). Single candidate still uses sequential path directly. 16 new tests in `tests/test_smartextract_batch_judge.py`: 4 summary formatter tests, 5 happy-path batch tests (5 responses→1 call, prompt content, all-relevant, all-irrelevant, single-candidate sequential), 4 fallback tests (invalid JSON, missing verdicts, non-list response, error handling), 3 integration tests (heuristic+batch combined, prompt size budget, empty-after-heuristic). All 33 tests (17 heuristic + 16 batch) pass, ruff clean.
 
@@ -52,7 +61,8 @@ Task 3 complete. Next: Task 4 (per-domain strategy cache and target deduplicatio
 
 ```
 tests/test_smartextract_heuristic.py: 17 passed ✅
-tests/test_smartextract_batch_judge.py: 16 passed ✅ (new batch judge tests)
+tests/test_smartextract_batch_judge.py: 16 passed ✅
+tests/test_smartextract_cache.py: 18 passed ✅ (Task 4 — previously uncounted)
 tests/test_llm.py: 19 passed ✅
 tests/test_config.py: 5 passed ✅
 ruff: clean on changed files ✅

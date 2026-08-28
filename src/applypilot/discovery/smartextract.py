@@ -687,8 +687,8 @@ def format_strategy_briefing(intel: dict) -> str:
     if intel["card_candidates"]:
         sections.append(f"\nREPEATING ELEMENTS DETECTED: {len(intel['card_candidates'])} candidate groups")
         for i, cand in enumerate(intel["card_candidates"]):
-            sections.append(f"  [{i}] parent={cand['parent_selector']} child={cand['child_selector']} "
-                          f"count={cand['total_children']} with_text={cand['with_text']} with_links={cand['with_links']}")
+            sections.append(f"  [{i}] parent={cand.get('parent_selector','?')} child={cand.get('child_selector','?')} "
+                          f"count={cand.get('total_children','?')} with_text={cand.get('with_text','?')} with_links={cand.get('with_links','?')}")
     else:
         sections.append("\nREPEATING ELEMENTS: none detected")
 
