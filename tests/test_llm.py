@@ -11,6 +11,7 @@ from applypilot.llm import (
     LLMClient,
     _detect_provider,
     _GeminiCompatForbidden,
+    get_client,
 )
 
 
@@ -206,3 +207,96 @@ class TestGeminiCompatForbidden:
         resp = _make_response(403, text="forbidden")
         exc = _GeminiCompatForbidden(resp)
         assert "403" in str(exc)
+
+
+# ---------------------------------------------------------------------------
+# RPM limiter
+# ---------------------------------------------------------------------------
+
+class TestRPMLimiter:
+    def test_throttle_sleeps_when_limit_reached(self):
+        client = LLMClient(
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+            api_key="test-key",
+            rpm_limit=2,
+            rpm_window=60.0,
+        )
+        success_resp = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+
+        with (
+            patch.object(client._client, "post", return_value=success_resp),
+            patch("applypilot.llm.time.sleep") as mock_sleep,
+            patch("applypilot.llm.time.monotonic", side_effect=[
+                0.0, 0.1,    # call 1: throttle check, record
+                0.2, 0.3,    # call 2: throttle check, record
+                31.0,        # call 3: throttle check (now)
+                31.1,        # call 3: after sleep re-check
+                31.2,        # call 3: record
+            ]),
+        ):
+            # Call 1: no sleep (0 < 2)
+            client.chat([{"role": "user", "content": "a"}])
+            assert mock_sleep.call_count == 0
+            # Call 2: no sleep (1 < 2)
+            client.chat([{"role": "user", "content": "b"}])
+            assert mock_sleep.call_count == 0
+            # Call 3: should sleep (2 >= 2)
+            client.chat([{"role": "user", "content": "c"}])
+            assert mock_sleep.call_count == 1
+            sleep_arg = mock_sleep.call_args[0][0]
+            assert sleep_arg > 29.0  # ~30s sleep
+
+    def test_rpm_limit_zero_disables_throttling(self):
+        client = LLMClient(
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+            api_key="test-key",
+            rpm_limit=0,
+        )
+        success_resp = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+
+        with (
+            patch.object(client._client, "post", return_value=success_resp),
+            patch("applypilot.llm.time.sleep") as mock_sleep,
+        ):
+            for _ in range(10):
+                client.chat([{"role": "user", "content": "hi"}])
+            mock_sleep.assert_not_called()
+
+    def test_timestamps_expire_after_window(self):
+        client = LLMClient(
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+            api_key="test-key",
+            rpm_limit=1,
+            rpm_window=60.0,
+        )
+        success_resp = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+
+        with (
+            patch.object(client._client, "post", return_value=success_resp),
+            patch("applypilot.llm.time.sleep") as mock_sleep,
+        ):
+            # t=0: call 1 (no sleep)
+            with patch("applypilot.llm.time.monotonic", side_effect=[0.0, 0.1]):
+                client.chat([{"role": "user", "content": "a"}])
+            assert mock_sleep.call_count == 0
+            # t=61: window expired, call 2 (no sleep)
+            with patch("applypilot.llm.time.monotonic", side_effect=[61.0, 61.1]):
+                client.chat([{"role": "user", "content": "b"}])
+            assert mock_sleep.call_count == 0
+
+    def test_get_client_reads_env_vars(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_RPM_LIMIT": "20", "LLM_RPM_WINDOW": "30"}, clear=False):
+            os.environ.pop("LLM_URL", None)
+            os.environ.pop("LLM_MODEL", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            import applypilot.llm as llm_mod
+            llm_mod._instance = None
+            try:
+                client = get_client()
+                assert client._rpm_limit == 20
+                assert client._rpm_window == 30.0
+            finally:
+                llm_mod._instance = None

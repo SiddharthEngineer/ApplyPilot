@@ -1,6 +1,5 @@
 {
   "queue": [
-    "agents/plans/discover-crawl-resilience.md",
     "agents/plans/llm-rate-limit-mitigation.md"
   ],
   "completed": [
@@ -53,6 +52,11 @@
       "plan": "agents/plans/fix-opencode-plan-permissions.md",
       "reason": "done",
       "completed_at": "2026-08-28T16:15:33.464920+00:00"
+    },
+    {
+      "plan": "agents/plans/discover-crawl-resilience.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T16:23:13.960421+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -64,9 +68,7 @@
     "agents/plans/gemini-404-scoring-fix.md": 11,
     "agents/plans/fix-workday-ssl-cert.md": 5,
     "agents/plans/opencode-model-selection.md": 1,
-    "agents/plans/discover-crawl-resilience.md": 2
+    "agents/plans/discover-crawl-resilience.md": 3
   },
-  "retry_counts": {
-    "agents/plans/discover-crawl-resilience.md": 0
-  }
+  "retry_counts": {}
 }

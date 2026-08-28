@@ -12,6 +12,7 @@ LLM_MODEL env var overrides the model name for any provider.
 import logging
 import os
 import time
+from collections import deque
 
 import httpx
 
@@ -84,7 +85,14 @@ class LLMClient:
     for the lifetime of the process.
     """
 
-    def __init__(self, base_url: str, model: str, api_key: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str,
+        rpm_limit: int = 0,
+        rpm_window: float = 60.0,
+    ) -> None:
         self.base_url = base_url
         self.model = model
         self.api_key = api_key
@@ -92,6 +100,43 @@ class LLMClient:
         # True once we've confirmed the native Gemini API works for this model
         self._use_native_gemini: bool = False
         self._is_gemini: bool = base_url.startswith(_GEMINI_COMPAT_BASE)
+        # Client-side RPM limiter
+        self._rpm_limit: int = rpm_limit
+        self._rpm_window: float = rpm_window
+        self._request_timestamps: deque[float] = deque()
+
+    # -- RPM limiter --------------------------------------------------------
+
+    def _throttle_if_needed(self) -> None:
+        """Sleep if we'd exceed the RPM limit within the current window."""
+        if self._rpm_limit <= 0:
+            return
+
+        now = time.monotonic()
+        # Drop timestamps outside the window
+        while self._request_timestamps and self._request_timestamps[0] <= now - self._rpm_window:
+            self._request_timestamps.popleft()
+
+        if len(self._request_timestamps) >= self._rpm_limit:
+            oldest = self._request_timestamps[0]
+            sleep_time = self._rpm_window - (now - oldest) + 0.5
+            log.debug(
+                "RPM limiter: %d requests in %.1fs window (limit %d). Sleeping %.1fs.",
+                len(self._request_timestamps),
+                self._rpm_window,
+                self._rpm_limit,
+                sleep_time,
+            )
+            time.sleep(sleep_time)
+            # Re-drop after sleeping
+            now = time.monotonic()
+            while self._request_timestamps and self._request_timestamps[0] <= now - self._rpm_window:
+                self._request_timestamps.popleft()
+
+    def _record_request(self) -> None:
+        """Record the timestamp of a request for RPM tracking."""
+        if self._rpm_limit > 0:
+            self._request_timestamps.append(time.monotonic())
 
     # -- Native Gemini API --------------------------------------------------
 
@@ -201,11 +246,17 @@ class LLMClient:
 
         for attempt in range(_MAX_RETRIES):
             try:
+                self._throttle_if_needed()
+
                 # Route to native Gemini if we've already confirmed it's needed
                 if self._use_native_gemini:
-                    return self._chat_native_gemini(messages, temperature, max_tokens)
+                    result = self._chat_native_gemini(messages, temperature, max_tokens)
+                    self._record_request()
+                    return result
 
-                return self._chat_compat(messages, temperature, max_tokens)
+                result = self._chat_compat(messages, temperature, max_tokens)
+                self._record_request()
+                return result
 
             except _GeminiCompatForbidden as exc:
                 # Model not available on OpenAI-compat layer — switch to native.
@@ -293,6 +344,8 @@ def get_client() -> LLMClient:
     global _instance
     if _instance is None:
         base_url, model, api_key = _detect_provider()
+        rpm_limit = int(os.environ.get("LLM_RPM_LIMIT", "0"))
+        rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
         log.info("LLM provider: %s  model: %s", base_url, model)
-        _instance = LLMClient(base_url, model, api_key)
+        _instance = LLMClient(base_url, model, api_key, rpm_limit=rpm_limit, rpm_window=rpm_window)
     return _instance

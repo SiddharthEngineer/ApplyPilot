@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-08-28 (Discover crawl resilience plan complete)
+**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 1 complete)
 
 ## Active Plan
 
-None — `discover-crawl-resilience.md` is fully complete. See below.
+`llm-rate-limit-mitigation.md` — In Progress (Task 1 done, Tasks 2–7 remaining)
 
 ### Progress — Discover Crawl Resilience
 
@@ -27,7 +27,36 @@ None — plan complete.
 | Task 6: Migrate user's live search config (`~/.applypilot/searches.yaml`) | ✅ Complete |
 | Task 7: Clarify auto-skip log behavior in README | ✅ Complete |
 
-### Progress — OpenCode Model Selection
+### Progress — LLM Rate-Limit Mitigation
+
+| Task | Status |
+|------|--------|
+| Task 1: Add client-side RPM limiter to LLMClient | ✅ Complete |
+| Task 2: Heuristic pre-filter for Judge API responses | ❌ Not started |
+| Task 3: Batch Judge API responses into a single LLM call | ❌ Not started |
+| Task 4: Per-domain strategy cache and target deduplication | ❌ Not started |
+| Task 5: Tiered model configuration and cheaper defaults | ❌ Not started |
+| Task 6: Integrate OpenCode free models as an LLM provider | ❌ Not started |
+| Task 7: Wire new env vars through wizard, doctor, and docs | ❌ Not started |
+
+### Current Task
+
+Task 1 complete. Next: Task 2 (heuristic pre-filter for judge API responses).
+
+### Completed This Session
+
+- **LLM Rate-Limit Mitigation — Task 1: RPM limiter** — added client-side rate limiting to `LLMClient`:
+  - `src/applypilot/llm.py`: Added `collections.deque` import, `_rpm_limit`, `_rpm_window`, `_request_timestamps` fields to `LLMClient.__init__()`, `_throttle_if_needed()` method (sliding-window sleep), `_record_request()` method. Updated `chat()` to call throttle before each attempt and record on success. Updated `get_client()` to read `LLM_RPM_LIMIT` (default 0=disabled) and `LLM_RPM_WINDOW` (default 60s) env vars.
+  - `tests/test_llm.py`: Added 4 tests in `TestRPMLimiter` — throttle sleep verification (limit=2, 3rd call sleeps ~30s), limit=0 disables throttling, timestamps expire after window, `get_client()` reads env vars. All 19 LLM tests pass.
+
+### Test Results (verified 2026-08-28)
+
+```
+tests/test_llm.py: 19 passed ✅ (4 new RPM limiter tests)
+tests/test_config.py: 5 passed ✅
+tests/test_init_wizard.py: 41 passed ✅
+ruff: clean on changed files ✅
+```
 
 | Task | Status |
 |------|--------|
@@ -61,9 +90,7 @@ ruff: clean on changed files ✅
 
 ### Recommended Next Step
 
-No queued plans. Next session can enqueue a new plan, or run the full test suite to reconfirm counts.
-
-### Key Decisions
+Task 2: Heuristic pre-filter for Judge API responses (zero-LLM skip) in `smartextract.py`.
 
 - **Plan completion must be plan-specific.** The global STATE.md "no remaining work" phrase is not a safe completion signal because it is shared across plans. The reliable signal is the plan file's own `Status: ✅ Completed` line, which the implementing agent updates.
 - **Wizard and live config exclude `zip_recruiter` rather than lean on the threshold.** Zero requests = zero log noise; `site_fail_threshold: 1` remains as a safety net for any other board that starts returning 0 results.

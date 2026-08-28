@@ -36,7 +36,7 @@ Eliminate the `429 Too Many Requests` collapse seen in `applypilot run` smart-ex
 - Existing `tests/test_llm.py` pass and new test `test_rpm_limiter` passes.
 - `ruff check src/applypilot/llm.py` reports no violations.
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete
 
 ---
 
