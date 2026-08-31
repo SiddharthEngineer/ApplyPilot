@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-08-28 (LLM rate-limit mitigation Task 7 complete — wizard/doctor/docs wiring)
+**Last updated:** 2026-08-31 (Integration smoke suite complete — all 7 tasks done)
 
 ## Active Plan
 
-`llm-rate-limit-mitigation.md` — ✅ Complete (all 7 tasks done)
+`integration-smoke-suite-with-pickle-fixtures.md` — ✅ Complete (all 7 tasks done)
 
 ### Progress — Discover Crawl Resilience
 
@@ -41,7 +41,19 @@ None — plan complete.
 
 ### Current Task
 
-None — plan complete. LLM rate-limit mitigation plan fully implemented (Tasks 1–7).
+None — both plans complete.
+
+### Progress — Integration Smoke Suite with Pickle Fixtures
+
+| Task | Status |
+|------|--------|
+| Task 1: Mark infrastructure + conftest | ✅ Complete |
+| Task 2: Fixture capture script | ✅ Complete |
+| Task 3: Live JobSpy per-site (n=1) | ✅ Complete |
+| Task 4: Filtering independence (no LLM, pickle fixtures) | ✅ Complete |
+| Task 5: Scoring/Tailoring/Cover live LLM | ✅ Complete |
+| Task 6: Enrich/Workday/SmartExtract/PDF | ✅ Complete |
+| Task 7: Docs (CONTRIBUTING.md) | ✅ Complete |
 
 ### Completed This Session
 

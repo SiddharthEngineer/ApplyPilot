@@ -82,7 +82,7 @@ Direct career site scrapers are configured in `config/sites.yaml`. To add a new 
 ## Running Tests
 
 ```bash
-# Run all tests
+# Run all unit tests (fast, no API keys required)
 pytest tests/ -v
 
 # Run a specific test file
@@ -90,7 +90,26 @@ pytest tests/test_scoring.py -v
 
 # Run with coverage
 pytest tests/ --cov=src/applypilot --cov-report=term-missing
+
+# Run live network tests (JobSpy, Workday, SmartExtract — requires network)
+pytest -m live --run-live -v
+
+# Run LLM tests (Gemini API calls — requires GEMINI_API_KEY)
+pytest -m llm --run-llm -v
+
+# Run everything (live + LLM)
+pytest --run-live --run-llm -v
 ```
+
+### Test Fixtures
+
+Some tests use pre-captured fixtures in `tests/fixtures/` (gitignored). Generate them locally:
+
+```bash
+python scripts/capture_fixtures.py --n 1
+```
+
+This runs a minimal discovery crawl and saves pickle/JSON files for offline testing.
 
 ## Linting and Code Style
 
@@ -145,9 +164,12 @@ ApplyPilot/
 │   ├── plan_queue.json     # Plan queue for continuous implementation
 │   └── plans/              # Individual plan files
 ├── scripts/                # Automation scripts
-│   └── plan_worker.py      # Plan queue worker (continuous agent loop)
+│   ├── plan_worker.py      # Plan queue worker (continuous agent loop)
+│   └── capture_fixtures.py # Generate test fixtures (pickle/JSON)
 ├── config/               # Default configuration files
 ├── tests/                # Test suite
+│   ├── fixtures/         # Gitignored test fixtures (generated locally)
+│   └── conftest.py       # Pytest configuration (marks, options)
 ├── docs/                 # Documentation
 └── pyproject.toml        # Package configuration
 ```

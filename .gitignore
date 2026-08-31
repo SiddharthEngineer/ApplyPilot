@@ -37,6 +37,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# Test fixtures (generated locally, never commit)
+tests/fixtures/*.pkl
+tests/fixtures/*.json
+
 # Claude Code
 .claude/
 
