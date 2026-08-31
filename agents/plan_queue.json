@@ -64,7 +64,7 @@
     {
       "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
       "reason": "done",
-      "completed_at": "2026-08-31T20:00:00.000000+00:00"
+      "completed_at": "2026-08-31T21:00:00.000000+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -78,7 +78,7 @@
     "agents/plans/opencode-model-selection.md": 1,
     "agents/plans/discover-crawl-resilience.md": 3,
     "agents/plans/llm-rate-limit-mitigation.md": 11,
-    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 5
+    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 6
   },
   "retry_counts": {
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 0
