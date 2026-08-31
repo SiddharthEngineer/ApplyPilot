@@ -1,8 +1,11 @@
 {
-  "queue": [
-    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md"
-  ],
+  "queue": [],
   "completed": [
+    {
+      "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
+      "reason": "done",
+      "completed_at": "2026-08-31T23:59:00.000000+00:00"
+    },
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
       "reason": "done",

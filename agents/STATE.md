@@ -4,7 +4,7 @@
 
 ## Active Plan
 
-`integration-smoke-suite-with-pickle-fixtures.md` — ✅ Complete (all 7 tasks done)
+None — all queued plans complete.
 
 ### Progress — Discover Crawl Resilience
 
