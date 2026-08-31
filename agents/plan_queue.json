@@ -2,16 +2,6 @@
   "queue": [],
   "completed": [
     {
-      "plan": "agents/plans/llm-rate-limit-mitigation.md",
-      "reason": "done",
-      "completed_at": "2026-08-28T00:00:00.000000+00:00"
-    },
-    {
-      "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
-      "reason": "done",
-      "completed_at": "2026-08-31T00:00:00.000000+00:00"
-    },
-    {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
       "reason": "done",
       "completed_at": "2026-08-27T18:00:00.000000+00:00"
@@ -42,11 +32,6 @@
       "completed_at": "2026-08-28T14:10:21.786735+00:00"
     },
     {
-      "plan": "agents/plans/ziprecruiter-403-handling.md",
-      "reason": "done",
-      "completed_at": "2026-08-28T14:32:32.147153+00:00"
-    },
-    {
       "plan": "agents/plans/restore-auto-flag.md",
       "reason": "done",
       "completed_at": "2026-08-28T16:02:37.577375+00:00"
@@ -65,6 +50,16 @@
       "plan": "agents/plans/gemini-404-scoring-fix.md",
       "reason": "error_exit_1",
       "completed_at": "2026-08-28T18:07:02.707421+00:00"
+    },
+    {
+      "plan": "agents/plans/llm-rate-limit-mitigation.md",
+      "reason": "done",
+      "completed_at": "2026-08-31T00:00:00.000000+00:00"
+    },
+    {
+      "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
+      "reason": "done",
+      "completed_at": "2026-08-31T00:00:00.000000+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -80,7 +75,5 @@
     "agents/plans/llm-rate-limit-mitigation.md": 7,
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 1
   },
-  "retry_counts": {
-    "agents/plans/llm-rate-limit-mitigation.md": 0
-  }
+  "retry_counts": {}
 }
