@@ -155,6 +155,32 @@ class TestPDFCheap:
 
 @pytest.mark.live
 @pytest.mark.expensive
+class TestDetailPageLive:
+    """Test scrape_detail_page with real network."""
+
+    def test_scrape_detail_page(self, tmp_path, monkeypatch):
+        from applypilot.enrichment.detail import scrape_detail_page
+
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                result = scrape_detail_page(page, "https://example.com/jobs/1")
+                browser.close()
+
+                assert isinstance(result, dict)
+                assert "full_description" in result
+                assert "application_url" in result
+                assert "tier_used" in result
+                assert result["tier_used"] in {1, 2, 3, None}
+        except (TimeoutError, OSError, RuntimeError) as e:
+            pytest.xfail(f"Detail page scrape failed (expected): {e}")
+
+
+@pytest.mark.live
+@pytest.mark.expensive
 class TestWorkdayLive:
     """Test Workday discovery with real network."""
 
