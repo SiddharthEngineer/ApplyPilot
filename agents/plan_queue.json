@@ -78,7 +78,7 @@
     "agents/plans/opencode-model-selection.md": 1,
     "agents/plans/discover-crawl-resilience.md": 3,
     "agents/plans/llm-rate-limit-mitigation.md": 11,
-    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 3
+    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 5
   },
   "retry_counts": {
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 0
