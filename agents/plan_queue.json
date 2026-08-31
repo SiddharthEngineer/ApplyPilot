@@ -1,5 +1,7 @@
 {
-  "queue": [],
+  "queue": [
+    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md"
+  ],
   "completed": [
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
@@ -32,6 +34,11 @@
       "completed_at": "2026-08-28T14:10:21.786735+00:00"
     },
     {
+      "plan": "agents/plans/ziprecruiter-403-handling.md",
+      "reason": "done",
+      "completed_at": "2026-08-28T14:32:32.147153+00:00"
+    },
+    {
       "plan": "agents/plans/restore-auto-flag.md",
       "reason": "done",
       "completed_at": "2026-08-28T16:02:37.577375+00:00"
@@ -53,13 +60,8 @@
     },
     {
       "plan": "agents/plans/llm-rate-limit-mitigation.md",
-      "reason": "done",
-      "completed_at": "2026-08-31T00:00:00.000000+00:00"
-    },
-    {
-      "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
-      "reason": "done",
-      "completed_at": "2026-08-31T00:00:00.000000+00:00"
+      "reason": "max_iterations_exceeded",
+      "completed_at": "2026-08-31T18:24:48.647413+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -72,8 +74,10 @@
     "agents/plans/fix-workday-ssl-cert.md": 5,
     "agents/plans/opencode-model-selection.md": 1,
     "agents/plans/discover-crawl-resilience.md": 3,
-    "agents/plans/llm-rate-limit-mitigation.md": 7,
+    "agents/plans/llm-rate-limit-mitigation.md": 11,
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 1
   },
-  "retry_counts": {}
+  "retry_counts": {
+    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 0
+  }
 }
