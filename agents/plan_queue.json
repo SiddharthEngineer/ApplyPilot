@@ -1,7 +1,5 @@
 {
-  "queue": [
-    "agents/plans/fix-live-test-failures.md"
-  ],
+  "queue": [],
   "completed": [
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
@@ -67,6 +65,11 @@
       "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
       "reason": "max_iterations_exceeded",
       "completed_at": "2026-08-31T19:36:29.171380+00:00"
+    },
+    {
+      "plan": "agents/plans/fix-live-test-failures.md",
+      "reason": "done",
+      "completed_at": "2026-09-01T00:00:00.000000+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -80,7 +83,10 @@
     "agents/plans/opencode-model-selection.md": 1,
     "agents/plans/discover-crawl-resilience.md": 3,
     "agents/plans/llm-rate-limit-mitigation.md": 11,
-    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 11
+    "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 11,
+    "agents/plans/fix-live-test-failures.md": 1
   },
-  "retry_counts": {}
+  "retry_counts": {
+    "agents/plans/fix-live-test-failures.md": 0
+  }
 }
