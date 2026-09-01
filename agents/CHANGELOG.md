@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Completed
+- **Gemini 2.5 Flash Lite Migration (Tasks 1-5)** (2026-09-01) — Migrated discovery/LLM tests from deprecated `gemini-2.0-flash-lite` to `gemini-2.5-flash-lite`:
+  - `src/applypilot/llm.py`: Changed discovery fallback from `gemini-2.0-flash-lite` to `gemini-2.5-flash-lite` in `_detect_provider()`. Updated docstrings.
+  - `src/applypilot/config.py`: Updated `DEFAULTS["llm_discovery_model"]` to `gemini-2.5-flash-lite`.
+  - `src/applypilot/cli.py`: Updated `LLM_DISCOVERY_MODEL` default and `Discovery model` fallback to `gemini-2.5-flash-lite`.
+  - `src/applypilot/wizard/init.py`: Updated `default_discovery_model` to `gemini-2.5-flash-lite` for Gemini provider.
+  - `src/applypilot/discovery/smartextract.py`: Updated docstring reference.
+  - `.env.example` + `README.md`: Updated comments and documentation.
+  - `tests/conftest.py`, `tests/test_llm.py`, `tests/test_live_scoring_tailoring_cover.py`: Updated test defaults and assertions.
+  - `tests/test_init_wizard.py`, `tests/test_doctor_content_library.py`: Updated test fixtures and expectations.
+  - All 80 targeted tests pass (test_llm 28, test_init_wizard 43, test_doctor_content_library 9). Ruff: no new errors on changed files.
+  - Task 6 (live integration verification) pending — needs real `GEMINI_API_KEY`.
 - **Cap Live Test Scope** (2026-09-01) — Bounded Workday live tests to 2 employers × 2 queries with tmp-path DB isolation, zero monkeypatch in live/llm suites:
   - `src/applypilot/discovery/workday.py`: Extended `run_workday_discovery()` with 5 new params (`employer_keys`, `queries`, `max_queries`, `max_results`, `db_path`). Threaded `db_path` through `_process_one` → `get_connection(db_path)` and `scrape_employers` → `init_db(db_path)` so tests can pass `tmp_path/"applypilot.db"` without touching `~/.applypilot`. `max_results` threads through to `search_employer()`. Backward compatible — `pipeline.py:91` unchanged.
   - `tests/test_enrich_smoke.py`: Rewrote `TestWorkdayLive::test_workday_smoke` to call bounded API with `employer_keys=["nvidia","salesforce"]`, `queries=["software engineer","backend engineer"]`, `max_results=5`, `db_path=tmp_path/"applypilot.db"`. Removed `monkeypatch`. Added assertions for `queries==2`, `found>=0`, `tmp_path/applypilot.db` exists. Removed unused `monkeypatch` from `TestDetailPageLive` and `TestSmartExtractLive`. Added `assert len(targets)==1`.

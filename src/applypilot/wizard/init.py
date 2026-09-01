@@ -593,7 +593,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         env_lines.append(f"LLM_MODEL={model}")
 
     # --- Cost & rate-limit tuning (applies to every provider) ---
-    default_discovery_model = "gemini-2.0-flash-lite" if provider == "gemini" else env.get("LLM_MODEL", "")
+    default_discovery_model = "gemini-2.5-flash-lite" if provider == "gemini" else env.get("LLM_MODEL", "")
     discovery_model = Prompt.ask(
         "Discovery model (cheaper model for job classification; saves ~5x input cost)",
         default=env.get("LLM_DISCOVERY_MODEL", default_discovery_model),

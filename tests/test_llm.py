@@ -86,7 +86,7 @@ class TestDetectProvider:
             os.environ.pop("LLM_MODEL", None)
             os.environ.pop("LLM_DISCOVERY_MODEL", None)
             _, model, _ = _detect_provider("discovery")
-            assert model == "gemini-2.0-flash-lite"
+            assert model == "gemini-2.5-flash-lite"
             # Non-discovery purpose keeps the full-quality default
             _, model, _ = _detect_provider()
             assert model == "gemini-3.6-flash"
@@ -147,7 +147,7 @@ class TestDiscoveryClient:
             llm_mod._discovery_instance = None
             try:
                 assert get_client().model == "gemini-3.6-flash"
-                assert get_discovery_client().model == "gemini-2.0-flash-lite"
+                assert get_discovery_client().model == "gemini-2.5-flash-lite"
             finally:
                 llm_mod._instance = None
                 llm_mod._discovery_instance = None

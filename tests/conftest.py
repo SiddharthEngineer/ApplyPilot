@@ -86,12 +86,12 @@ def requires_api_key() -> None:
 
 @pytest.fixture(autouse=False, scope="session")
 def _set_llm_defaults():
-    """For llm tests: force gemini-2.0-flash-lite and reset singletons."""
+    """For llm tests: force gemini-2.5-flash-lite and reset singletons."""
     if not _has_llm_provider():
         pytest.skip("No LLM provider for llm tests")
 
-    os.environ.setdefault("LLM_MODEL", "gemini-2.0-flash-lite")
-    os.environ.setdefault("LLM_DISCOVERY_MODEL", "gemini-2.0-flash-lite")
+    os.environ.setdefault("LLM_MODEL", "gemini-2.5-flash-lite")
+    os.environ.setdefault("LLM_DISCOVERY_MODEL", "gemini-2.5-flash-lite")
 
     import applypilot.llm as llm_mod
 

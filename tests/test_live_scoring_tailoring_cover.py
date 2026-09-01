@@ -3,7 +3,7 @@
 Tests score_job, tailor_resume, and generate_cover_letter against real Gemini API.
 Marked @llm @expensive — run with: pytest -m llm --run-llm -v
 
-Uses gemini-2.0-flash-lite for cost efficiency (~5x cheaper than gemini-3.6-flash).
+Uses gemini-2.5-flash-lite for cost efficiency (~15x cheaper than gemini-3.6-flash).
 """
 
 import json
@@ -29,8 +29,8 @@ def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
         pytest.skip("No LLM provider configured")
 
     # Force flash-lite for cost efficiency
-    monkeypatch.setenv("LLM_MODEL", "gemini-2.0-flash-lite")
-    monkeypatch.setenv("LLM_DISCOVERY_MODEL", "gemini-2.0-flash-lite")
+    monkeypatch.setenv("LLM_MODEL", "gemini-2.5-flash-lite")
+    monkeypatch.setenv("LLM_DISCOVERY_MODEL", "gemini-2.5-flash-lite")
 
     import applypilot.llm as llm_mod
     llm_mod._instance = None

@@ -489,7 +489,7 @@ def doctor() -> None:
         results.append(("LLM API key", ok_mark, f"OpenCode ({model})"))
     elif has_gemini:
         model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
-        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "gemini-2.0-flash-lite")
+        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "gemini-2.5-flash-lite")
         # Validate model against Gemini API model list
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         model_valid = True
@@ -531,7 +531,7 @@ def doctor() -> None:
     # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
     if has_gemini or has_openai or has_opencode or has_local:
         discovery_model = os.environ.get("LLM_DISCOVERY_MODEL") or os.environ.get("LLM_MODEL") or (
-            "gemini-2.0-flash-lite" if has_gemini else "gemini-3.6-flash"
+            "gemini-2.5-flash-lite" if has_gemini else "gemini-3.6-flash"
         )
         results.append(("Discovery model", ok_mark, discovery_model))
         rpm_limit = os.environ.get("LLM_RPM_LIMIT", "12")

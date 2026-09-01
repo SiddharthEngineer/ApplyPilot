@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-09-01 (Cap Live Test Scope complete)
+**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration Tasks 1-5 complete)
 
 ## Active Plan
 
-None — cap-live-test-scope complete.
+gemini-2-5-flash-lite-migration
 
 ### Progress — Cap Live Test Scope
 
@@ -24,6 +24,17 @@ None — cap-live-test-scope complete.
 ### Current Task
 
 None — plan complete.
+
+### Progress — Gemini 2.5 Flash Lite Migration
+
+| Task | Status |
+|------|--------|
+| Task 1: Update core LLM client discovery default (llm.py, config.py) | ✅ Complete |
+| Task 2: Update CLI doctor and setup wizard defaults (cli.py, wizard/init.py) | ✅ Complete |
+| Task 3: Update env example and docs (.env.example, README.md) | ✅ Complete |
+| Task 4: Update LLM test infrastructure (conftest.py, test_llm.py, test_live_scoring_tailoring_cover.py) | ✅ Complete |
+| Task 5: Update remaining wizard/doctor test fixtures (test_init_wizard.py, test_doctor_content_library.py) | ✅ Complete |
+| Task 6: Live integration verification | ⏳ Pending (needs real GEMINI_API_KEY) |
 
 ### Progress — Discover Crawl Resilience
 

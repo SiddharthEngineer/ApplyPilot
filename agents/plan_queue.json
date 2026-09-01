@@ -1,5 +1,7 @@
 {
-  "queue": [],
+  "queue": [
+    "agents/plans/gemini-2-5-flash-lite-migration.md"
+  ],
   "completed": [
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",

@@ -786,7 +786,7 @@ class TestSetupAiFeaturesPrefill:
             "gemini",  # provider (default should be gemini)
             "my-secret-key",  # API key (pre-filled)
             "gemini-2.0-flash",  # model
-            "gemini-2.0-flash-lite",  # discovery model
+            "gemini-2.5-flash-lite",  # discovery model
             "12",  # rpm limit
         ]
 
@@ -832,7 +832,7 @@ class TestSetupAiFeaturesPrefill:
             "gemini",
             "new-key",
             "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",  # discovery model
+            "gemini-2.5-flash-lite",  # discovery model
             "12",  # rpm limit
         ]
 
@@ -861,14 +861,14 @@ class TestSetupAiFeaturesPrefill:
             "gemini",
             "new-key",
             "gemini-3.6-flash",
-            "gemini-2.0-flash-lite",
+            "gemini-2.5-flash-lite",
             "12",
         ]
 
         _setup_ai_features(existing_env={})
 
         content = written[0]
-        assert "LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite" in content
+        assert "LLM_DISCOVERY_MODEL=gemini-2.5-flash-lite" in content
         assert "LLM_RPM_LIMIT=12" in content
         assert "GEMINI_API_KEY=new-key" in content
 

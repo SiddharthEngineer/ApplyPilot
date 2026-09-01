@@ -31,8 +31,8 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
 
     `purpose` selects a per-stage model override. When "discovery" and a
     Gemini key is configured without an explicit model, the cheaper
-    `gemini-2.0-flash-lite` is used (sufficient for classification/judge and
-    ~5x cheaper on input than `gemini-3.6-flash`). `LLM_DISCOVERY_MODEL` can
+    `gemini-2.5-flash-lite` is used (sufficient for classification/judge and
+    ~15x cheaper on input than `gemini-3.6-flash`). `LLM_DISCOVERY_MODEL` can
     override the discovery model; `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` are
     read by callers through `_detect_provider` with their own purpose.
     """
@@ -74,7 +74,7 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
             elif model_override:
                 model = model_override
             else:
-                model = "gemini-2.0-flash-lite"
+                model = "gemini-2.5-flash-lite"
         else:
             model = base_model
         return (
@@ -399,7 +399,7 @@ def get_discovery_client() -> LLMClient:
     """Return (or create) the discovery-stage LLMClient singleton.
 
     Mirrors :func:`get_client` but resolves the per-stage model with
-    ``purpose="discovery"`` (cheaper ``gemini-2.0-flash-lite`` default on
+    ``purpose="discovery"`` (cheaper ``gemini-2.5-flash-lite`` default on
     Gemini free tier). Independently memoized so discovery and tailoring
     can use different models within the same process.
     """
