@@ -181,8 +181,8 @@ class TestDoctorRateLimitTuning:
         """doctor prints Discovery model: and RPM limit: lines for Gemini."""
         result = self._invoke(
             tmp_path, monkeypatch,
-            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-2.5-flash-lite", "LLM_RPM_LIMIT": "12"},
-            ["gemini-3.6-flash", "gemini-2.5-flash-lite"],
+            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-3.1-flash-lite", "LLM_RPM_LIMIT": "12"},
+            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
         )
         assert result.exit_code == 0
         assert "Discovery model" in result.output
@@ -194,7 +194,7 @@ class TestDoctorRateLimitTuning:
         result = self._invoke(
             tmp_path, monkeypatch,
             {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "does-not-exist", "LLM_RPM_LIMIT": "12"},
-            ["gemini-3.6-flash", "gemini-2.5-flash-lite"],
+            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
         )
         assert result.exit_code == 0
         assert "WARN" in result.output

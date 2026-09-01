@@ -1,6 +1,6 @@
 # Current State
 
-**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration Tasks 1-5 complete)
+**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration complete — target pivoted to gemini-3.1-flash-lite)
 
 ## Active Plan
 
@@ -34,7 +34,7 @@ None — plan complete.
 | Task 3: Update env example and docs (.env.example, README.md) | ✅ Complete |
 | Task 4: Update LLM test infrastructure (conftest.py, test_llm.py, test_live_scoring_tailoring_cover.py) | ✅ Complete |
 | Task 5: Update remaining wizard/doctor test fixtures (test_init_wizard.py, test_doctor_content_library.py) | ✅ Complete |
-| Task 6: Live integration verification | ⏳ Pending (needs real GEMINI_API_KEY) |
+| Task 6: Live integration verification | ✅ Complete (target pivoted to gemini-3.1-flash-lite — 2.5-flash-lite deprecated for new users) |
 
 ### Progress — Discover Crawl Resilience
 

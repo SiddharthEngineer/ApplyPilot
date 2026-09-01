@@ -845,7 +845,7 @@ def ask_llm(prompt: str, max_tokens: int = 4096) -> tuple[str, float, dict]:
     """Send prompt to LLM. Returns (response_text, seconds_taken, metadata).
 
     Uses the cheaper discovery-stage client/model by default so smart-extract
-    (strategy selection + API judging) stays on ``gemini-2.5-flash-lite`` while
+    (strategy selection + API judging) stays on ``gemini-3.1-flash-lite`` while
     scoring/tailoring keep the full-quality model.
     """
     client = get_discovery_client()

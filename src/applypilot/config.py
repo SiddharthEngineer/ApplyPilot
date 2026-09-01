@@ -230,7 +230,7 @@ DEFAULTS = {
     "apply_timeout": 300,
     "viewport": "1280x900",
     "llm_rpm_limit": 12,
-    "llm_discovery_model": "gemini-2.5-flash-lite",
+    "llm_discovery_model": "gemini-3.1-flash-lite",
 }
 
 
