@@ -2,11 +2,6 @@
   "queue": [],
   "completed": [
     {
-      "plan": "agents/plans/fix-live-test-failures.md",
-      "reason": "done",
-      "completed_at": "2026-09-01T00:00:00.000000+00:00"
-    },
-    {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
       "reason": "done",
       "completed_at": "2026-08-27T18:00:00.000000+00:00"
@@ -70,6 +65,16 @@
       "plan": "agents/plans/integration-smoke-suite-with-pickle-fixtures.md",
       "reason": "max_iterations_exceeded",
       "completed_at": "2026-08-31T19:36:29.171380+00:00"
+    },
+    {
+      "plan": "agents/plans/fix-live-test-failures.md",
+      "reason": "max_iterations_exceeded",
+      "completed_at": "2026-09-01T16:06:48.511895+00:00"
+    },
+    {
+      "plan": "agents/plans/cap-live-test-scope.md",
+      "reason": "done",
+      "completed_at": "2026-09-01T16:59:48.261994+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -84,9 +89,8 @@
     "agents/plans/discover-crawl-resilience.md": 3,
     "agents/plans/llm-rate-limit-mitigation.md": 11,
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 11,
-    "agents/plans/fix-live-test-failures.md": 9
+    "agents/plans/fix-live-test-failures.md": 11,
+    "agents/plans/cap-live-test-scope.md": 1
   },
-  "retry_counts": {
-    "agents/plans/fix-live-test-failures.md": 0
-  }
+  "retry_counts": {}
 }

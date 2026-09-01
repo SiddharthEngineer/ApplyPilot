@@ -9,7 +9,7 @@ Starting/continuing a queued task.
 ## Do
 - Implement ONE unit. Don't redo `STATE.md` complete.
 - Run relevant tests; fix failures you caused.
-- Update `agents/STATE.md` (done/remaining/current/tests/decisions/blockers/next step), `agents/CHANGELOG.md`, docs (`README`/`CONTRIBUTING` if inaccurate).
+- Update `agents/STATE.md` (done/remaining/current/tests/decisions/blockers/next step), `agents/CHANGELOG.md`, docs (`README.md` if inaccurate).
 - Leave repo clean; commit.
 
 If context constrained: finish current unit, update `STATE.md`, stop.

@@ -12,82 +12,39 @@
 [![GitHub stars](https://img.shields.io/github/stars/Pickle-Pixel/ApplyPilot?style=social)](https://github.com/Pickle-Pixel/ApplyPilot)
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S6S01UL5IO)
 
-
-
-
 https://github.com/user-attachments/assets/7ee3417f-43d4-4245-9952-35df1e77f2df
-
 
 ---
 
 ## What It Does
 
-ApplyPilot is a 6-stage autonomous job application pipeline. It discovers jobs across 5+ boards, scores them against your resume with AI, tailors your resume per job, writes cover letters, and **submits applications for you**. It navigates forms, uploads documents, answers screening questions, all hands-free.
+ApplyPilot is a 6-stage autonomous job application pipeline. It discovers jobs across 5+ boards, scores them against your resume with AI, tailors your resume per job, writes cover letters, and **submits applications for you** — navigating forms, uploading documents, answering screening questions, all hands-free.
 
-Three commands. That's it.
+---
+
+## Quick Start
 
 ```bash
 uv pip install applypilot python-jobspy --no-deps
 applypilot init          # one-time setup: resume, profile, preferences, API keys
-applypilot doctor        # verify your setup — shows what's installed and what's missing
+applypilot doctor        # verify your setup
 applypilot run           # discover > enrich > score > tailor > cover letters
-applypilot run -w 4      # same but parallel (4 threads for discovery/enrichment)
 applypilot apply         # autonomous browser-driven submission
-applypilot apply -w 3    # parallel apply (3 Chrome instances)
-applypilot apply --dry-run  # fill forms without submitting
 ```
 
-### Local install (from repo)
+### Local Install (from repo)
+
 ```bash
 git clone https://github.com/Pickle-Pixel/ApplyPilot.git
 cd ApplyPilot
 uv pip install -e ".[dev]" python-jobspy --no-deps
 playwright install chromium
+applypilot --version
+pytest tests/ -v
+ruff check src/
 ```
 
-> **Why `--no-deps`?** `python-jobspy` pins an exact numpy version (`1.26.3`) in its metadata that conflicts with pip's resolver. The `--no-deps` flag bypasses this; uv will install the latest compatible numpy and jobspy's other dependencies automatically. Using `uv` (via `uvx` or `uv pip`) is recommended for faster and more reliable resolution.
-
----
-
-## Two Paths
-
-### Full Pipeline (recommended)
-**Requires:** Python 3.11+, Node.js (for npx), Gemini API key (free), Claude Code CLI or OpenCode CLI, Chrome
-
-Runs all 6 stages, from job discovery to autonomous application submission. This is the full power of ApplyPilot.
-
-### Discovery + Tailoring Only
-**Requires:** Python 3.11+, Gemini API key (free)
-
-Runs stages 1-5: discovers jobs, scores them, tailors your resume, generates cover letters. You submit applications manually with the AI-prepared materials.
-
----
-
-## The Pipeline
-
-| Stage | What Happens |
-|-------|-------------|
-| **1. Discover** | Scrapes 5 job boards (Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs) + 48 Workday employer portals + 30 direct career sites |
-| **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
-| **3. Score** | AI rates every job 1-10 based on your resume and preferences. Only high-fit jobs proceed |
-| **4. Tailor** | AI rewrites your resume per job: reorganizes, emphasizes relevant experience, adds keywords. Never fabricates |
-| **5. Cover Letter** | AI generates a targeted cover letter per job |
-| **6. Auto-Apply** | Claude Code or OpenCode navigates application forms, fills fields, uploads documents, answers questions, and submits |
-
-Each stage is independent. Run them all or pick what you need.
-
----
-
-## ApplyPilot vs The Alternatives
-
-| Feature | ApplyPilot | AIHawk | Manual |
-|---------|-----------|--------|--------|
-| Job discovery | 5 boards + Workday + direct sites | LinkedIn only | One board at a time |
-| AI scoring | 1-10 fit score per job | Basic filtering | Your gut feeling |
-| Resume tailoring | Per-job AI rewrite | Template-based | Hours per application |
-| Auto-apply | Full form navigation + submission | LinkedIn Easy Apply only | Click, type, repeat |
-| Supported sites | Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs, 46 Workday portals, 28 direct sites | LinkedIn | Whatever you open |
-| License | AGPL-3.0 | MIT | N/A |
+> **Why `--no-deps`?** `python-jobspy` pins an exact numpy version (`1.26.3`) in its metadata that conflicts with pip's resolver. The `--no-deps` flag bypasses this; uv installs the latest compatible numpy and jobspy's other dependencies automatically.
 
 ---
 
@@ -97,20 +54,30 @@ Each stage is independent. Run them all or pick what you need.
 |-----------|-------------|---------|
 | Python 3.11+ | Everything | Core runtime |
 | Node.js 18+ | Auto-apply | Needed for `npx` to run Playwright MCP server |
-| Gemini API key | Scoring, tailoring, cover letters | Free tier (15 RPM / 1M tokens/day) is enough |
+| Gemini API key | Scoring, tailoring, cover letters | Free tier (15 RPM / 1M tokens/day) — get one at [aistudio.google.com](https://aistudio.google.com) |
 | Chrome/Chromium | Auto-apply | Auto-detected on most systems |
-| Claude Code CLI | Auto-apply | Install from [claude.ai/code](https://claude.ai/code) (or use OpenCode) |
-| OpenCode CLI | Auto-apply | Install from [opencode.ai](https://opencode.ai) (free, alternative to Claude Code) |
+| Claude Code CLI or OpenCode CLI | Auto-apply | [claude.ai/code](https://claude.ai/code) or [opencode.ai](https://opencode.ai) |
+| CapSolver API key | Optional | Solves CAPTCHAs during auto-apply |
 
-**Gemini API key is free.** Get one at [aistudio.google.com](https://aistudio.google.com). OpenAI and local models (Ollama/llama.cpp) are also supported.
+---
 
-### Optional
+## Pipeline
 
-| Component | What It Does |
-|-----------|-------------|
-| CapSolver API key | Solves CAPTCHAs during auto-apply (hCaptcha, reCAPTCHA, Turnstile, FunCaptcha). Without it, CAPTCHA-blocked applications just fail gracefully |
+| Stage | What Happens |
+|-------|-------------|
+| **1. Discover** | Scrapes 5 job boards (Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs) + 48 Workday portals + 30 direct career sites |
+| **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
+| **3. Score** | AI rates every job 1-10 based on your resume and preferences. Only high-fit jobs proceed |
+| **4. Tailor** | AI rewrites your resume per job: reorganizes, emphasizes relevant experience, adds keywords. Never fabricates |
+| **5. Cover Letter** | AI generates a targeted cover letter per job |
+| **6. Auto-Apply** | Claude Code or OpenCode navigates application forms, fills fields, uploads documents, answers questions, and submits |
 
-> **Note:** python-jobspy is installed separately with `--no-deps` because it pins an exact numpy version in its metadata that conflicts with pip's resolver. It works fine with modern numpy at runtime.
+Each stage is independent. Run them all or pick what you need.
+
+### Two Paths
+
+- **Full Pipeline** (recommended): All 6 stages. Requires Python 3.11+, Node.js, Gemini API key, Claude Code or OpenCode CLI, Chrome.
+- **Discovery + Tailoring Only**: Stages 1-5. Requires Python 3.11+ and Gemini API key. You submit applications manually.
 
 ---
 
@@ -118,78 +85,23 @@ Each stage is independent. Run them all or pick what you need.
 
 All generated by `applypilot init`:
 
-### `profile.json`
-Your personal data in one structured file: contact info, work authorization, compensation, experience, skills, resume facts (preserved during tailoring), and EEO defaults. Powers scoring, tailoring, and form auto-fill.
-
-### `searches.yaml`
-Job search queries, target titles, locations, boards. Run multiple searches with different parameters.
-
-### `.env`
-API keys and runtime config: `GEMINI_API_KEY`, `LLM_MODEL`, `CAPSOLVER_API_KEY` (optional).
+| File | Purpose |
+|------|---------|
+| `profile.json` | Contact info, work authorization, compensation, experience, skills, resume facts, EEO defaults |
+| `searches.yaml` | Job search queries, target titles, locations, boards |
+| `.env` | API keys: `GEMINI_API_KEY`, `LLM_MODEL`, `CAPSOLVER_API_KEY` (optional) |
+| `config/employers.yaml` | Workday employer registry (48 preconfigured) |
+| `config/sites.yaml` | Direct career sites (30+), blocked sites, base URLs |
 
 ### Cost & Rate Limits
 
-The `discover` stage can make 180-270 LLM calls on a 90-target crawl, which exhausts Gemini's free tier (15 RPM) in minutes. These mitigations keep a full run inside the free tier:
+The `discover` stage can make 180-270 LLM calls on a 90-target crawl, which exhausts Gemini's free tier (15 RPM). Mitigations:
 
-- **`LLM_RPM_LIMIT=12`** — proactive client-side sliding-window limiter (Gemini free tier = 15 RPM; 12 keeps headroom, `0` disables). Set higher for paid tiers.
-- **`LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite`** — cheaper model (≈5× lower input cost) for job-classification/strategy work. Tailoring/cover-letter keep the higher-quality `gemini-3.6-flash` (override with `LLM_TAILOR_MODEL`).
-- **`LLM_SCORING_MODEL` / `LLM_TAILOR_MODEL`** — override scoring/tailoring models independently.
-- **`--validation lenient`** on `applypilot run tailor` saves roughly one LLM call per tailoring attempt.
-- **`--no-cache`** disables the per-domain strategy cache in `discover` (the cache reuses a site's extraction strategy across queries to skip repeat LLM strategy calls).
-- **OpenCode free models** — set `OPENCODE_API_KEY` (or `LLM_URL=https://opencode.ai/zen/v1`) to route all LLM calls through `opencode/*` free models at zero cost. `applypilot doctor` reports the active provider.
-
-### Package configs (shipped with ApplyPilot)
-- `config/employers.yaml` - Workday employer registry (48 preconfigured)
-- `config/sites.yaml` - Direct career sites (30+), blocked sites, base URLs, manual ATS domains
-- `config/searches.example.yaml` - Example search configuration
-
----
-
-## How Stages Work
-
-### Discover
-Queries Indeed, LinkedIn, Glassdoor, ZipRecruiter, Google Jobs via JobSpy. Scrapes 48 Workday employer portals (configurable in `employers.yaml`). Hits 30 direct career sites with custom extractors. Deduplicates by URL.
-
-Boards that repeatedly return 0 results are auto-skipped for the rest of a crawl (configurable via `defaults.site_fail_threshold` in `searches.yaml`, default 3). Note that a board kept in `sites` can still log up to `site_fail_threshold` ERROR lines per crawl before it is auto-skipped, so removing it from the `sites:` list is the only way to get zero such lines. Permanently disable a board by removing it from the `sites:` list. ZipRecruiter is currently subject to a known Cloudflare 403 anti-bot block upstream (`python-jobspy` latest, upstream issue [#302](https://github.com/speedyapply/JobSpy/issues/302) open).
-
-**Board flakiness:** Glassdoor and Google Jobs can intermittently return 0 results or 403 blocks without indicating a permanent block. ApplyPilot's tracker only disables a board after `site_fail_threshold` *consecutive* empty searches — a single 0-result hit does not trigger disabling. Network errors and invalid-config failures are excluded from the consecutive-empty count so they don't penalise boards. To permanently exclude a board (e.g. `glassdoor` or `google`), remove it from the `sites:` list in `searches.yaml`.
-
-**Country validation:** The `country_indeed` field in `defaults` is validated against JobSpy's supported country list. An unsupported value (e.g. `"sri lanka"`) logs a warning and falls back to `"usa"` instead of crashing the crawl.
-
-### Enrich
-Visits each job URL and extracts the full description. 3-tier cascade: JSON-LD structured data, then CSS selector patterns, then AI-powered extraction for unknown layouts.
-
-### Score
-AI scores every job 1-10 against your profile. 9-10 = strong match, 7-8 = good, 5-6 = moderate, 1-4 = skip. Only jobs above your threshold proceed to tailoring.
-
-### Tailor
-Generates a custom resume per job: reorders experience, emphasizes relevant skills, incorporates keywords from the job description. Your `resume_facts` (companies, projects, metrics) are preserved exactly. The AI reorganizes but never fabricates.
-
-**Content Library mode** (`--source content-library`): Instead of rewriting an existing resume, the LLM selects 5-7 relevant projects from a structured `content_library.md` bank of raw facts and writes fresh bullets from scratch. Angle tags on each project guide selection, and every bullet traces to a fact in the library.
-
-### Cover Letter
-Writes a targeted cover letter per job referencing the specific company, role, and how your experience maps to their requirements.
-
-### Auto-Apply
-Claude Code or OpenCode launches a Chrome instance, navigates to each application page, detects the form type, fills personal information and work history, uploads the tailored resume and cover letter, answers screening questions with AI, and submits. A live dashboard shows progress in real-time.
-
-The Playwright MCP server is configured automatically at runtime per worker. No manual MCP setup needed.
-
-```bash
-# Choose backend with --backend flag (default: claude)
-applypilot apply --backend opencode   # use OpenCode (free, bring your own models)
-applypilot apply --backend claude     # use Claude Code (default)
-
-# Utility modes (no Chrome/agent needed)
-applypilot apply --mark-applied URL    # manually mark a job as applied
-applypilot apply --mark-failed URL     # manually mark a job as failed
-applypilot apply --reset-failed        # reset all failed jobs for retry
-applypilot apply --gen --url URL       # generate prompt file for manual debugging
-```
-
-`--backend opencode` defaults to the `opencode/nemotron-3-ultra-free` model, while
-`--backend claude` defaults to the `haiku` model. Override either with
-`--model provider/model` (OpenCode) or `--model claude-short-name` (Claude).
+- **`LLM_RPM_LIMIT=12`** — client-side sliding-window limiter (`0` disables)
+- **`LLM_DISCOVERY_MODEL=gemini-2.0-flash-lite`** — cheaper model for discovery; tailoring uses higher-quality `gemini-3.6-flash`
+- **`LLM_SCORING_MODEL` / `LLM_TAILOR_MODEL`** — override models independently
+- **`--validation lenient`** on `applypilot run tailor` saves ~1 LLM call per attempt
+- **OpenCode free models** — set `OPENCODE_API_KEY` to route through `opencode/*` free models at zero cost
 
 ---
 
@@ -206,28 +118,120 @@ applypilot run --dry-run                # Preview without executing
 applypilot run --source resume           # Tailor from resume.txt (default)
 applypilot run --source content-library  # Tailor from content_library.md
 applypilot run --validation lenient     # Relax validation (recommended for Gemini free tier)
-applypilot run --validation strict      # Strictest validation (retries on any banned word)
 applypilot apply                        # Launch auto-apply (default: Claude Code backend)
-applypilot apply --backend opencode     # Launch auto-apply with OpenCode (free, bring your own models)
+applypilot apply --backend opencode     # Use OpenCode (free, bring your own models)
 applypilot apply --workers 3            # Parallel browser workers
 applypilot apply --dry-run              # Fill forms without submitting
 applypilot apply --continuous           # Run forever, polling for new jobs
 applypilot apply --headless             # Headless browser mode
 applypilot apply --url URL              # Apply to a specific job
+applypilot apply --mark-applied URL     # Manually mark a job as applied
+applypilot apply --mark-failed URL      # Manually mark a job as failed
+applypilot apply --reset-failed         # Reset all failed jobs for retry
+applypilot apply --gen --url URL        # Generate prompt file for manual debugging
 applypilot status                       # Pipeline statistics
 applypilot dashboard                    # Open HTML results dashboard
 ```
 
 ---
 
-## Contributing
+## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and PR guidelines.
+### Project Structure
+
+```
+ApplyPilot/
+├── src/applypilot/       # Main package
+│   ├── cli.py            # CLI entry points
+│   ├── discover/         # Stage 1: job discovery scrapers
+│   ├── enrich/           # Stage 2: description extraction
+│   ├── score/            # Stage 3: AI scoring
+│   ├── tailor/           # Stage 4: resume tailoring
+│   ├── cover/            # Stage 5: cover letter generation
+│   ├── apply/            # Stage 6: browser automation
+│   └── utils/            # Shared utilities
+├── agents/               # Agent plans, state, and queue
+│   ├── BUILD_AGENT.md    # Build agent prompt
+│   ├── STATE.md          # Current implementation state
+│   ├── plan_queue.json   # Plan queue for continuous implementation
+│   └── plans/            # Individual plan files
+├── scripts/              # Automation scripts
+├── config/               # Default configuration files
+├── tests/                # Test suite
+│   ├── fixtures/         # Gitignored test fixtures (generated locally)
+│   └── conftest.py       # Pytest configuration (marks, options)
+└── pyproject.toml        # Package configuration
+```
+
+### Testing
+
+```bash
+pytest tests/ -v                                           # All unit tests
+pytest tests/test_scoring.py -v                            # Specific file
+pytest tests/ --cov=src/applypilot --cov-report=term-missing  # With coverage
+pytest -m live --run-live -v                               # Live network tests (requires network)
+pytest -m llm --run-llm -v                                # LLM tests (requires GEMINI_API_KEY)
+pytest --run-live --run-llm -v                             # Everything
+```
+
+Test fixtures in `tests/fixtures/` are gitignored. Generate locally:
+```bash
+python scripts/capture_fixtures.py --n 1
+```
+
+### Linting & Code Style
+
+ApplyPilot uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
+
+```bash
+ruff check src/              # Check for issues
+ruff check src/ --fix        # Auto-fix
+ruff format src/             # Format code
+```
+
+- **Type hints**: All function signatures must have type annotations
+- **Docstrings**: Google style on all public functions and classes
+- **Naming**: snake_case for functions/variables, PascalCase for classes
+- **Line length**: 100 characters max
+
+### Contributing
+
+1. Check [issues](https://github.com/Pickle-Pixel/ApplyPilot/issues) to avoid duplicating work
+2. For new features, open an issue first to discuss
+3. Fork and create a feature branch from `main`
+4. Write code with type hints, docstrings, and tests
+5. Update `CHANGELOG.md` under `[Unreleased]`
+6. Submit a PR — one feature per PR, CI must pass
+
+**Adding a Workday employer:** Add an entry to `config/employers.yaml`, test with `applypilot discover --employer "Name"`, submit PR.
+
+**Adding a career site:** Add an entry to `config/sites.yaml` with CSS selectors, test with `applypilot discover --site "Name"`, submit PR.
+
+### Apply Backends (Stage 6)
+
+| Backend | CLI | Config | Cost |
+|---------|-----|--------|------|
+| `claude` (default) | `claude -p` | MCP config JSON via `--mcp-config` | Anthropic API |
+| `opencode` | `opencode run` | `opencode.json` in worker directory | Free (own API keys) |
+
+Each backend has its own command builder, MCP config generator, and output parser in `apply/launcher.py`. The prompt in `apply/prompt.py` uses backend-agnostic tool names and works with both. When adding new MCP tools or changing permissions, update **both** backend paths.
+
+### Plan Queue Worker
+
+Continuously implements plans using agentic sessions. Reads from `agents/plan_queue.json`, launches `opencode run --auto`, loops until queue is empty.
+
+```bash
+./scripts/plan_worker.py                              # Start (runs until queue empty)
+./scripts/plan_worker.py --enqueue agents/plans/X.md  # Add a plan
+./scripts/plan_worker.py --dequeue agents/plans/X.md  # Remove a plan
+./scripts/plan_worker.py --status                     # Check queue
+./scripts/plan_worker.py --dry-run                    # Preview without executing
+```
+
+A plan is considered done when `agents/STATE.md` says "No remaining work" or the plan file's status is `✅ Completed`. Retries up to 2x on failure, skips after 20 iterations.
 
 ---
 
 ## License
 
-ApplyPilot is licensed under the [GNU Affero General Public License v3.0](LICENSE).
-
-You are free to use, modify, and distribute this software. If you deploy a modified version as a service, you must release your source code under the same license.
+[GNU Affero General Public License v3.0](LICENSE). You are free to use, modify, and distribute this software. If you deploy a modified version as a service, you must release your source code under the same license.
