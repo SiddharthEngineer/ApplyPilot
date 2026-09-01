@@ -530,7 +530,7 @@ def doctor() -> None:
 
     # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
     if has_gemini or has_openai or has_opencode or has_local:
-        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL") or os.environ.get("LLM_MODEL") or (
+        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL") or (
             "gemini-3.1-flash-lite" if has_gemini else "gemini-3.6-flash"
         )
         results.append(("Discovery model", ok_mark, discovery_model))

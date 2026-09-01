@@ -1,10 +1,10 @@
 # Current State
 
-**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration complete — target pivoted to gemini-3.1-flash-lite)
+**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration complete — target pivoted to gemini-3.1-flash-lite; plan completed)
 
 ## Active Plan
 
-gemini-2-5-flash-lite-migration
+None
 
 ### Progress — Cap Live Test Scope
 

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gemini 2.5 Flash Lite Migration (Tasks 1-6)** (2026-09-01) — Migrated discovery/LLM tests from deprecated `gemini-2.0-flash-lite` to `gemini-3.1-flash-lite` (discovery target pivoted from `gemini-2.5-flash-lite` to `gemini-3.1-flash-lite` after API 404 confirmed `2.5-flash-lite` is deprecated for new users):
   - `src/applypilot/llm.py`: Changed discovery fallback from `gemini-2.0-flash-lite` to `gemini-3.1-flash-lite` in `_detect_provider()`. Updated docstrings.
   - `src/applypilot/config.py`: Updated `DEFAULTS["llm_discovery_model"]` to `gemini-3.1-flash-lite`.
-  - `src/applypilot/cli.py`: Updated `LLM_DISCOVERY_MODEL` default and `Discovery model` fallback to `gemini-3.1-flash-lite`.
+  - `src/applypilot/cli.py`: Updated `LLM_DISCOVERY_MODEL` default and `Discovery model` fallback to `gemini-3.1-flash-lite`. Fixed doctor discovery model fallback to not inherit `LLM_MODEL` when `LLM_DISCOVERY_MODEL` is unset.
   - `src/applypilot/wizard/init.py`: Updated `default_discovery_model` to `gemini-3.1-flash-lite` for Gemini provider.
   - `src/applypilot/discovery/smartextract.py`: Updated docstring reference.
   - `.env.example` + `README.md`: Updated comments and documentation.

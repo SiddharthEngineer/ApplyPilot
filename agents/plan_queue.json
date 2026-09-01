@@ -79,7 +79,7 @@
     {
       "plan": "agents/plans/gemini-2-5-flash-lite-migration.md",
       "reason": "done",
-      "completed_at": "2026-09-01T19:13:12.798741+00:00"
+      "completed_at": "2026-09-01T20:30:00.000000+00:00"
     }
   ],
   "model": "opencode/mimo-v2.5-free",
@@ -96,7 +96,7 @@
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 11,
     "agents/plans/fix-live-test-failures.md": 11,
     "agents/plans/cap-live-test-scope.md": 1,
-    "agents/plans/gemini-2-5-flash-lite-migration.md": 2
+    "agents/plans/gemini-2-5-flash-lite-migration.md": 4
   },
   "retry_counts": {
     "agents/plans/gemini-2-5-flash-lite-migration.md": 0
