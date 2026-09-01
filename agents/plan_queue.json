@@ -84,7 +84,7 @@
     "agents/plans/discover-crawl-resilience.md": 3,
     "agents/plans/llm-rate-limit-mitigation.md": 11,
     "agents/plans/integration-smoke-suite-with-pickle-fixtures.md": 11,
-    "agents/plans/fix-live-test-failures.md": 1
+    "agents/plans/fix-live-test-failures.md": 2
   },
   "retry_counts": {
     "agents/plans/fix-live-test-failures.md": 0
