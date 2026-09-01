@@ -1,10 +1,21 @@
 # Current State
 
-**Last updated:** 2026-08-31 (Integration smoke suite complete — all 7 tasks done)
+**Last updated:** 2026-09-01 (Fix live test failures complete)
 
 ## Active Plan
 
-None — all queued plans complete.
+None — fix-live-test-failures complete.
+
+### Progress — Fix Live Test Failures
+
+| Task | Status |
+|------|--------|
+| Fix 1: test_smartextract_hackernews — correct API usage | ✅ Complete |
+| Fix 2: test_jobspy_single_site — add indeed/linkedin to xfail, thread conn param | ✅ Complete |
+
+### Current Task
+
+None — plan complete.
 
 ### Progress — Discover Crawl Resilience
 

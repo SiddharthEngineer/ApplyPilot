@@ -344,6 +344,7 @@ def search_jobs(
     hours_old: int = 72,
     proxy: str | None = None,
     country_indeed: str = "usa",
+    conn: sqlite3.Connection | None = None,
 ) -> dict:
     """Run a single job search via JobSpy and store results in DB."""
     if sites is None:
@@ -390,7 +391,7 @@ def search_jobs(
         for site, count in site_counts.items():
             log.info("  %s: %d", site, count)
 
-    conn = init_db()
+    conn = conn or init_db()
     new, existing = store_jobspy_results(conn, df, query)
     log.info("Stored: %d new, %d already in DB", new, existing)
 

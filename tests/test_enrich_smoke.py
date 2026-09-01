@@ -210,16 +210,18 @@ class TestSmartExtractLive:
 
         # Hacker News Jobs is static and reliable
         targets = build_scrape_targets(
-            queries=[{"query": "engineer", "tier": 1}],
-            locations=[{"label": "remote", "location": "", "remote": True}],
             sites=[{"name": "Hacker News Jobs", "type": "static", "url": "https://news.ycombinator.com/jobs"}],
+            search_cfg={
+                "queries": [{"query": "engineer", "tier": 1}],
+                "locations": [{"label": "remote", "location": "", "remote": True}],
+            },
         )
 
         if not targets:
             pytest.skip("No targets built")
 
         try:
-            result = _run_one_site(targets[0], no_cache=True)
+            result = _run_one_site(targets[0]["name"], targets[0]["url"])
             # Should not crash
             assert isinstance(result, dict)
         except (RuntimeError, OSError) as e:
