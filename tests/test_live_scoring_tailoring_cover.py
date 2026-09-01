@@ -16,7 +16,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 @pytest.fixture(autouse=True)
 def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
-    """Configure LLM for tests and reset singletons."""
+    """Configure LLM for tests and reset singletons.
+
+    # live/llm env exception — model pin (no per-call model arg available)
+    """
     from applypilot.llm import _detect_provider
 
     # Check if any provider is available

@@ -1,10 +1,18 @@
 # Current State
 
-**Last updated:** 2026-09-01 (Fix live test failures complete)
+**Last updated:** 2026-09-01 (Cap Live Test Scope complete)
 
 ## Active Plan
 
-None — fix-live-test-failures complete.
+None — cap-live-test-scope complete.
+
+### Progress — Cap Live Test Scope
+
+| Task | Status |
+|------|--------|
+| Task 1: Extend Workday API for bounded runs (no monkeypatch) | ✅ Complete |
+| Task 2: Cap TestWorkdayLive to 2 employers × 2 queries (no monkeypatch) | ✅ Complete |
+| Task 3: Audit and remove monkeypatch from remaining live/llm suites | ✅ Complete |
 
 ### Progress — Fix Live Test Failures
 

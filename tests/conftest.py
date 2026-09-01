@@ -51,6 +51,23 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip_llm)
 
 
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Guard: live/llm tests must not use monkeypatch as a direct test parameter."""
+    is_live = "live" in item.keywords
+    is_llm = "llm" in item.keywords
+    if not (is_live or is_llm):
+        return
+
+    # Check direct test function parameters (not fixture-injected)
+    test_func = item.obj
+    params = test_func.__code__.co_varnames[: test_func.__code__.co_argcount]
+    if "monkeypatch" in params:
+        pytest.fail(
+            f"{item.nodeid}: @live/@llm tests must not use monkeypatch as a direct parameter. "
+            "Use explicit function args (db_path, employer_keys, etc.) instead."
+        )
+
+
 def _has_llm_provider() -> bool:
     """Check if any LLM provider key is configured (mirrors config.py:get_tier)."""
     return bool(

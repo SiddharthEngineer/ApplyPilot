@@ -158,7 +158,7 @@ class TestPDFCheap:
 class TestDetailPageLive:
     """Test scrape_detail_page with real network."""
 
-    def test_scrape_detail_page(self, tmp_path, monkeypatch):
+    def test_scrape_detail_page(self, tmp_path):
         from applypilot.enrichment.detail import scrape_detail_page
 
         try:
@@ -184,20 +184,20 @@ class TestDetailPageLive:
 class TestWorkdayLive:
     """Test Workday discovery with real network."""
 
-    def test_workday_smoke(self, tmp_path, monkeypatch):
+    def test_workday_smoke(self, tmp_path):
         from applypilot.discovery.workday import run_workday_discovery
 
-        monkeypatch.setenv("APPLYPILOT_DIR", str(tmp_path))
-        (tmp_path / "tailored_resumes").mkdir(exist_ok=True)
-        (tmp_path / "cover_letters").mkdir(exist_ok=True)
-        (tmp_path / "logs").mkdir(exist_ok=True)
+        result = run_workday_discovery(
+            employer_keys=["nvidia", "salesforce"],
+            queries=["software engineer", "backend engineer"],
+            max_results=5,
+            workers=1,
+            db_path=tmp_path / "applypilot.db",
+        )
 
-        try:
-            # Limited run — may xfail on CAPTCHA
-            run_workday_discovery(workers=1)
-        except (RuntimeError, OSError) as e:
-            # CAPTCHA or network issues are expected
-            pytest.xfail(f"Workday failed (expected): {e}")
+        assert result["queries"] == 2
+        assert result["found"] >= 0
+        assert (tmp_path / "applypilot.db").exists()
 
 
 @pytest.mark.live
@@ -205,7 +205,7 @@ class TestWorkdayLive:
 class TestSmartExtractLive:
     """Test SmartExtract with real network."""
 
-    def test_smartextract_hackernews(self, tmp_path, monkeypatch):
+    def test_smartextract_hackernews(self, tmp_path):
         from applypilot.discovery.smartextract import _run_one_site, build_scrape_targets
 
         # Hacker News Jobs is static and reliable
@@ -217,8 +217,7 @@ class TestSmartExtractLive:
             },
         )
 
-        if not targets:
-            pytest.skip("No targets built")
+        assert len(targets) == 1
 
         try:
             result = _run_one_site(targets[0]["name"], targets[0]["url"])

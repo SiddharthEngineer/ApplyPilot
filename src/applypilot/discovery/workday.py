@@ -17,6 +17,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from pathlib import Path
 
 import certifi
 import yaml
@@ -353,6 +354,8 @@ def _process_one(
     location_filter: bool,
     accept_locs: list[str],
     reject_locs: list[str],
+    max_results: int = 0,
+    db_path: Path | str | None = None,
 ) -> dict:
     """Search one employer, fetch details, store results."""
     emp = employers[employer_key]
@@ -361,6 +364,7 @@ def _process_one(
         jobs = search_employer(
             employer_key, emp, search_text,
             location_filter=location_filter,
+            max_results=max_results,
             accept_locs=accept_locs,
             reject_locs=reject_locs,
         )
@@ -378,7 +382,7 @@ def _process_one(
     except Exception as e:
         log.error("%s: ERROR fetching details for '%s': %s", emp["name"], search_text, e)
 
-    conn = get_connection()
+    conn = get_connection(db_path)
     new, existing = store_results(conn, jobs, employers)
     log.info("%s: %d new, %d already in DB", emp["name"], new, existing)
 
@@ -397,6 +401,7 @@ def scrape_employers(
     accept_locs: list[str] | None = None,
     reject_locs: list[str] | None = None,
     workers: int = 1,
+    db_path: Path | str | None = None,
 ) -> dict:
     """Run full scrape: search -> filter -> detail -> store.
 
@@ -412,7 +417,7 @@ def scrape_employers(
         reject_locs = []
 
     # Ensure DB schema
-    init_db()
+    init_db(db_path)
 
     total_new = 0
     total_existing = 0
@@ -430,6 +435,7 @@ def scrape_employers(
                 pool.submit(
                     _process_one, key, employers, search_text,
                     location_filter, accept_locs, reject_locs,
+                    max_results, db_path,
                 ): key
                 for key in valid_keys
             }
@@ -453,6 +459,7 @@ def scrape_employers(
             result = _process_one(
                 key, employers, search_text,
                 location_filter, accept_locs, reject_locs,
+                max_results, db_path,
             )
             completed += 1
             total_new += result["new"]
@@ -475,7 +482,15 @@ def scrape_employers(
 
 # -- Public entry point ------------------------------------------------------
 
-def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> dict:
+def run_workday_discovery(
+    employers: dict | None = None,
+    workers: int = 1,
+    employer_keys: list[str] | None = None,
+    queries: list[str] | None = None,
+    max_queries: int = 0,
+    max_results: int = 0,
+    db_path: Path | str | None = None,
+) -> dict:
     """Main entry point for Workday-based corporate job discovery.
 
     Loads employer registry from config/employers.yaml (or uses the provided
@@ -485,6 +500,11 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
     Args:
         employers: Override the employer registry. If None, loads from YAML.
         workers: Number of parallel threads for employer scraping. Default 1 (sequential).
+        employer_keys: Filter to these employer keys only. If None, uses all.
+        queries: Override search queries verbatim. If None, loads from config.
+        max_queries: Cap number of queries (0 = no cap). Only applies when queries is None.
+        max_results: Cap total results per employer per query (0 = no cap).
+        db_path: Override default DB_PATH. If None, uses ~/.applypilot/applypilot.db.
 
     Returns:
         Dict with stats: found, new, existing, queries.
@@ -496,29 +516,45 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         log.warning("No employers configured. Create config/employers.yaml.")
         return {"found": 0, "new": 0, "existing": 0, "queries": 0}
 
-    search_cfg = config.load_search_config()
-    queries_cfg = search_cfg.get("queries", [])
-    accept_locs, reject_locs = _load_location_filter(search_cfg)
+    # Use provided queries or load from config
+    if queries is None:
+        search_cfg = config.load_search_config()
+        queries_cfg = search_cfg.get("queries", [])
+        accept_locs, reject_locs = _load_location_filter(search_cfg)
 
-    # Default to tier 1-2 queries for workday scraping
-    max_tier = search_cfg.get("workday_max_tier", 2)
-    queries = [q["query"] for q in queries_cfg if q.get("tier", 99) <= max_tier]
+        # Default to tier 1-2 queries for workday scraping
+        max_tier = search_cfg.get("workday_max_tier", 2)
+        queries = [q["query"] for q in queries_cfg if q.get("tier", 99) <= max_tier]
+
+        if not queries:
+            # Fallback: use all queries
+            queries = [q["query"] for q in queries_cfg]
+
+        proxy = search_cfg.get("proxy")
+        if proxy:
+            setup_proxy(proxy)
+
+        location_filter = search_cfg.get("workday_location_filter", True)
+    else:
+        search_cfg = config.load_search_config()
+        accept_locs, reject_locs = _load_location_filter(search_cfg)
+        location_filter = search_cfg.get("workday_location_filter", True)
 
     if not queries:
-        # Fallback: use all queries
-        queries = [q["query"] for q in queries_cfg]
-
-    if not queries:
-        log.warning("No search queries configured in searches.yaml.")
+        log.warning("No search queries configured.")
         return {"found": 0, "new": 0, "existing": 0, "queries": 0}
 
-    proxy = search_cfg.get("proxy")
-    if proxy:
-        setup_proxy(proxy)
+    # Cap queries if requested
+    if max_queries > 0:
+        queries = queries[:max_queries]
 
-    location_filter = search_cfg.get("workday_location_filter", True)
+    # Resolve employer keys for logging
+    if employer_keys is not None:
+        active_keys = [k for k in employer_keys if k in employers]
+    else:
+        active_keys = list(employers.keys())
 
-    log.info("Workday crawl: %d queries x %d employers (workers=%d)", len(queries), len(employers), workers)
+    log.info("Workday crawl: %d queries x %d employers (workers=%d)", len(queries), len(active_keys), workers)
 
     grand_new = 0
     grand_existing = 0
@@ -529,17 +565,20 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         result = scrape_employers(
             search_text=query,
             employers=employers,
+            employer_keys=employer_keys,
             location_filter=location_filter,
+            max_results=max_results,
             accept_locs=accept_locs,
             reject_locs=reject_locs,
             workers=workers,
+            db_path=db_path,
         )
         grand_new += result["new"]
         grand_existing += result["existing"]
         grand_found += result["found"]
 
     log.info("Workday crawl done: %d found, %d new, %d existing across %d queries x %d employers",
-             grand_found, grand_new, grand_existing, len(queries), len(employers))
+             grand_found, grand_new, grand_existing, len(queries), len(active_keys))
 
     return {
         "found": grand_found,

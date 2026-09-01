@@ -11,9 +11,8 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _isolated_db(tmp_path: Path):
     """Use a temporary database for each test."""
-    monkeypatch.setenv("APPLYPILOT_DIR", str(tmp_path))
     (tmp_path / "tailored_resumes").mkdir(exist_ok=True)
     (tmp_path / "cover_letters").mkdir(exist_ok=True)
     (tmp_path / "logs").mkdir(exist_ok=True)
