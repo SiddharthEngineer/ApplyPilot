@@ -586,6 +586,57 @@ class TestProbeBoards:
         assert "is_remote" not in fake.call_args.kwargs
 
 
+class TestProbeAts:
+    """include_ats adds one ats:<kind> row per ATS kind (first board of each kind)."""
+
+    BOARDS = [
+        {"name": "A", "kind": "greenhouse", "slug": "a"},
+        {"name": "B", "kind": "greenhouse", "slug": "b"},
+        {"name": "C", "kind": "lever", "slug": "c"},
+        {"name": "D", "kind": "ashby", "slug": "d"},
+    ]
+
+    def test_one_row_per_kind(self):
+        from unittest import mock
+
+        import httpx
+
+        import applypilot.discovery.ats_boards as ats
+        import applypilot.discovery.jobspy as mod
+
+        def fake_fetch(kind, slug, company=None, client=None):
+            if kind == "lever":
+                req = httpx.Request("GET", "https://api.lever.co/x")
+                raise httpx.HTTPStatusError("403", request=req, response=httpx.Response(403, request=req))
+            if kind == "ashby":
+                return []
+            return [{"url": "u"}] * 5
+
+        with mock.patch.object(ats, "load_ats_boards", return_value=self.BOARDS), \
+                mock.patch.object(ats, "fetch_board", side_effect=fake_fetch) as fetch, \
+                mock.patch.object(mod, "scrape_jobs", return_value=_make_df({"indeed": 3})):
+            out = mod.probe_boards(["indeed"], include_ats=True)
+
+        assert [(r.site, r.status, r.rows) for r in out] == [
+            ("indeed", "ok", 3),
+            ("ats:greenhouse", "ok", 5),
+            ("ats:lever", "blocked", 0),
+            ("ats:ashby", "empty", 0),
+        ]
+        assert [c.args[:2] for c in fetch.call_args_list] == [("greenhouse", "a"), ("lever", "c"), ("ashby", "d")]
+
+    def test_off_by_default(self):
+        from unittest import mock
+
+        import applypilot.discovery.ats_boards as ats
+        import applypilot.discovery.jobspy as mod
+
+        with mock.patch.object(ats, "fetch_board") as fetch, \
+                mock.patch.object(mod, "scrape_jobs", return_value=_make_df({"indeed": 1})):
+            mod.probe_boards(["indeed"])
+        fetch.assert_not_called()
+
+
 class TestDiscoverProbeCli:
     """`applypilot discover --probe` prints one row per configured board."""
 
@@ -605,6 +656,7 @@ class TestDiscoverProbeCli:
             result = CliRunner().invoke(app, ["discover", "--probe"])
         assert result.exit_code == 0, result.output
         assert probe.call_args.args[0] == ["indeed", "zip_recruiter"]
+        assert probe.call_args.kwargs["include_ats"] is True
         assert "indeed" in result.output and "blocked" in result.output
 
     def test_cli_discover_without_probe_exits_nonzero(self):

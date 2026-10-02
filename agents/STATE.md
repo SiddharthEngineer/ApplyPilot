@@ -6,10 +6,10 @@
 
 Sessions run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
 Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6) and R3 `scoring-error-recovery` (2/2 ✅).
-Session 2: R2 `job-board-discovery-repair` on `claude/plan-job-board-discovery-repair`. Done: Task 0 (jobspy 1.2.0 adopted), Task 1 (`discover --probe`), Task 2 (per-board calls, blocked-vs-empty tracker), Task 3 (proxy gating, threshold clamp; user's searches.yaml threshold 1→3, live crawl stored 200 jobs), Task 4 (`ats_boards.py` + 23 seeded boards).
-Next step: Task 5 (wire ATS into the discover stage + probe).
+Session 2: R2 `job-board-discovery-repair` on `claude/plan-job-board-discovery-repair`. Done: Task 0 (jobspy 1.2.0 adopted), Task 1 (`discover --probe`), Task 2 (per-board calls, blocked-vs-empty tracker), Task 3 (proxy gating, threshold clamp; user's searches.yaml threshold 1→3, live crawl stored 200 jobs), Task 4 (`ats_boards.py` + 23 seeded boards), Task 5 (ATS wired into discover + probe; 432 live jobs stored).
+Next step: Task 6 (SmartExtract zero-output diagnosis, needs Gemini) or Task 7 (live tests + README).
 
-Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 442 passed, 20 skipped in ~20s. CI runs on every PR.
+Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 446 passed, 20 skipped in ~20s. CI runs on every PR.
 Live network calls (job boards) work in this session; the probe ran live.
 
 ### Previous plans
