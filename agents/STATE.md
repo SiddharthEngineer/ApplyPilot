@@ -1,17 +1,24 @@
 # Current State
 
-**Last updated:** 2026-10-02 (VPS session 2 complete)
+**Last updated:** 2026-10-02 (VPS session 3 complete)
 
 ## Active Plan
 
 Sessions run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
 Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6) and R3 `scoring-error-recovery` (2/2 ✅).
-Session 2 done: R2 `job-board-discovery-repair` 8/8 ✅ (PR #5). JobSpy 1.2.0, `discover --probe`, per-board calls + blocked tracking,
-proxy gating, Greenhouse/Lever/Ashby source (23 boards), SmartExtract per-site isolation + 8 sites disabled.
-Next step: session 3, R4 `gemini-free-tier-llm`. Note: the DB now has ~1,000 new unscored jobs from this session (scoring load for R4/M3).
+Session 2 done: R2 `job-board-discovery-repair` 8/8 ✅ (PR #5).
+Session 3 done: R4 `gemini-free-tier-llm` 5/5 ✅ (PR #6). Per-stage models (`get_client(purpose)`, shared per-model RPM window),
+daily-quota stop (`LLMQuotaExhausted`, stages return `stopped: daily_quota`), Gemini structured JSON (scoring + tailoring),
+title pre-filter before scoring (`--no-prefilter`), doctor per-stage lines, API key moved from URL to `x-goog-api-key` header.
+Next step: session 4, R5 `resume-template-tailoring` (stops at the user's M4 sign-off). M3 (re-score) is unblocked.
 
-Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 453 passed, 20 skipped in ~20s. CI runs on every PR.
-Live network calls (job boards) work in this session; the probe ran live.
+Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 493 passed, 20 skipped in ~24s. LLM tier: export `GEMINI_API_KEY`
+from the repo-root `.env`, then `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py` → 6 passed (~75s).
+The user's LLM env lives in `/srv/ApplyPilot/.env` (`~/.applypilot/.env` doesn't exist; `load_env` falls back to CWD).
+
+### Blockers
+
+None. Known gap: `run_scoring` writes all results to the DB only at the end of a run, so a crash or Ctrl-C mid-run loses that run's scores (a daily-quota stop is fine: it breaks out of the loop and writes).
 
 ### Previous plans
 ### Progress — Cap Live Test Scope
