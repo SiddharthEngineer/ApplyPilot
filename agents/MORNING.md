@@ -12,8 +12,38 @@ Paste into a new session connected to the VPS:
 Session plan (remaining):
 1. ~~Session 1: setup, R0, R3~~ ✅ 2026-10-02
 2. ~~Session 2: R2 `job-board-discovery-repair`~~ ✅ 2026-10-02
-3. **Session 3:** R4 `gemini-free-tier-llm` ← next
-4. **Session 4:** R5 `resume-template-tailoring` (stops at your M4 sign-off)
+3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
+4. **Session 4:** R5 `resume-template-tailoring` (stops at your M4 sign-off) ← next
+
+## Session 3 (2026-10-02): R4 Gemini free tier
+
+**Landed on trunk:** R4 `gemini-free-tier-llm` ([PR #6](https://github.com/SiddharthEngineer/ApplyPilot/pull/6), 5/5 ✅, all 6 success criteria verified)
+- **A model per stage.** `LLM_DISCOVERY_MODEL`, `LLM_SCORING_MODEL`, `LLM_TAILOR_MODEL` and `LLM_COVER_MODEL` each fall back to `LLM_MODEL`, then the default. Before this, the scoring and tailor vars were documented but never read. Stages on the same model share one RPM limiter.
+- **Daily quota = clean stop.** A per-day 429 now stops the stage after one request with `Gemini daily quota exhausted for <model>`. Before, it was retried 5× with backoff. The job in progress gets no attempt counted, and the remaining jobs wait for the next run. The pipeline shows `stopped: daily quota` in yellow, and `--stream` no longer re-runs the stopped stage (which would have spent a request on every poll). Per-minute 429s still retry, now waiting Gemini's suggested `retryDelay`.
+- **Structured JSON.** Scoring and tailoring ask Gemini for schema-constrained JSON. Live: **20 of your jobs scored, 0 parse retries, 0 errors** (scores 3–8, mostly Snowflake roles).
+- **Pre-filter before scoring.** A title that shares no word with your search queries or `target_role` gets `fit_score 1` (`prefilter: title not relevant`) with no LLM call. Seniority words like Senior or Staff don't count as matches. A read-only dry run on your DB would skip **674 of 2,594** pending jobs, e.g. "HVAC Application Specialist", "VP Sales Enablement", "Client Care Representative". `--no-prefilter` turns it off.
+- **`applypilot doctor`** shows each stage's model, the RPM limit, and the AI Studio limits link.
+- **Security fix:** your Gemini key was sent as `?key=` in the URL. httpx logs URLs at INFO, so `doctor` printed it, and so did every native-API call when INFO logging was on. It now goes in a header.
+
+**Changes on the VPS outside the repo**
+- `/srv/ApplyPilot/.env` is the file the app actually loads, because `~/.applypilot/.env` doesn't exist. I added `LLM_DISCOVERY_MODEL`/`LLM_SCORING_MODEL=gemini-3.1-flash-lite`, `LLM_TAILOR_MODEL`/`LLM_COVER_MODEL=gemini-3.6-flash` and `LLM_RPM_LIMIT=10`. Backup: `.env.bak-2026-10-02`.
+- Your DB: 20 jobs scored live (the Task 3 check). Nothing else was written.
+
+**Verify (≈3 min)**
+```bash
+cd /srv/ApplyPilot && git pull && . .venv/bin/activate
+python scripts/qc.py gemini-free-tier-llm --skip-live --skip-llm
+applypilot doctor | grep -E "model|RPM"
+applypilot run --help | grep -A1 no-prefilter
+```
+
+**Waiting on you**
+- **Rotate your Gemini key (recommended).** Before the fix, the full key appeared once in this session's terminal output, from the old `doctor` log line. It hasn't been committed or sent anywhere else. Create a new key in AI Studio and put it in `/srv/ApplyPilot/.env` (and on your laptop).
+- **Check your real free-tier limits.** Google's docs no longer publish numbers; they're shown per project at https://aistudio.google.com/rate-limit (needs your login). Unverified third-party figures are about 15 RPM / 1,500 requests per day for Flash models. If your scoring model's RPM differs, set `LLM_RPM_LIMIT` a little below it.
+- **Tailoring model:** your key also lists `gemini-3.8-flash` (newest). At 14:20 UTC, 3.6, 3.7 and 3.8 flash all returned 503 "overloaded", so I kept the previously verified `gemini-3.6-flash`. To try 3.8 later, set `LLM_TAILOR_MODEL=gemini-3.8-flash` and `LLM_COVER_MODEL=gemini-3.8-flash`.
+- **M3 is unblocked:** `applypilot run score --reset-errors`, then `applypilot run score`. That's about 2,900 unscored jobs; about 700 are pre-filtered, and the rest take roughly 2 free-tier days at about 1,500 requests per day. The stage stops by itself when the quota runs out, and you rerun it the next day. Caveat: scores are saved at the **end** of each run, so don't Ctrl-C a long run. Try `applypilot run score` in tmux/screen. Should I make it save per job? It's a small change.
+- **Undoing the pre-filter** for jobs it skipped: `sqlite3 ~/.applypilot/applypilot.db "UPDATE jobs SET fit_score=NULL, score_reasoning=NULL, scored_at=NULL WHERE score_reasoning='prefilter: title not relevant'"`, then `applypilot run score --no-prefilter`.
+- **Still open from session 2:** location-filter substring matching (`US` matches "Austin"), M2 proxy, M6 fixtures.
 
 ## Session 2 (2026-10-02): R2 job-board discovery repair
 
