@@ -1,0 +1,32 @@
+# Company job boards hosted on Greenhouse, Lever or Ashby (public JSON APIs, no bot protection).
+# Each entry: name (stored as the job's site), kind (greenhouse|lever|ashby), slug (the board token
+# in the careers URL, e.g. boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>).
+# Jobs are kept when their title contains every word of one of your searches.yaml queries and
+# their location passes your location filter. Every slug below answered HTTP 200 on 2026-10-02.
+boards:
+  # Greenhouse
+  - {name: Anthropic, kind: greenhouse, slug: anthropic}
+  - {name: Databricks, kind: greenhouse, slug: databricks}
+  - {name: Datadog, kind: greenhouse, slug: datadog}
+  - {name: Stripe, kind: greenhouse, slug: stripe}
+  - {name: Scale AI, kind: greenhouse, slug: scaleai}
+  - {name: Cloudflare, kind: greenhouse, slug: cloudflare}
+  - {name: MongoDB, kind: greenhouse, slug: mongodb}
+  - {name: Elastic, kind: greenhouse, slug: elastic}
+  - {name: Grafana Labs, kind: greenhouse, slug: grafanalabs}
+  - {name: Fivetran, kind: greenhouse, slug: fivetran}
+  - {name: Samsara, kind: greenhouse, slug: samsara}
+  - {name: Coinbase, kind: greenhouse, slug: coinbase}
+  # Lever
+  - {name: Palantir, kind: lever, slug: palantir}
+  - {name: Spotify, kind: lever, slug: spotify}
+  - {name: Zoox, kind: lever, slug: zoox}
+  # Ashby
+  - {name: OpenAI, kind: ashby, slug: openai}
+  - {name: Notion, kind: ashby, slug: notion}
+  - {name: Ramp, kind: ashby, slug: ramp}
+  - {name: Cohere, kind: ashby, slug: cohere}
+  - {name: Perplexity, kind: ashby, slug: perplexity}
+  - {name: LangChain, kind: ashby, slug: langchain}
+  - {name: Snowflake, kind: ashby, slug: snowflake}
+  - {name: Supabase, kind: ashby, slug: supabase}
