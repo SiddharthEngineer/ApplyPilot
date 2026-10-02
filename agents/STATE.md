@@ -1,16 +1,16 @@
 # Current State
 
-**Last updated:** 2026-10-02 (VPS session 1 complete)
+**Last updated:** 2026-10-02 (VPS session 2 in progress)
 
 ## Active Plan
 
 Sessions run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
-Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6, PR #3) and R3 `scoring-error-recovery` (2/2 ✅).
-Next step: session 2, R2 `job-board-discovery-repair`.
+Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6) and R3 `scoring-error-recovery` (2/2 ✅).
+Session 2: R2 `job-board-discovery-repair` on `claude/plan-job-board-discovery-repair`. Done: Task 1 (`discover --probe`).
+Next step: Task 2 (one scrape call per board + blocked-vs-empty tracking).
 
-Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 394 passed, 20 skipped in ~22s. CI runs on every PR.
-Blockers: the session's auto-mode permission classifier denied a live network/LLM capture (`scripts/capture_fixtures.py`).
-R2 relies on live board checks; unless the user allows them, those go to MORNING.md as commands for the user.
+Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 404 passed, 20 skipped in ~20s. CI runs on every PR.
+Live network calls (job boards) work in this session; the probe ran live.
 
 ### Previous plans
 ### Progress — Cap Live Test Scope

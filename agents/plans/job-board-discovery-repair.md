@@ -61,7 +61,7 @@ prints a Rich table and exits.
 **Acceptance:**
 - `pytest tests/test_jobspy.py -k probe -v` passes, with `scrape_jobs` patched and the 403 log line simulated.
 - `applypilot discover --probe` runs live and shows indeed/linkedin `ok` and zip_recruiter `blocked`.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 2: One scrape call per board + blocked-vs-empty tracking
 **Runs:** cloud
@@ -175,3 +175,4 @@ Task 6 (independent)
 
 ## Historical Record
 - 2026-10-01: Plan created from live probe evidence (roadmap initiative R2).
+- 2026-10-02: Task 1 done (VPS session 2). `probe_boards()` + `applypilot discover --probe [--sites --query --location]`. JobSpy's per-board loggers are `JobSpy:<Board>` with `propagate=False`, so `_capture_jobspy_errors()` attaches a handler to each one directly (Task 2 reuses it). Live probe on the VPS ("Software Engineer", Remote, 3 rows, 4.2s total): indeed ok 3 (1.6s), linkedin ok 3 (0.7s), glassdoor blocked (`bad response status code: 403`), zip_recruiter blocked (`403 forbidden aa`, Cloudflare), google empty.

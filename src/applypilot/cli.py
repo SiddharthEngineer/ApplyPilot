@@ -192,6 +192,45 @@ def run(
 
 
 @app.command()
+def discover(
+    probe: bool = typer.Option(False, "--probe", help="Check each job board with a 3-result search and exit (no DB writes)."),
+    sites: str | None = typer.Option(None, "--sites", help="Comma-separated boards to probe (default: 'sites' in searches.yaml)."),
+    query: str = typer.Option("Software Engineer", "--query", "-q", help="Search term for --probe."),
+    location: str = typer.Option("Remote", "--location", help="Location for --probe."),
+) -> None:
+    """Job-board tools. Use `applypilot run discover` to crawl."""
+    if not probe:
+        console.print("Nothing to do. Use [bold]--probe[/bold] to check board health, "
+                      "or [bold]applypilot run discover[/bold] to crawl.")
+        raise typer.Exit(code=1)
+
+    from applypilot.config import load_env, load_search_config
+    from applypilot.discovery.jobspy import DEFAULT_SITES, probe_boards
+
+    load_env()
+    cfg = load_search_config() or {}
+    site_list = [s.strip() for s in sites.split(",") if s.strip()] if sites else list(cfg.get("sites") or DEFAULT_SITES)
+
+    console.print(f"Probing {len(site_list)} board(s): \"{query}\" in {location}\n")
+    results = probe_boards(
+        site_list, query=query, location=location, proxy=cfg.get("proxy"),
+        country_indeed=cfg.get("defaults", {}).get("country_indeed", "usa"),
+    )
+
+    colors = {"ok": "green", "empty": "yellow", "blocked": "red", "error": "red"}
+    table = Table(title="Board health", show_header=True, header_style="bold cyan")
+    table.add_column("Source", style="bold")
+    table.add_column("Status")
+    table.add_column("Rows", justify="right")
+    table.add_column("Latency", justify="right")
+    table.add_column("Detail", overflow="fold")
+    for r in results:
+        c = colors.get(r.status, "white")
+        table.add_row(r.site, f"[{c}]{r.status}[/{c}]", str(r.rows), f"{r.latency_s:.1f}s", r.detail)
+    console.print(table)
+
+
+@app.command()
 def apply(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications to submit."),
     workers: int = typer.Option(1, "--workers", "-w", help="Number of parallel browser workers."),
