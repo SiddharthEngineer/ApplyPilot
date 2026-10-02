@@ -118,6 +118,7 @@ applypilot run --dry-run                # Preview without executing
 applypilot run --source resume           # Tailor from resume.txt (default)
 applypilot run --source content-library  # Tailor from content_library.md
 applypilot run --validation lenient     # Relax validation (recommended for Gemini free tier)
+applypilot run score --reset-errors     # Re-queue jobs whose scoring failed with an LLM error
 applypilot apply                        # Launch auto-apply (default: Claude Code backend)
 applypilot apply --backend opencode     # Use OpenCode (free, bring your own models)
 applypilot apply --workers 3            # Parallel browser workers

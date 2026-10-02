@@ -114,6 +114,11 @@ def run(
         "--no-cache",
         help="Bypass per-domain strategy cache in smart-extract (forces fresh LLM strategy for every site).",
     ),
+    reset_errors: bool = typer.Option(
+        False,
+        "--reset-errors",
+        help="Mark jobs whose scoring failed with an LLM error as unscored again (resets their retry count), then exit.",
+    ),
 ) -> None:
     """Run pipeline stages: discover, enrich, score, tailor, cover, pdf."""
     _bootstrap()
@@ -130,6 +135,12 @@ def run(
                 f"Valid stages: {', '.join(VALID_STAGES)}, all"
             )
             raise typer.Exit(code=1)
+
+    if reset_errors:
+        from applypilot.database import reset_score_errors
+        count = reset_score_errors()
+        console.print(f"[green]Reset {count} job(s) with LLM scoring errors; they will be scored on the next run.[/green]")
+        return
 
     # Gate AI stages behind Tier 2
     llm_stages = {"score", "tailor", "cover"}

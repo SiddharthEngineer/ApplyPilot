@@ -109,6 +109,7 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             fit_score             INTEGER,
             score_reasoning       TEXT,
             scored_at             TEXT,
+            score_attempts        INTEGER DEFAULT 0,
 
             -- Tailoring stage (resume tailor)
             tailored_resume_path  TEXT,
@@ -143,6 +144,12 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 # Complete column registry: column_name -> SQL type with optional default.
 # This is the single source of truth. Adding a column here is all that's needed
 # for it to appear in both new databases and migrated ones.
+# Jobs a scoring run should pick up: described, unscored, and not given up on after repeated LLM errors.
+MAX_SCORE_ATTEMPTS = 3
+PENDING_SCORE_WHERE = (
+    f"full_description IS NOT NULL AND fit_score IS NULL AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}"
+)
+
 _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
@@ -162,6 +169,7 @@ _ALL_COLUMNS: dict[str, str] = {
     "fit_score": "INTEGER",
     "score_reasoning": "TEXT",
     "scored_at": "TEXT",
+    "score_attempts": "INTEGER DEFAULT 0",
     # Tailoring
     "tailored_resume_path": "TEXT",
     "tailored_at": "TEXT",
@@ -268,7 +276,7 @@ def get_stats(conn: sqlite3.Connection | None = None) -> dict:
 
     stats["unscored"] = conn.execute(
         "SELECT COUNT(*) FROM jobs "
-        "WHERE full_description IS NOT NULL AND fit_score IS NULL"
+        f"WHERE {PENDING_SCORE_WHERE}"
     ).fetchone()[0]
 
     # Score distribution
@@ -384,7 +392,7 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
         "discovered": "1=1",
         "pending_detail": "detail_scraped_at IS NULL",
         "enriched": "full_description IS NOT NULL",
-        "pending_score": "full_description IS NOT NULL AND fit_score IS NULL",
+        "pending_score": PENDING_SCORE_WHERE,
         "scored": "fit_score IS NOT NULL",
         "pending_tailor": (
             "fit_score >= ? AND full_description IS NOT NULL "
@@ -422,3 +430,19 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
         columns = rows[0].keys()
         return [dict(zip(columns, row)) for row in rows]
     return []
+
+
+def reset_score_errors(conn: sqlite3.Connection | None = None) -> int:
+    """Make jobs whose scoring failed with an LLM error pending again. Returns the number of rows reset.
+
+    Covers the old behavior (errors saved as fit_score = 0) and the new one (fit_score NULL + score_attempts).
+    """
+    if conn is None:
+        conn = get_connection()
+    cur = conn.execute(
+        "UPDATE jobs SET fit_score = NULL, score_reasoning = NULL, scored_at = NULL, score_attempts = 0 "
+        # Errors saved before 2026-10-02 are stored as "<empty keywords>\nLLM error: ...".
+        "WHERE LTRIM(score_reasoning, char(10)) LIKE 'LLM error%'"
+    )
+    conn.commit()
+    return cur.rowcount
