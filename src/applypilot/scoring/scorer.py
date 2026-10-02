@@ -96,7 +96,7 @@ def score_job(resume_text: str, job: dict) -> dict:
     ]
 
     try:
-        client = get_client()
+        client = get_client("scoring")
         response = client.chat(messages, max_tokens=512, temperature=0.2)
         parsed = _parse_score_response(response)
         if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10

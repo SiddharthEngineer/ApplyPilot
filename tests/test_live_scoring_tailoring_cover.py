@@ -33,13 +33,11 @@ def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_DISCOVERY_MODEL", "gemini-3.1-flash-lite")
 
     import applypilot.llm as llm_mod
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
 
     yield
 
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
 
 
 def _load_enriched_jobs() -> list[dict]:

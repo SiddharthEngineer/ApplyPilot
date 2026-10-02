@@ -39,7 +39,7 @@ two clients on the same model don't double the effective rate (module-level `dic
 **Acceptance:**
 - `grep -n 'get_client("scoring")' src/applypilot/scoring/scorer.py` matches, and likewise for tailor/cover.
 - New tests for Success Criterion 1 and the shared limiter. Existing `tests/test_llm.py` still passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 2: Daily-quota detection and clean stop
 **Runs:** cloud
@@ -119,3 +119,4 @@ Task 4 (independent)
 
 ## Historical Record
 - 2026-10-01: Plan created, replacing `claude-llm-provider` (roadmap initiative R4) after the user chose the Gemini free tier. Verified compat + native 200 for gemini-3.6-flash and gemini-3.1-flash-lite.
+- 2026-10-02: Task 1 done. `get_client(purpose)` backed by `_clients` dict; `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → default for every provider; RPM window shared per model via `_rpm_timestamps`; `reset_clients()` replaces the `_instance`/`_discovery_instance` resets in tests. `enrichment/detail.py` and `scripts/capture_fixtures.py` stay on `get_client()` ("default").

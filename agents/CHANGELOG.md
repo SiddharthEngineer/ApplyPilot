@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Gemini Free Tier — Task 1** (2026-10-02): Per-stage models. `get_client(purpose)` returns one memoized client per stage (`discovery`, `scoring`, `tailor`, `cover`, or `default`); each resolves `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → provider default, so `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` (documented but never read) now work, plus new `LLM_COVER_MODEL`. Clients on the same model share one RPM window. `get_discovery_client()` is an alias; `reset_clients()` clears the cache. Tests in `tests/test_llm.py::TestPerStageRouting`.
+
 ### Fixed
 - **Job Board Discovery Repair — Task 6** (2026-10-02): SmartExtract had never stored a job because the first site that raised (a page-load timeout or Cloudflare challenge; CareerJet Canada is 4th in order) ended the whole run. Per-site errors are now reported and skipped, and a missing Playwright browser stops early with `playwright install chromium`. The network-idle wait is capped at 15s, and a failed headful retry keeps the headless result. `sites.yaml`: 8 broken sites are `disabled: true` with a `disabled_reason`, and Remotive/Jobspresso URLs are fixed. Live: 173 jobs from 7 sites.
 

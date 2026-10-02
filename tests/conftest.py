@@ -163,13 +163,11 @@ def _set_llm_defaults():
 
     import applypilot.llm as llm_mod
 
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
 
     yield
 
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
 
 
 @pytest.fixture(autouse=False)
@@ -177,10 +175,8 @@ def _reset_llm_singletons():
     """Per-test reset of LLM singletons to avoid cross-test contamination."""
     import applypilot.llm as llm_mod
 
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
 
     yield
 
-    llm_mod._instance = None
-    llm_mod._discovery_instance = None
+    llm_mod.reset_clients()
