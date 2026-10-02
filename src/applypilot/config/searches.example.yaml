@@ -84,7 +84,10 @@ location_accept:
 #   - "India"
 #   - "Philippines"
 
-# JobSpy source boards (all available options shown)
+# JobSpy source boards (all available options shown).
+# glassdoor and zip_recruiter are skipped unless a proxy is set (PROXY env var or
+# `proxy:` below) because they answer HTTP 403 otherwise. google is skipped unless
+# defaults.allow_unsupported is true. Check boards with `applypilot discover --probe`.
 sites:
   - indeed
   - linkedin
@@ -98,7 +101,12 @@ defaults:
   distance: 50
   results_per_site: 100  # Max results per board per query
   hours_old: 72          # Only jobs posted within this many hours
-  site_fail_threshold: 3  # Auto-skip a board after N consecutive searches return 0 results
+  site_fail_threshold: 3  # Auto-skip a board after N consecutive searches return 0 results (minimum 2)
+  linkedin_fetch_description: false  # true fetches each LinkedIn description during discovery (throttles); enrich does it anyway
+  allow_unsupported: false  # true also tries boards JobSpy can't currently scrape (google)
+
+# Optional residential proxy (host:port:user:pass or host:port); enables glassdoor/zip_recruiter.
+# proxy: "host:port:user:pass"
 
 # Negative keywords -- skip jobs with these in the title (case-insensitive)
 exclude_titles:

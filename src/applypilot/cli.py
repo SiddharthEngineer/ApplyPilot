@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from typing import Optional
 
@@ -213,7 +214,7 @@ def discover(
 
     console.print(f"Probing {len(site_list)} board(s): \"{query}\" in {location}\n")
     results = probe_boards(
-        site_list, query=query, location=location, proxy=cfg.get("proxy"),
+        site_list, query=query, location=location, proxy=cfg.get("proxy") or os.environ.get("PROXY"),
         country_indeed=cfg.get("defaults", {}).get("country_indeed", "usa"),
     )
 

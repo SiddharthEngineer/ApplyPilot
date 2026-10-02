@@ -91,7 +91,7 @@ triggers throttling at `results_per_site: 50`. Edit the user's `~/.applypilot/se
 - `grep -n "site_fail_threshold: 3" ~/.applypilot/searches.yaml` matches.
 - Unit test: with no `PROXY`, `run_discovery` calls the crawl with `sites == ["indeed", "linkedin"]` for config `[indeed, linkedin, glassdoor, google, zip_recruiter]`.
 - Success Criterion 2 verified with a live run.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 4: Greenhouse / Lever / Ashby source module
 **Runs:** cloud (module + tests using hand-written samples shaped like each ATS's documented JSON); local (verify and seed `ats_boards.yaml` slugs, which needs network)
@@ -188,3 +188,4 @@ Task 6 (independent)
   | Google | ❌ 0 rows | ❌ 0 rows (`Google returned no job data`, even with `google_search_term`) |
 
   `curl_cffi` doesn't get past Cloudflare from this VPS IP, so Task 3 keeps Glassdoor/Zip proxy-gated (default off). 1.2.0 also drops the `numpy==1.26.3` pin, so `--no-deps` and the hand-listed deps (`tls-client`, `regex`, …) are gone from `scripts/cloud_setup.sh`, CI, README and the `doctor` hint. A clean venv (`uv pip install -e ".[dev]" "python-jobspy==1.2.0"`, empty HOME) passes `pytest tests/ -q` (409 passed). The probe now reports Google's "no job data" line as `empty`.
+- 2026-10-02: Task 3 done. `_gate_sites()` in `run_discovery()` drops glassdoor/zip_recruiter unless a proxy is set (`PROXY` env or `proxy:` in searches.yaml) and drops google unless `defaults.allow_unsupported: true`, logging one warning each. `site_fail_threshold` is clamped to ≥2. `defaults.linkedin_fetch_description` defaults to false. The wizard now writes `sites: [indeed, linkedin]` plus `linkedin_fetch_description: false`, and `searches.example.yaml` documents all three keys. User config: `~/.applypilot/searches.yaml` `site_fail_threshold` 1 → 3 (backup `searches.yaml.bak-2026-10-02`); `sites` left as indeed/linkedin/glassdoor/google. Live JobSpy-only crawl (6 searches, 2m27s): glassdoor and google skipped with one line each, 0 errors, no board disabled, **200 new jobs (indeed 173, linkedin 27)** stored after `2026-10-02T06:50Z`. Success Criterion 2 met.
