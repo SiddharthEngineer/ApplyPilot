@@ -195,7 +195,7 @@ def run(
 @app.command()
 def discover(
     probe: bool = typer.Option(False, "--probe", help="Check each job board with a 3-result search and exit (no DB writes)."),
-    sites: str | None = typer.Option(None, "--sites", help="Comma-separated boards to probe (default: 'sites' in searches.yaml)."),
+    sites: str | None = typer.Option(None, "--sites", help="Comma-separated JobSpy boards to probe (default: 'sites' in searches.yaml, plus one row per ATS kind)."),
     query: str = typer.Option("Software Engineer", "--query", "-q", help="Search term for --probe."),
     location: str = typer.Option("Remote", "--location", help="Location for --probe."),
 ) -> None:
@@ -216,6 +216,7 @@ def discover(
     results = probe_boards(
         site_list, query=query, location=location, proxy=cfg.get("proxy") or os.environ.get("PROXY"),
         country_indeed=cfg.get("defaults", {}).get("country_indeed", "usa"),
+        include_ats=not sites,
     )
 
     colors = {"ok": "green", "empty": "yellow", "blocked": "red", "error": "red"}

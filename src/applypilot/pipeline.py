@@ -60,8 +60,8 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1, no_cache: bool = False) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers."""
-    stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
+    """Stage: Job discovery — JobSpy, ATS job boards, Workday, and smart-extract scrapers."""
+    stats: dict = {"jobspy": None, "ats": None, "workday": None, "smartextract": None}
 
     # JobSpy
     console.print("  [cyan]JobSpy full crawl...[/cyan]")
@@ -84,6 +84,18 @@ def _run_discover(workers: int = 1, no_cache: bool = False) -> dict:
         log.error("JobSpy crawl failed: %s", e)
         console.print(f"  [red]JobSpy error:[/red] {e}")
         stats["jobspy"] = f"error: {e}"
+
+    # Greenhouse / Lever / Ashby public job boards
+    console.print("  [cyan]ATS job boards (Greenhouse/Lever/Ashby)...[/cyan]")
+    try:
+        from applypilot.discovery.ats_boards import run_ats_discovery
+        ats = run_ats_discovery()
+        stats["ats"] = f"ok ({ats['new']} new from {ats['boards']} boards" + (
+            f", {ats['errors']} failed)" if ats["errors"] else ")")
+    except Exception as e:
+        log.error("ATS discovery failed: %s", e)
+        console.print(f"  [red]ATS error:[/red] {e}")
+        stats["ats"] = f"error: {e}"
 
     # Workday corporate scraper
     console.print("  [cyan]Workday corporate scraper...[/cyan]")

@@ -187,11 +187,14 @@ def probe_boards(
     location: str = "Remote",
     proxy: str | None = None,
     country_indeed: str = "usa",
+    include_ats: bool = False,
 ) -> list[BoardHealth]:
     """Run a 3-result search against each board separately and classify it.
 
     No DB writes. A board that logs an HTTP 400/401/403/429 is ``blocked``,
     an exception is ``error``, and 0 rows with nothing logged is ``empty``.
+    With ``include_ats``, also adds one ``ats:<kind>`` row per ATS kind
+    (the first board of that kind in ats_boards.yaml; rows = its open jobs).
     """
     proxy_config = parse_proxy(proxy) if proxy else None
     results: list[BoardHealth] = []
@@ -229,6 +232,35 @@ def probe_boards(
         else:
             status, detail = "empty", ""
         results.append(BoardHealth(site, status, rows, latency, detail[:200]))
+    if include_ats:
+        results.extend(_probe_ats())
+    return results
+
+
+def _probe_ats() -> list[BoardHealth]:
+    """One health row per ATS kind, from the first configured board of that kind."""
+    import httpx
+
+    from applypilot.discovery.ats_boards import fetch_board, load_ats_boards
+
+    first: dict[str, dict] = {}
+    for b in load_ats_boards():
+        first.setdefault(b["kind"], b)
+    results = []
+    for kind, b in first.items():
+        name = f"ats:{kind}"
+        start = time.monotonic()
+        try:
+            rows = len(fetch_board(kind, b["slug"], company=b.get("name")))
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            status = "blocked" if code in (401, 403, 429) else "error"
+            results.append(BoardHealth(name, status, 0, time.monotonic() - start, f"{b['slug']}: HTTP {code}"))
+            continue
+        except (httpx.HTTPError, ValueError) as e:
+            results.append(BoardHealth(name, "error", 0, time.monotonic() - start, f"{b['slug']}: {e}"[:200]))
+            continue
+        results.append(BoardHealth(name, "ok" if rows else "empty", rows, time.monotonic() - start, b["slug"]))
     return results
 
 

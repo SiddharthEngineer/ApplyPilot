@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Job Board Discovery Repair — Task 5** (2026-10-02): The discover stage now runs the Greenhouse/Lever/Ashby source after JobSpy, error-isolated, with its own `ats` stats key. `applypilot discover --probe` adds one `ats:<kind>` row per ATS. Live: 432 new jobs from 23 boards.
 - **Job Board Discovery Repair — Task 4** (2026-10-02): New discovery source `discovery/ats_boards.py` for Greenhouse, Lever and Ashby public job-board JSON APIs (no bot protection). It keeps jobs whose title contains every word of a searches.yaml query as whole words, and whose location passes the location filter. `config/ats_boards.yaml` is seeded with 23 live-verified data/ML/infra employers. `tests/test_ats_boards.py` (25 tests, mock transport). Not yet wired into the pipeline (Task 5).
 
 ### Changed
