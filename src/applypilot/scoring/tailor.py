@@ -27,6 +27,7 @@ from applypilot.scoring.validator import (
     FABRICATION_WATCHLIST,
     sanitize_text,
     validate_json_fields,
+    validate_provenance,
     validate_resume_model,
     validate_tailored_resume,
 )
@@ -642,6 +643,10 @@ def tailor_from_content_library(
         validation = validate_resume_model(
             resume, profile, mode=validation_mode, slots=slots, known_text=known_text,
         )
+        provenance = validate_provenance(resume, content_library)
+        if provenance:
+            validation["errors"].extend(provenance)
+            validation["passed"] = False
         report["validator"] = validation
         if not validation["passed"]:
             avoid_notes.extend(validation["errors"])

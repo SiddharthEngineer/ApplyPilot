@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Resume Template Tailoring — Task 5** (2026-10-02): Provenance check. Every number in a tailored bullet, including both sides of `0.899 → 0.428`, must appear in the facts of the content-library projects that bullet cites, and every bullet must cite at least one project. Violations are fed back to the LLM for a retry. `validate_provenance()` in `scoring/validator.py`.
+
 ### Changed
 - **Resume Template Tailoring — Task 4** (2026-10-02): Content-library tailoring asks Gemini only for bullets (each citing project slugs) and skill order, with role keys and slugs as schema enums. It no longer asks for a title, summary, projects or education. Bullet ranges per role come from your base resume (e.g. 4–6 for the current role, 0–1 for internships). Unknown ids, out-of-range bullet counts and validation errors trigger a fresh retry. The system prompt (library first) is identical for every job, which makes it eligible for Gemini implicit caching. Retry notes now go in the user message.
 

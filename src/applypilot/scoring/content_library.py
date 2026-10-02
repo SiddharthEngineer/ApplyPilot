@@ -27,7 +27,8 @@ class Project:
 
     def facts(self) -> str:
         """All raw facts for this project, concatenated (used for provenance checks)."""
-        return f"{self.name} {self.context} {self.scope_scale} {self.tools_actions} {self.outcome_metrics}"
+        return (f"{self.name} ({self.dates}) {self.context} {self.scope_scale} "
+                f"{self.tools_actions} {self.outcome_metrics}")
 
 
 @dataclass
