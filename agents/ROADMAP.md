@@ -11,14 +11,14 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 
 ## How work runs
 
-1. **Nightly (cloud):** the Claude Code routine **"ApplyPilot nightly build"** ([claude.ai/code/routines](https://claude.ai/code/routines)) picks the next runnable `cloud` task in the order below, implements it, runs the unit tests, pushes to `claude/plan-<slug>`, and updates a draft PR on `SiddharthEngineer/ApplyPilot`. One task per night, one plan branch at a time.
+1. **Nightly (cloud):** the Claude Code routine **"ApplyPilot nightly build"** ([claude.ai/code/routines](https://claude.ai/code/routines)) works through runnable `cloud` tasks in the order below, one after another, until none are left or the session hits its usage limit. Each task is tested, committed and pushed on its own. Each plan has its own branch `claude/plan-<slug>` and draft PR on `SiddharthEngineer/ApplyPilot`, and later plans are **stacked** on earlier unmerged ones, so work never waits on a merge.
 2. **Morning (you):** open the PR, then:
    ```bash
    git fetch origin && git switch claude/plan-<slug>
    python scripts/qc.py <slug>
    ```
    (Before `scripts/qc.py` exists, run `pytest tests/ -q --ignore=tests/test_pipeline.py` and the PR's Morning QC commands.)
-   Do any `local` tasks on that branch, then merge the PR to let the routine move on to the next plan.
+   Do any `local` tasks on that branch, then merge PRs **bottom of the stack first**, using **"Create a merge commit"** (squash or rebase merges break the stacked PRs above it).
 3. **Planning:** new work gets a plan via `agents/PLAN_AGENT.md` and a row in the table below.
 
 ## Active initiatives
@@ -46,7 +46,8 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 ## Decisions log
 
 - 2026-10-01: Pipeline LLM calls (discovery judge, scoring, tailoring, cover letters) stay on the **Gemini free tier**. The Claude subscription is not used for them (`claude-llm-provider` plan dropped, replaced by `gemini-free-tier-llm`).
-- 2026-10-01: Plans are implemented by a nightly **Claude Code cloud routine**, one task per night, reviewed each morning. `scripts/plan_worker.py` and `agents/plan_queue.json` were retired (completion history moved to **Done** below). The never-started `claude-code-plan-worker` plan (R1) was dropped.
+- 2026-10-01: Plans are implemented by a nightly **Claude Code cloud routine**, reviewed each morning. `scripts/plan_worker.py` and `agents/plan_queue.json` were retired (completion history moved to **Done** below). The never-started `claude-code-plan-worker` plan (R1) was dropped.
+- 2026-10-02: The nightly routine keeps completing tasks until nothing is runnable or its usage limit ends the session (was: one task per night), with stacked per-plan branches and PRs.
 - 2026-10-01: `applypilot apply` will keep the user in the loop long-term. Deferred behind R0–R5.
 
 ## Findings behind this roadmap (2026-10-01 audit)

@@ -220,7 +220,7 @@ Each backend has its own command builder, MCP config generator, and output parse
 
 All planned work is tracked in [`agents/ROADMAP.md`](agents/ROADMAP.md), with one plan per initiative in
 `agents/plans/`. A Claude Code cloud routine ("ApplyPilot nightly build", managed at
-[claude.ai/code/routines](https://claude.ai/code/routines) or with `/schedule` in the CLI) implements **one task per night**,
+[claude.ai/code/routines](https://claude.ai/code/routines) or with `/schedule` in the CLI) works through tasks **until nothing is runnable or its usage limit is reached**,
 following `agents/BUILD_AGENT.md`. It pushes to `claude/plan-<slug>` and keeps a draft PR updated.
 
 Each morning:
@@ -231,7 +231,7 @@ python scripts/qc.py <slug>        # unit + live + LLM tiers, then prints the pl
 ```
 
 Do any tasks marked `Runs: local` on that branch, then merge the PR when the plan (or a stable part of it) is done.
-The routine starts the next plan only after the current plan branch is merged. Cloud runs install
+Later plans are stacked on earlier unmerged plan branches, so merge PRs bottom-first with "Create a merge commit". Cloud runs install
 dependencies with `scripts/cloud_setup.sh` and run only hermetic unit tests. Live and LLM tests run locally.
 
 ---

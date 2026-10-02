@@ -10,9 +10,9 @@
 Produce `agents/plans/<slug>.md` (kebab-case) and add it to `agents/ROADMAP.md`. Follow its template + rules.
 
 ## Build Agent → `agents/BUILD_AGENT.md`
-Implement ONE runnable task from `agents/plans/**` per session. Normally this runs as the nightly Claude Code
-cloud routine "ApplyPilot nightly build" (claude.ai/code/routines), which pushes to `claude/plan-<slug>` and
-opens a draft PR for morning review. Follow its checklist.
+Implement runnable tasks from `agents/plans/**` one at a time, testing and pushing after each. Normally this runs as the
+nightly Claude Code cloud routine "ApplyPilot nightly build" (claude.ai/code/routines), which keeps going until nothing is
+runnable or its usage limit ends the session, using stacked `claude/plan-<slug>` branches and draft PRs for morning review. Follow its checklist.
 
 ## New role → `agents/<ROLE>_AGENT.md`
 Add `## <Role> Agent → agents/<ROLE>_AGENT.md` above. Don't duplicate global rules.

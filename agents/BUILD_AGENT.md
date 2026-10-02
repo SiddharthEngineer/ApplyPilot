@@ -1,6 +1,6 @@
 # Build Agent — ApplyPilot
 
-You implement **exactly one task** from `agents/plans/` per session. Usually you're running as the
+You implement tasks from `agents/plans/` **one at a time, repeatedly, until nothing is runnable or the session's usage limit ends the run**. Usually you're running as the
 nightly Claude Code cloud routine, and the user reviews your work the next morning. Work only in this
 repo. Never call job boards, LLM APIs, or other external services, and never read `~/.applypilot`.
 Cloud sessions can't reach them, and unit tests must not need them.
@@ -9,10 +9,23 @@ Cloud sessions can't reach them, and unit tests must not need them.
 1. `bash scripts/cloud_setup.sh` (skip if running locally with `.venv`).
 2. `git fetch origin`. Read `agents/ROADMAP.md` **on `origin/trunk`**, then `agents/STATE.md`.
 
-## 2. Pick the plan (one plan branch at a time)
-- If a branch `origin/claude/plan-<slug>` exists **and is not merged into trunk**, check it out and continue that plan.
-- Otherwise, take the first initiative in ROADMAP's **Order** column whose status isn't ✅ or ❌, whose
-  **Depends on** initiatives are ✅, and that has a runnable task (below). Create `claude/plan-<slug>` from `origin/trunk`.
+## 2. Pick the plan (stacked branches)
+Plans are worked in ROADMAP **Order**. Each plan gets its own branch `claude/plan-<slug>` and its own draft PR. Plans
+can be **stacked**: a later plan's branch is based on the previous unmerged plan branch, so work never waits on a merge.
+
+1. List open draft PRs from `claude/plan-*` branches (`gh pr list --repo SiddharthEngineer/ApplyPilot`). The **stack** is
+   those branches in ROADMAP order. The **top** is the last one. If an open PR's base branch has already been merged into
+   trunk, retarget it: `gh pr edit <n> --repo SiddharthEngineer/ApplyPilot --base trunk`.
+2. Walk the ROADMAP initiatives in order. Skip ✅/❌ ones. For each, find a runnable task (§3), reading the plan file from
+   the top of the stack (or `origin/trunk` if the stack is empty). Skip an initiative whose **Depends on** initiatives
+   are neither ✅ on trunk nor in the stack with all their `cloud` tasks done.
+3. The first initiative with a runnable task is your plan:
+   - Its branch is already in the stack: check it out and work there.
+   - It isn't: create `claude/plan-<slug>` from the **top of the stack** (or `origin/trunk` if empty). If a remote
+     branch with that name exists and is fully merged into trunk (a previous PR for the same plan), delete it first
+     (`git push origin --delete claude/plan-<slug>`). Its PR's base is the parent branch, not trunk.
+4. If a plan lower in the stack gets new commits after a branch above it was created, merge the lower branch
+   into the upper branch before continuing (`git merge --no-edit claude/plan-<lower>`), so the stack stays linear.
 
 ## 3. Pick the task
 A task is runnable if:
@@ -20,18 +33,18 @@ A task is runnable if:
 - its `**Runs:**` line includes `cloud`, and
 - every task before it in the plan's *Implementation Order* graph is ✅ (or 🟡 when only its local part is pending and your task doesn't need that part).
 
-Pick the first runnable task in Implementation Order. If none is runnable, don't start another plan.
-Update the PR description's **Waiting on you** section (local tasks, merge) and stop.
+Pick the first runnable task in Implementation Order. When a plan has no runnable task left, update its PR's
+**Waiting on you** section (local tasks, merge) and go back to §2 for the next plan.
 
 ## 4. Do the task
 - Implement only that task's cloud part. Match surrounding code style. Add the tests its Acceptance asks for.
-- Gate: `ruff check <changed files>` (no new errors) and `pytest tests/ -q` must pass. Until
-  `test-tiers-and-qc` Task 1 is ✅, add `--ignore=tests/test_pipeline.py` (it makes live network calls). Until its Task 2 is ✅, also add
+- Gate: `ruff check <changed files>` (no new errors) and `pytest tests/ -q` must pass. Until `test-tiers-and-qc` Task 2 is ✅, add
   `--deselect tests/test_content_library_e2e.py::TestRunTailoringContentLibrary::test_content_library_not_found`
   `--deselect tests/test_init_wizard.py::TestSetupTraditionalResume::test_pdf_file_copied` (they need a real `~/.applypilot`). Note any exclusions in the PR.
 - Acceptance items that need network, an LLM, or user files are **not** yours. Copy them verbatim into the PR's **Morning QC** section.
 - If you can't make the gate pass: don't push broken code. Reset to the last good commit, set the task to
-  `⏸ Blocked (YYYY-MM-DD): <reason>`, record the blocker in STATE.md and the PR, push that, and stop.
+  `⏸ Blocked (YYYY-MM-DD): <reason>`, record the blocker in STATE.md and the PR, push that, and continue with the next runnable task (§7).
+  Later tasks that depend on the blocked one aren't runnable.
 
 ## 5. Record
 - Plan file: the task's `**Status:**` becomes `✅ Complete (YYYY-MM-DD)`, or `🟡 Cloud part done (YYYY-MM-DD), local steps pending`
@@ -40,15 +53,27 @@ Update the PR description's **Waiting on you** section (local tasks, merge) and 
 - `agents/STATE.md` (active plan, done, next step, blockers) and `agents/CHANGELOG.md` under `[Unreleased]`.
 - `README.md` if user-facing behavior changed.
 
-## 6. Ship
+## 6. Ship (after every task, before starting the next)
 - Commit with a conventional message (`feat:`/`fix:`/`test:`/`docs:`) naming the plan and task.
 - `git push -u origin claude/plan-<slug>`.
-- Open a **draft** PR if none exists: `gh pr create --repo SiddharthEngineer/ApplyPilot --base trunk --draft`.
-  Always pass `--repo`, because `upstream` points at Pickle-Pixel/ApplyPilot and must never receive PRs. If `gh` is
-  unavailable, put the PR title and body in your final message instead.
-- The PR body has these sections, and each run updates them:
-  - **Tonight**: task done, files changed
-  - **Gate**: the pytest summary line and ruff result
+- Open a **draft** PR if none exists, with base = parent branch in the stack (or `trunk`):
+  `gh pr create --repo SiddharthEngineer/ApplyPilot --base <parent> --draft`, or the GitHub tool if `gh` is unavailable.
+  Always target `SiddharthEngineer/ApplyPilot`, because `upstream` points at Pickle-Pixel/ApplyPilot and must never receive PRs.
+- Update the PR body **now**, not at the end of the session, since the session can be cut off by its usage limit at any point.
+  Sections:
+  - **Stack**: `Stacked on #<n>`, or `Base: trunk`. Merge order is bottom first.
+  - **Done**: one line per completed task (date), files changed
+  - **Gate**: latest pytest summary line and ruff result
   - **Morning QC**: `python scripts/qc.py <slug>` (once it exists), plus live acceptance commands and local tasks, as checkboxes
-  - **Waiting on you**: anything blocking the next task
-- Stop. One task per session.
+  - **Waiting on you**: anything blocking the next task in this plan
+
+## 7. Loop
+After §6, go back to §2 and take the next runnable task. Context is compacted automatically, and everything you need is in
+the repo files and PR bodies. Re-read the plan file before each task instead of relying on memory.
+
+Stop only when one of these happens:
+- no initiative has a runnable `cloud` task,
+- two tasks in a row end ⏸ Blocked (something systemic is wrong; say so in STATE.md and the top PR),
+- the session is ended by its usage limit (nothing to do; everything is already pushed).
+
+Before stopping on your own, post a final summary of all tasks done this session, open PRs in merge order, and what's waiting on the user.

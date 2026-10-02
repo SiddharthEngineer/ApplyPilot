@@ -1,11 +1,11 @@
 # Planning Agent — ApplyPilot
 
 Produce `agents/plans/<slug>.md` (kebab-case), then add a row to `agents/ROADMAP.md` (Order, ID, initiative,
-plan link, `0/N` tasks, ⏳, Depends on). Plans are implemented one task per session by the nightly cloud
+plan link, `0/N` tasks, ⏳, Depends on). Plans are implemented task by task by the nightly cloud
 routine (see `agents/BUILD_AGENT.md`), so every task must be self-contained.
 
 ## Task Segmentation
-One task = one Claude Code session. Pick ONE:
+One task = one tested, committed unit of work (the routine does many per session, but each must stand alone). Pick ONE:
 - single file (clear responsibility) | single function + tests | one-file modification | CLI flag + wiring
 Don't bundle unrelated changes. 12 files → ~6-8 tasks.
 
