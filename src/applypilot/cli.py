@@ -121,6 +121,9 @@ def run(
         help="Score every job with the LLM. By default, jobs whose title shares no word with your "
              "search queries or target role get fit_score 1 without an LLM call.",
     ),
+    limit: int | None = typer.Option(
+        None, "--limit", "-l", min=1, help="Max jobs for the tailor and cover stages (default 20 each).",
+    ),
     reset_errors: bool = typer.Option(
         False,
         "--reset-errors",
@@ -193,6 +196,7 @@ def run(
         source=source,
         no_cache=no_cache,
         prefilter=not no_prefilter,
+        limit=limit,
     )
 
     if result.get("errors"):

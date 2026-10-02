@@ -402,3 +402,58 @@ class TestProvenance:
     def test_empty_project_ids_flagged(self, library):
         r = _one_bullet(library, "Did things.", [])
         assert "cites no project_ids" in validate_provenance(r, library)[0]
+
+
+# ── Task 6: one-page fit loop ─────────────────────────────────────────────
+
+
+class TestFitToOnePage:
+    def _resume(self, library) -> TailoredResume:
+        data = _llm_json()
+        data["roles"][0]["bullets"] = [
+            {"text": f"Orders pipeline bullet {i}", "project_ids": ["orders-pipeline-lead"]} for i in range(5)
+        ]
+        data["roles"][1]["bullets"] = [{"text": "Churn bullet", "project_ids": ["churn-model"]}] * 2
+        return TailoredResume.from_llm_json(data, library)
+
+    def _stub(self, monkeypatch, overflows: int):
+        from applypilot.scoring import pdf
+        calls = []
+
+        def render(html, out):
+            calls.append(html)
+            over = len(calls) <= overflows
+            return {"overflow": over, "content_height_pt": 0.0, "usable_height_pt": 741.6, "pages": 2 if over else 1}
+
+        monkeypatch.setattr(pdf, "render_pdf", render)
+        return calls
+
+    def test_overflows_twice_drops_two_bullets(self, library, tmp_path, monkeypatch):
+        from applypilot.scoring.tailor import fit_to_one_page
+        calls = self._stub(monkeypatch, overflows=2)
+        r = self._resume(library)
+        slots = {"data-engineer-acme": (3, 5), "data-analyst-intern-globex": (0, 2)}
+        info, dropped = fit_to_one_page(r, PROFILE, FIXED, slots, tmp_path / "x.pdf")
+        assert info["overflow"] is False
+        assert len(calls) == 3
+        # Acme has the most bullets above its minimum (5-3=2 vs 2-0=2, tie -> later role first, then Acme 2 vs 1)
+        assert dropped == ["Churn bullet", "Orders pipeline bullet 4"]
+        assert [len(x.bullets) for x in r.roles] == [4, 1]
+        assert "Orders pipeline bullet 4" not in calls[-1]
+
+    def test_never_below_minimum(self, library, tmp_path, monkeypatch):
+        from applypilot.scoring.tailor import fit_to_one_page
+        self._stub(monkeypatch, overflows=99)
+        r = self._resume(library)
+        slots = {"data-engineer-acme": (4, 5), "data-analyst-intern-globex": (2, 2)}
+        info, dropped = fit_to_one_page(r, PROFILE, FIXED, slots, tmp_path / "x.pdf")
+        assert info["overflow"] is True
+        assert dropped == ["Orders pipeline bullet 4"]
+        assert [len(x.bullets) for x in r.roles] == [4, 2]
+
+    def test_max_four_iterations(self, library, tmp_path, monkeypatch):
+        from applypilot.scoring.tailor import fit_to_one_page
+        calls = self._stub(monkeypatch, overflows=99)
+        r = self._resume(library)
+        info, dropped = fit_to_one_page(r, PROFILE, FIXED, {}, tmp_path / "x.pdf")
+        assert len(dropped) == 4 and len(calls) == 5 and info["overflow"] is True

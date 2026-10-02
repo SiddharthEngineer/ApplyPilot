@@ -155,6 +155,12 @@ class TestBuildContentLibraryJudgePrompt:
         assert "FABRICATION" in prompt
         assert "FAIL" in prompt
 
+    def test_base_resume_skills_allowed(self):
+        prompt = _build_content_library_judge_prompt(_minimal_profile(), ["Vue.js", "airflow", "Tableau"])
+        allowed = next(line for line in prompt.splitlines() if "allowed skills are ONLY" in line)
+        assert "Vue.js" in allowed and "Tableau" in allowed
+        assert allowed.lower().count("airflow") == 1
+
     def test_empty_profile(self):
         prompt = _build_content_library_judge_prompt({})
         assert isinstance(prompt, str)
@@ -197,6 +203,20 @@ class TestTailorFromContentLibrary:
         assert report["attempts"] == 2
         retry_user_msg = mock_client.chat.call_args_list[1][0][0][1]["content"]
         assert "invented-project" in retry_user_msg
+
+    @patch("applypilot.scoring.tailor.get_client")
+    def test_judge_sees_cited_facts(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.chat.side_effect = [_valid_llm_response(), "VERDICT: PASS\nISSUES: none"]
+        mock_get_client.return_value = mock_client
+
+        _, report = tailor_from_content_library(_minimal_library(), _job(), _minimal_profile())
+
+        assert report["status"] == "approved"
+        judge_msgs = mock_client.chat.call_args_list[1][0][0]
+        assert "CANDIDATE FACTS" in judge_msgs[1]["content"]
+        assert "Airflow, Celery, RabbitMQ." in judge_msgs[1]["content"]  # patentsview-pipeline's facts
+        assert "Today is" in judge_msgs[0]["content"]
 
     @patch("applypilot.scoring.tailor.get_client")
     def test_invented_number_triggers_retry(self, mock_get_client):
