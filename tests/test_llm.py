@@ -406,6 +406,9 @@ class TestResponseSchema:
         cfg = post.call_args.kwargs["json"]["generationConfig"]
         assert cfg["responseMimeType"] == "application/json"
         assert cfg["responseSchema"] == _SCHEMA
+        # The key travels in a header, never the (logged) URL.
+        assert post.call_args.kwargs["headers"]["x-goog-api-key"] == "k"
+        assert "params" not in post.call_args.kwargs
         # Compat stays the default for calls without a schema.
         assert client._use_native_gemini is False
 

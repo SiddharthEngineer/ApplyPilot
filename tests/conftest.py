@@ -159,7 +159,8 @@ def _set_llm_defaults():
         pytest.skip("No LLM provider for llm tests")
 
     os.environ.setdefault("LLM_MODEL", "gemini-3.1-flash-lite")
-    os.environ.setdefault("LLM_DISCOVERY_MODEL", "gemini-3.1-flash-lite")
+    for purpose in ("DISCOVERY", "SCORING", "TAILOR", "COVER"):
+        os.environ.setdefault(f"LLM_{purpose}_MODEL", "gemini-3.1-flash-lite")
 
     import applypilot.llm as llm_mod
 

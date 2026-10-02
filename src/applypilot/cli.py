@@ -547,8 +547,9 @@ def doctor() -> None:
         model = os.environ.get("LLM_MODEL", "opencode/nemotron-3-nano-free")
         results.append(("LLM API key", ok_mark, f"OpenCode ({model})"))
     elif has_gemini:
+        from applypilot.llm import PURPOSES, _detect_provider
         model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
-        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "gemini-3.1-flash-lite")
+        stage_models = {p: _detect_provider(p)[1] for p in PURPOSES}
         # Validate model against Gemini API model list
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         model_valid = True
@@ -557,7 +558,7 @@ def doctor() -> None:
             import httpx
             resp = httpx.get(
                 "https://generativelanguage.googleapis.com/v1beta/models",
-                params={"key": gemini_key},
+                headers={"x-goog-api-key": gemini_key},  # not ?key=: httpx logs URLs
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -569,11 +570,12 @@ def doctor() -> None:
                         "LLM API key", warn_mark,
                         f"Gemini ({model}) — model not found in API model list. Available: {avail}...",
                     ))
-                if discovery_model not in models:
-                    results.append((
-                        "LLM API key", warn_mark,
-                        f"Gemini discovery model ({discovery_model}) not in API model list. Available: {avail}...",
-                    ))
+                for purpose, stage_model in stage_models.items():
+                    if stage_model not in models:
+                        results.append((
+                            "LLM API key", warn_mark,
+                            f"Gemini {purpose} model ({stage_model}) not in API model list. Available: {avail}...",
+                        ))
         except Exception:
             pass  # If we can't validate, just show the model name
         if model_valid:
@@ -589,13 +591,15 @@ def doctor() -> None:
 
     # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
     if has_gemini or has_openai or has_opencode or has_local:
-        discovery_model = os.environ.get("LLM_DISCOVERY_MODEL") or (
-            "gemini-3.1-flash-lite" if has_gemini else "gemini-3.6-flash"
-        )
-        results.append(("Discovery model", ok_mark, discovery_model))
-        rpm_limit = os.environ.get("LLM_RPM_LIMIT", "12")
+        from applypilot.llm import PURPOSES, _detect_provider
+        # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients).
+        for purpose in PURPOSES:
+            results.append((f"{purpose.title()} model", ok_mark, _detect_provider(purpose)[1]))
+        rpm_limit = os.environ.get("LLM_RPM_LIMIT", "0")
         rpm_window = os.environ.get("LLM_RPM_WINDOW", "60")
-        results.append(("RPM limit", ok_mark, f"{rpm_limit} (window {rpm_window}s)"))
+        rpm_text = f"{rpm_limit} (window {rpm_window}s)" if rpm_limit != "0" else "off (set LLM_RPM_LIMIT)"
+        results.append(("RPM limit", ok_mark, rpm_text))
+        results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))
 
     # --- Tier 3 checks ---
     # Claude Code CLI

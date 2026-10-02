@@ -105,7 +105,7 @@ _MAX_RETRIES = 5
 _TIMEOUT = 120  # seconds
 
 # Base wait on first 429/503 (doubles each retry, caps at 60s).
-# Gemini free tier is 15 RPM = 4s minimum between requests; 10s gives headroom.
+# Free-tier per-minute limits are low; 10s gives headroom.
 _RATE_LIMIT_BASE_WAIT = 10
 
 
@@ -275,8 +275,8 @@ class LLMClient:
         resp = self._client.post(
             url,
             json=payload,
-            headers={"Content-Type": "application/json"},
-            params={"key": self.api_key},
+            # Header, not ?key=: httpx logs request URLs at INFO, which would print the key.
+            headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -403,11 +403,13 @@ class LLMClient:
                     else:
                         wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
 
+                    reason = (
+                        "rate limited; set LLM_RPM_LIMIT below the model's free RPM"
+                        if resp.status_code == 429 else "model overloaded"
+                    )
                     log.warning(
-                        "LLM rate limited (HTTP %s). Waiting %ds before retry %d/%d. "
-                        "Tip: Gemini free tier = 15 RPM. Consider a paid account "
-                        "or switching to a local model.",
-                        resp.status_code, wait, attempt + 1, _MAX_RETRIES,
+                        "LLM HTTP %s (%s). Waiting %ds before retry %d/%d.",
+                        resp.status_code, reason, wait, attempt + 1, _MAX_RETRIES,
                     )
                     time.sleep(wait)
                     continue

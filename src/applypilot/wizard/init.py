@@ -602,7 +602,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
         env_lines.append(f"LLM_DISCOVERY_MODEL={discovery_model}")
 
     rpm_limit = Prompt.ask(
-        "LLM RPM limit (Gemini free tier = 15 RPM; 12 stays safe, 0 = disabled)",
+        "LLM RPM limit (a bit below your model's free RPM, see aistudio.google.com/rate-limit; 0 = disabled)",
         default=env.get("LLM_RPM_LIMIT", "12"),
     )
     if rpm_limit:
