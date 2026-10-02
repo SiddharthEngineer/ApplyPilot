@@ -717,8 +717,9 @@ class TestSetupSearchesSitesThreshold:
         assert "zip_recruiter" not in sites
         assert "indeed" in sites
         assert "linkedin" in sites
-        assert "glassdoor" in sites
-        assert "google" in sites
+        # Proxy-only (glassdoor) and unsupported (google) boards are left out.
+        assert "glassdoor" not in sites
+        assert "google" not in sites
 
     @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
     @patch("applypilot.wizard.init.Prompt.ask")

@@ -8,6 +8,7 @@ search configuration YAML (searches.yaml) rather than being hardcoded.
 """
 
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -25,6 +26,13 @@ log = logging.getLogger(__name__)
 
 # Boards crawled when searches.yaml has no ``sites`` list.
 DEFAULT_SITES = ("indeed", "linkedin", "zip_recruiter")
+
+# Boards that answer HTTP 403 (Cloudflare) unless requests go through a proxy.
+_REQUIRES_PROXY = frozenset({"glassdoor", "zip_recruiter"})
+# Boards JobSpy can't currently scrape (Google returns no job data).
+_UNSUPPORTED = frozenset({"google"})
+# Lowest allowed site_fail_threshold: 1 lets a single throttled search disable a board.
+_MIN_FAIL_THRESHOLD = 2
 
 # JobSpy supported country codes for Indeed
 _SUPPORTED_COUNTRIES = frozenset({
@@ -377,7 +385,9 @@ def _run_one_search(
         if proxy_config:
             kwargs["proxies"] = [proxy_config["jobspy"]]
         if site == "linkedin":
-            kwargs["linkedin_fetch_description"] = True
+            # Off by default: enrich fetches full descriptions, and the per-job
+            # LinkedIn fetch is what triggers its throttling.
+            kwargs["linkedin_fetch_description"] = bool(defaults.get("linkedin_fetch_description", False))
         with _capture_jobspy_errors() as cap:
             try:
                 site_df = _scrape_with_retry(kwargs, max_retries=max_retries)
@@ -536,6 +546,10 @@ def _full_crawl(
 
     # Per-crawl site tracker: auto-disable boards that keep returning 0 results
     site_fail_threshold = defaults.get("site_fail_threshold", 3)
+    if site_fail_threshold < _MIN_FAIL_THRESHOLD:
+        log.warning("site_fail_threshold: %s is too aggressive (one throttled search would disable a board); "
+                    "using %d. Set it to 3 in searches.yaml.", site_fail_threshold, _MIN_FAIL_THRESHOLD)
+        site_fail_threshold = _MIN_FAIL_THRESHOLD
     tracker = _SiteTracker(threshold=site_fail_threshold)
 
     log.info("Full crawl: %d search combinations", len(searches))
@@ -677,6 +691,25 @@ class _SiteTracker:
         }
 
 
+def _gate_sites(sites: list[str], proxy: str | None, allow_unsupported: bool) -> list[str]:
+    """Drop boards that can't work in this setup, logging one warning per dropped board.
+
+    Glassdoor/ZipRecruiter need a proxy (they answer HTTP 403 otherwise); Google is
+    skipped unless ``defaults.allow_unsupported: true``.
+    """
+    kept = []
+    for site in sites:
+        if site in _REQUIRES_PROXY and not proxy:
+            log.warning("Skipping %s: blocked without a proxy (Cloudflare HTTP 403). "
+                        "Set PROXY or 'proxy' in searches.yaml to enable it.", site)
+        elif site in _UNSUPPORTED and not allow_unsupported:
+            log.warning("Skipping %s: JobSpy returns no jobs for it. "
+                        "Set defaults.allow_unsupported: true in searches.yaml to try anyway.", site)
+        else:
+            kept.append(site)
+    return kept
+
+
 def run_discovery(cfg: dict | None = None) -> dict:
     """Main entry point for JobSpy-based job discovery.
 
@@ -698,8 +731,9 @@ def run_discovery(cfg: dict | None = None) -> dict:
         return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0,
                 "site_stats": {}, "disabled_sites": []}
 
-    proxy = cfg.get("proxy")
-    sites = cfg.get("sites")
+    proxy = cfg.get("proxy") or os.environ.get("PROXY")
+    sites = _gate_sites(list(cfg.get("sites") or DEFAULT_SITES), proxy,
+                        bool(cfg.get("defaults", {}).get("allow_unsupported", False)))
     results_per_site = cfg.get("defaults", {}).get("results_per_site", 100)
     hours_old = cfg.get("defaults", {}).get("hours_old", 72)
     tiers = cfg.get("tiers")

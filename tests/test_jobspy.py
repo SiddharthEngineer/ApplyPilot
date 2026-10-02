@@ -235,8 +235,8 @@ class TestFullCrawlTracker:
         assert result["disabled_sites"] == []
         assert result["site_stats"]["disabled"] == []
 
-    def test_threshold_1_disables_after_single_search(self):
-        """site_fail_threshold: 1 disables a board after one empty search."""
+    def test_threshold_1_is_clamped_to_2(self):
+        """site_fail_threshold: 1 is raised to 2, so one empty search doesn't disable a board."""
         import unittest.mock as mock
         import applypilot.discovery.jobspy as mod
 
@@ -247,10 +247,11 @@ class TestFullCrawlTracker:
         with mock.patch.object(mod, 'init_db', return_value=conn), \
              mock.patch.object(mod, 'get_connection', return_value=conn), \
              mock.patch.object(mod, 'scrape_jobs', fake_scrape):
-            cfg = _make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=1, n_locations=1)
-            result = mod._full_crawl(cfg)
+            result_1 = mod._full_crawl(_make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=1, n_locations=1))
+            result_2 = mod._full_crawl(_make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=1, n_locations=2))
 
-        assert result["disabled_sites"] == ["zip_recruiter"]
+        assert result_1["disabled_sites"] == []
+        assert result_2["disabled_sites"] == ["zip_recruiter"]
 
     def test_errors_dont_increment_consecutive_empty(self):
         """Hard errors should not penalize a board's consecutive-empty count."""
@@ -299,10 +300,12 @@ class TestFullCrawlTracker:
         assert "site_stats" in result
         assert isinstance(result["site_stats"], dict)
 
-    def test_run_discovery_passes_through_keys(self):
+    def test_run_discovery_passes_through_keys(self, monkeypatch):
         """run_discovery returns site_stats and disabled_sites from _full_crawl."""
         import unittest.mock as mock
         import applypilot.discovery.jobspy as mod
+
+        monkeypatch.setenv("PROXY", "proxy.example:8080")  # keep zip_recruiter in the crawl
 
         def fake_scrape(**kwargs):
             return _make_df({"indeed": 1, "linkedin": 1, "zip_recruiter": 0})
@@ -311,7 +314,7 @@ class TestFullCrawlTracker:
         with mock.patch.object(mod, 'init_db', return_value=conn), \
              mock.patch.object(mod, 'get_connection', return_value=conn), \
              mock.patch.object(mod, 'scrape_jobs', fake_scrape):
-            cfg = _make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=1, n_locations=1)
+            cfg = _make_cfg(["indeed", "linkedin", "zip_recruiter"], threshold=2, n_locations=2)
             result = mod.run_discovery(cfg)
 
         assert "disabled_sites" in result
@@ -389,6 +392,79 @@ class TestBlockedVsEmpty:
         t = _SiteTracker(threshold=3)
         assert t.note(["glassdoor"], {"glassdoor": 0}, blocked={"glassdoor"}) == ["glassdoor"]
         assert t.reasons == {"glassdoor": "blocked"}
+
+
+class TestSiteGating:
+    """run_discovery drops proxy-only and unsupported boards before crawling."""
+
+    ALL = ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter"]
+
+    def _sites_crawled(self, cfg):
+        from unittest import mock
+
+        import applypilot.discovery.jobspy as mod
+
+        with mock.patch.object(mod, "_full_crawl", return_value={}) as crawl:
+            mod.run_discovery(cfg)
+        return crawl.call_args.kwargs["sites"], crawl.call_args.kwargs["proxy"]
+
+    def test_no_proxy_keeps_indeed_and_linkedin(self, monkeypatch, caplog):
+        monkeypatch.delenv("PROXY", raising=False)
+        sites, proxy = self._sites_crawled(_make_cfg(self.ALL))
+        assert sites == ["indeed", "linkedin"]
+        assert proxy is None
+        skipped = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Skipping")]
+        assert len(skipped) == 3
+        assert any("glassdoor" in m and "proxy" in m for m in skipped)
+
+    def test_proxy_env_enables_glassdoor_and_zip(self, monkeypatch):
+        monkeypatch.setenv("PROXY", "proxy.example:8080")
+        sites, proxy = self._sites_crawled(_make_cfg(self.ALL))
+        assert sites == ["indeed", "linkedin", "glassdoor", "zip_recruiter"]
+        assert proxy == "proxy.example:8080"
+
+    def test_proxy_in_config_enables_glassdoor(self, monkeypatch):
+        monkeypatch.delenv("PROXY", raising=False)
+        cfg = {**_make_cfg(self.ALL), "proxy": "host:1:u:p"}
+        sites, _ = self._sites_crawled(cfg)
+        assert "glassdoor" in sites
+
+    def test_allow_unsupported_keeps_google(self, monkeypatch):
+        monkeypatch.delenv("PROXY", raising=False)
+        cfg = _make_cfg(self.ALL)
+        cfg["defaults"]["allow_unsupported"] = True
+        sites, _ = self._sites_crawled(cfg)
+        assert sites == ["indeed", "linkedin", "google"]
+
+    def test_no_sites_in_config_uses_gated_defaults(self, monkeypatch):
+        monkeypatch.delenv("PROXY", raising=False)
+        cfg = _make_cfg(None)
+        del cfg["sites"]
+        sites, _ = self._sites_crawled(cfg)
+        assert sites == ["indeed", "linkedin"]
+
+
+class TestLinkedinFetchDescription:
+    def _linkedin_kwargs(self, defaults_extra):
+        from unittest import mock
+
+        import applypilot.discovery.jobspy as mod
+
+        scrape = mock.MagicMock(return_value=_make_df({"linkedin": 1}))
+        conn = _make_mock_conn()
+        cfg = _make_cfg(["linkedin"], n_locations=1)
+        cfg["defaults"].update(defaults_extra)
+        with mock.patch.object(mod, "init_db", return_value=conn), \
+                mock.patch.object(mod, "get_connection", return_value=conn), \
+                mock.patch.object(mod, "scrape_jobs", scrape):
+            mod._full_crawl(cfg, sites=["linkedin"])
+        return scrape.call_args.kwargs
+
+    def test_off_by_default(self):
+        assert self._linkedin_kwargs({})["linkedin_fetch_description"] is False
+
+    def test_opt_in(self):
+        assert self._linkedin_kwargs({"linkedin_fetch_description": True})["linkedin_fetch_description"] is True
 
 
 # ---------------------------------------------------------------------------
