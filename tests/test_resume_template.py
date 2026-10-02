@@ -23,6 +23,7 @@ from applypilot.scoring.template import (
     split_trailing_dates,
     write_fixed_yaml,
 )
+from applypilot.scoring.validator import validate_provenance
 
 SAMPLE_LIBRARY = Path(__file__).resolve().parent / "fixtures" / "content_library_sample.md"
 
@@ -346,3 +347,58 @@ class TestPdfPageCount:
         assert _count_pdf_pages(b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>") == 2
         assert _count_pdf_pages(b"garbage") is None
         assert _count_pdf_pages(None) is None
+
+
+# ── Task 5: provenance ────────────────────────────────────────────────────
+
+
+def _one_bullet(library, text: str, ids: list[str]) -> TailoredResume:
+    data = _llm_json()
+    data["roles"] = [{"role_key": "data-engineer-acme", "bullets": [{"text": text, "project_ids": ids}]}]
+    return TailoredResume.from_llm_json(data, library)
+
+
+class TestProvenance:
+    def test_number_in_cited_facts_passes(self, library):
+        r = _one_bullet(library, "Cut runtime from 6 hours to 45 minutes across 12 source systems.",
+                        ["orders-pipeline-lead"])
+        assert validate_provenance(r, library) == []
+
+    def test_arrow_pair_passes(self, library):
+        r = _one_bullet(library, "Raised precision 0.91 → 0.97 on 40 million rows per day.", ["orders-pipeline-lead"])
+        assert validate_provenance(r, library) == []
+
+    def test_percent_and_thousands(self, library):
+        r = _one_bullet(library, "Cut failures by 80% for 25 users.", ["orders-pipeline-lead", "quality-dashboard"])
+        assert validate_provenance(r, library) == []
+
+    def test_absent_number_flagged(self, library):
+        r = _one_bullet(library, "Cut runtime by 95% for 12 source systems.", ["orders-pipeline-lead"])
+        errors = validate_provenance(r, library)
+        assert len(errors) == 1 and "95" in errors[0] and "12" not in errors[0].split("'")[0]
+
+    def test_arrow_pair_with_wrong_side_flagged(self, library):
+        r = _one_bullet(library, "Raised precision 0.91 → 0.99.", ["orders-pipeline-lead"])
+        assert "0.99" in validate_provenance(r, library)[0]
+
+    def test_number_from_uncited_project_flagged(self, library):
+        # 25 users is in quality-dashboard's facts, but the bullet only cites orders-pipeline-lead
+        r = _one_bullet(library, "Served 25 users.", ["orders-pipeline-lead"])
+        assert "25" in validate_provenance(r, library)[0]
+
+    def test_partial_number_not_matched(self, library):
+        # '4' is not a whole number in '40 million' or '45 minutes'
+        r = _one_bullet(library, "Ran 4 pipelines.", ["orders-pipeline-lead"])
+        assert "4" in validate_provenance(r, library)[0]
+
+    def test_digits_in_names_ignored(self, library):
+        r = _one_bullet(library, "Deployed on EC2 and S3 with Airflow.", ["orders-pipeline-lead"])
+        assert validate_provenance(r, library) == []
+
+    def test_project_dates_count_as_facts(self, library):
+        r = _one_bullet(library, "Led the orders pipeline since 2024.", ["orders-pipeline-lead"])
+        assert validate_provenance(r, library) == []
+
+    def test_empty_project_ids_flagged(self, library):
+        r = _one_bullet(library, "Did things.", [])
+        assert "cites no project_ids" in validate_provenance(r, library)[0]

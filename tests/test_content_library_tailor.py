@@ -199,6 +199,21 @@ class TestTailorFromContentLibrary:
         assert "invented-project" in retry_user_msg
 
     @patch("applypilot.scoring.tailor.get_client")
+    def test_invented_number_triggers_retry(self, mock_get_client):
+        bad = json.loads(_valid_llm_response())
+        bad["roles"][0]["bullets"][0]["text"] = "Built the PatentsView pipeline, cutting runtime 75%"
+        mock_client = MagicMock()
+        mock_client.chat.side_effect = [json.dumps(bad), _valid_llm_response()]
+        mock_get_client.return_value = mock_client
+
+        _, report = tailor_from_content_library(
+            _minimal_library(), _job(), _minimal_profile(), max_retries=2, validation_mode="lenient",
+        )
+
+        assert report["attempts"] == 2
+        assert "75 not in the facts of patentsview-pipeline" in mock_client.chat.call_args_list[1][0][0][1]["content"]
+
+    @patch("applypilot.scoring.tailor.get_client")
     def test_slot_violation_triggers_retry(self, mock_get_client):
         one_bullet = json.loads(_valid_llm_response())
         one_bullet["roles"][0]["bullets"] = one_bullet["roles"][0]["bullets"][:1]  # needs 2-5 without a base resume

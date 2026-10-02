@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from applypilot.scoring.content_library import ContentLibrary
     from applypilot.scoring.resume_model import TailoredResume
 
 log = logging.getLogger(__name__)
@@ -249,6 +250,49 @@ def validate_resume_model(
             (errors if mode == "strict" else warnings).append(msg)
 
     return {"passed": not errors, "errors": errors, "warnings": warnings}
+
+
+# Numbers as they appear in prose: 45, 1,200, 0.899, 90%. Not digits inside names (EC2, S3, Q3).
+_NUMBER = re.compile(r"(?<![A-Za-z\d.])\d[\d,.]*%?")
+
+
+def _numbers(text: str) -> list[str]:
+    """Numeric tokens in text, normalized: no thousands commas, no trailing punctuation or %."""
+    out = []
+    for tok in _NUMBER.findall(text):
+        tok = tok.rstrip("%").rstrip(".,").replace(",", "")
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _number_in(num: str, facts: str) -> bool:
+    """True if num appears in facts as a whole number (so '3' doesn't match '30' or '0.3')."""
+    return re.search(rf"(?<![\d.]){re.escape(num)}(?![\d]|\.\d)", facts) is not None
+
+
+def validate_provenance(resume: "TailoredResume", library: "ContentLibrary") -> list[str]:
+    """Check every number in every bullet against the facts of the projects the bullet cites.
+
+    Returns one error string per problem: a bullet citing no projects, or a number (including
+    either side of an 'a → b' pair) missing from the cited projects' concatenated facts.
+    """
+    errors: list[str] = []
+    for role in resume.roles:
+        for b in role.bullets:
+            short = b.text if len(b.text) <= 60 else b.text[:57] + "..."
+            if not b.project_ids:
+                errors.append(f"Bullet cites no project_ids: '{short}'")
+                continue
+            projects = [library.project_by_slug(pid) for pid in b.project_ids]
+            facts = " ".join(p.facts() for p in projects if p).replace(",", "")
+            # Both sides of an 'a → b' pair are ordinary numeric tokens, so each is checked too.
+            missing = [n for n in dict.fromkeys(_numbers(b.text)) if not _number_in(n, facts)]
+            if missing:
+                errors.append(
+                    f"Number(s) {', '.join(missing)} not in the facts of {', '.join(b.project_ids)}: '{short}'"
+                )
+    return errors
 
 
 # ── Full Resume Text Validation ───────────────────────────────────────────
