@@ -34,6 +34,20 @@ board health in seconds, and new block-free sources (Greenhouse, Lever, Ashby pu
 
 ## Task Chain
 
+### Task 0: Evaluate python-jobspy 1.2.0
+**Runs:** local (needs live board access)
+**Files:** `pyproject.toml` / README install line (modify, only if adopted), `scripts/cloud_setup.sh` (modify, only if adopted)
+**What:** `python-jobspy` 1.2.0 was released after the 2026-10-01 audit, which found 1.1.82 to be the latest. It adds a
+`curl_cffi` dependency (browser TLS impersonation), which may get past the Cloudflare 403s on Glassdoor and ZipRecruiter.
+In a scratch venv, install 1.2.0 + `curl_cffi`, rerun the 2026-10-01 probe (3 results per board, "Data Scientist", Remote)
+for all five boards, and compare against the table in Goal. If it's at least as good on Indeed/LinkedIn, adopt it: bump the pin in
+`scripts/cloud_setup.sh` (and add `curl_cffi`), update the README install line, and rerun `pytest tests/ -q`.
+Record the probe table in Historical Record either way. If Glassdoor/Zip now work, Task 3's proxy gating changes from default-off to default-on.
+**Acceptance:**
+- Probe results for 1.2.0 recorded in Historical Record with the date.
+- If adopted: `pytest tests/ -q` passes on 1.2.0 locally.
+**Status:** ❌ Not started
+
 ### Task 1: Board probe command
 **Runs:** cloud (code + unit tests); live `--probe` check: local
 **Files:** `src/applypilot/discovery/jobspy.py` (modify), `src/applypilot/cli.py` (modify), `tests/test_jobspy.py` (modify)
@@ -141,6 +155,7 @@ Document `applypilot discover --probe`.
 ```
 Task 1 ──► Task 2 ──► Task 3 ──► Task 7
 Task 4 ──► Task 5 ──┘
+Task 0 (local, independent; may change Task 3 defaults)
 Task 6 (independent)
 ```
 1. Task 1: probe (diagnostic tool used by every later task)

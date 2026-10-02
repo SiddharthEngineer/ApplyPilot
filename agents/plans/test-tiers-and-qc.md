@@ -39,7 +39,7 @@ the import location `_run_discover` uses (it imports inside the function, so pat
 **Acceptance:**
 - `time pytest tests/test_pipeline.py -q` passes in under 10s.
 - `time pytest tests/ -q` passes in under 3 minutes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 2: Hermetic guard (network + app dir)
 **Runs:** cloud
@@ -120,3 +120,4 @@ Task 4 (local capture; any time after Task 2)
 
 ## Historical Record
 - 2026-10-01: Plan created (roadmap initiative R0). Suite hang diagnosed with `-o faulthandler_timeout=60`: `workday.py:158 _urlopen` reached from `tests/test_pipeline.py:16`.
+- 2026-10-02: Task 1 done (nightly routine). `tests/test_pipeline.py` gets an autouse fixture patching `applypilot.discovery.workday.run_workday_discovery` and `applypilot.discovery.smartextract.run_smart_extract` (covers all 4 `_run_discover()` tests), plus a test asserting the stubs ran. `pytest tests/test_pipeline.py -q`: 5 passed in 1.0s. `pytest tests/ -q` (2 deselects pending Task 2): 359 passed, 25 skipped, 2 deselected in 14.6s.
