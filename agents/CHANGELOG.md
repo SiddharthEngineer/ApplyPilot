@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Job Board Discovery Repair — Task 6** (2026-10-02): SmartExtract had never stored a job because the first site that raised (a page-load timeout or Cloudflare challenge; CareerJet Canada is 4th in order) ended the whole run. Per-site errors are now reported and skipped, and a missing Playwright browser stops early with `playwright install chromium`. The network-idle wait is capped at 15s, and a failed headful retry keeps the headless result. `sites.yaml`: 8 broken sites are `disabled: true` with a `disabled_reason`, and Remotive/Jobspresso URLs are fixed. Live: 173 jobs from 7 sites.
+
 ### Added
 - **Job Board Discovery Repair — Task 7** (2026-10-02): The live JobSpy test fails if Indeed or LinkedIn return 0. Glassdoor/ZipRecruiter are skipped without `PROXY`, and Google is skipped as unsupported. README documents the real job sources, which are on by default, and `discover --probe`.
 - **Job Board Discovery Repair — Task 5** (2026-10-02): The discover stage now runs the Greenhouse/Lever/Ashby source after JobSpy, error-isolated, with its own `ats` stats key. `applypilot discover --probe` adds one `ats:<kind>` row per ATS. Live: 432 new jobs from 23 boards.
