@@ -185,7 +185,15 @@ pytest --run-live --run-llm -v                             # Everything
 Unit tests are hermetic: `tests/conftest.py` points `APPLYPILOT_DIR` at a temp dir, and any test not marked
 `live` or `llm` that opens a non-localhost connection fails with `NetworkAccessBlocked`. Mock the call or mark the test.
 
-Test fixtures in `tests/fixtures/` are gitignored. Generate locally:
+Recorded responses in `tests/data/` are committed, scrubbed JSON samples (JobSpy rows, a Workday page, a Gemini
+scoring reply) that unit tests replay without network. Refresh them (needs network + `GEMINI_API_KEY`), then check
+for personal data before committing:
+```bash
+python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin
+grep -ri "<your email or name>" tests/data          # expect no matches
+```
+
+Older pickle fixtures in `tests/fixtures/` are gitignored. Generate locally:
 ```bash
 python scripts/capture_fixtures.py --n 1
 ```

@@ -1,6 +1,6 @@
 # Plan: Test Tiers + Morning QC
 **Started:** 2026-10-01
-**Status:** 🔄 In Progress
+**Status:** 🟡 Code done, M6 capture pending
 
 ## Goal
 Plans are implemented unattended by a nightly Claude Code cloud routine (see `agents/BUILD_AGENT.md`) and
@@ -82,7 +82,7 @@ The user runs the capture locally and commits the output after checking it with
 **Acceptance:**
 - `pytest tests/test_filtering_smoke.py -v` runs (not skips) in a fresh clone.
 - `grep -rli "applypilot" tests/data/*.json` shows no personal data. The user confirms in Historical Record.
-**Status:** ❌ Not started
+**Status:** 🟡 Cloud part done (2026-10-02), local steps pending (run the capture + commit `tests/data/`)
 
 ### Task 5: Morning QC script
 **Runs:** cloud (write), local (use)
@@ -124,3 +124,4 @@ Task 4 (local capture; any time after Task 2)
 - 2026-10-02: Task 2 done (nightly routine). `tests/conftest.py`: `pytest_configure` sets `APPLYPILOT_DIR` to a `mkdtemp` session dir (removed in `pytest_unconfigure`); autouse `_block_network` patches `socket.socket.connect`/`connect_ex` via `patch.object` to raise `NetworkAccessBlocked` for non-localhost, non-`AF_UNIX` addresses, skipped for `live`/`llm` items. New `tests/test_hermetic.py` (7 tests). The two tests that needed a real `~/.applypilot` now pass with no changes, because the isolated APP_DIR exists; the gate no longer needs any `--deselect`. `HOME=$(mktemp -d) pytest tests/ -q`: 367 passed, 26 skipped in 13.4s (in the cloud image this also needs `PYTHONUSERBASE=/root/.local`, since pip installs to the user site under HOME). No other test touched the network.
 - 2026-10-02: Task 3 done (VPS session). `.github/workflows/ci.yml` runs on `pull_request`/`push` to `trunk` + `workflow_dispatch`, Python 3.12 via `astral-sh/setup-uv@v6` (matches the local `.venv`), installs jobspy `--no-deps` + its runtime deps like `scripts/cloud_setup.sh`. Deviation: lint is `ruff check src/ tests/ scripts/ --select E9,F63,F7,F82` (real errors only), because ruff 0.16's default rule set reports ~150 pre-existing style findings in `src/`; full-lint cleanup is not planned yet. CI green on PR #3.
 - 2026-10-02: Task 5 done (VPS session). `scripts/qc.py` (stdlib only) + `tests/test_qc_script.py` (5 tests). `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` prints 5 criteria and exits 0. README Testing section starts with it.
+- 2026-10-02: Task 4 code done (VPS session). `scripts/capture_fixtures.py --out <dir> --scrub` writes `jobspy_<site>.json` (5 raw rows), `workday_search.json` (one CXS page) and `gemini_score_response.json` (scored against the script's fake `SAMPLE_RESUME`, so the real resume never enters the prompt). Scrubbing removes profile `personal.*` identifiers, name parts, `site_passwords`, `resume_facts` companies/projects/school, emails/phones/URLs from `resume.txt`, and every email address; description fields capped at 2,000 chars. New `tests/test_recorded_data.py`: scrubber tests always run; replay tests (JobSpy rows → `store_jobspy_results`, Workday page → `search_employer`, Gemini reply → `_parse_score_response`) skip until the samples are committed. `tests/test_filtering_smoke.py` prefers `tests/data/jobspy_*.json`. The live capture itself was blocked by this session's auto-mode permission classifier, so it stays with the user (M6).
