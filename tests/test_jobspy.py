@@ -113,7 +113,7 @@ class TestSiteTracker:
         t = _SiteTracker(threshold=3)
         t.note(["indeed", "zip_recruiter"], {"indeed": 5, "zip_recruiter": 0})
         report = t.report()
-        assert set(report.keys()) == {"counts", "requests", "disabled"}
+        assert set(report.keys()) == {"counts", "requests", "disabled", "reasons"}
         assert report["counts"]["indeed"] == 5
         assert report["requests"]["indeed"] == 1
         assert report["disabled"] == []
@@ -211,13 +211,11 @@ class TestFullCrawlTracker:
         assert "indeed" not in result["disabled_sites"]
         assert "linkedin" not in result["disabled_sites"]
 
-        # Verify scrape_jobs was called with zip_recruiter excluded after threshold
-        calls = mock_scrape.call_args_list
-        # First 3 calls include zip_recruiter; after that it's excluded
-        for c in calls[:3]:
-            assert "zip_recruiter" in c.kwargs["site_name"]
-        for c in calls[3:]:
-            assert "zip_recruiter" not in c.kwargs["site_name"]
+        # One scrape_jobs call per board per search; zip_recruiter is requested on
+        # each of the 3 searches, then disabled.
+        boards = [c.kwargs["site_name"] for c in mock_scrape.call_args_list]
+        assert all(len(b) == 1 for b in boards)
+        assert boards.count(["zip_recruiter"]) == 3
 
     def test_all_sites_return_results_no_disabling(self):
         """No site is disabled when every site returns >=1 result."""
@@ -259,15 +257,16 @@ class TestFullCrawlTracker:
         import unittest.mock as mock
         import applypilot.discovery.jobspy as mod
 
-        # First two calls raise (simulating network errors), third returns 0 results.
-        # With threshold=2, a real empty board would be disabled after 2 calls,
-        # but since those were errors, it should NOT be disabled yet.
+        # zip_recruiter's first two calls raise (simulating network errors), the third
+        # returns 0 results. With threshold=2, a real empty board would be disabled
+        # after 2 searches, but since those were errors, it should NOT be disabled yet.
         call_count = {"i": 0}
 
         def fake_scrape(**kwargs):
-            call_count["i"] += 1
-            if call_count["i"] <= 2:
-                raise ConnectionError("simulated network failure")
+            if kwargs["site_name"] == ["zip_recruiter"]:
+                call_count["i"] += 1
+                if call_count["i"] <= 2:
+                    raise ConnectionError("simulated network failure")
             return _make_df({"indeed": 2, "linkedin": 1, "zip_recruiter": 0})
 
         conn = _make_mock_conn()
@@ -327,6 +326,69 @@ class TestFullCrawlTracker:
 
         assert result["site_stats"] == {}
         assert result["disabled_sites"] == []
+
+
+class TestBlockedVsEmpty:
+    """Per-board calls: blocked boards drop out at once, empty ones after ``threshold``."""
+
+    def _crawl(self, fake, threshold=3, n_locations=3, sites=("indeed", "linkedin", "zip_recruiter")):
+        from unittest import mock
+
+        import applypilot.discovery.jobspy as mod
+
+        scrape = mock.MagicMock(side_effect=fake)
+        conn = _make_mock_conn()
+        with mock.patch.object(mod, "init_db", return_value=conn), \
+                mock.patch.object(mod, "get_connection", return_value=conn), \
+                mock.patch.object(mod, "store_jobspy_results", side_effect=lambda c, df, q: (len(df), 0)), \
+                mock.patch.object(mod, "scrape_jobs", scrape):
+            result = mod._full_crawl(_make_cfg(list(sites), threshold=threshold, n_locations=n_locations))
+        return result, [c.kwargs["site_name"][0] for c in scrape.call_args_list]
+
+    def test_blocked_site_disabled_after_one_search(self):
+        import logging
+
+        def fake(**kwargs):
+            (site,) = kwargs["site_name"]
+            if site == "zip_recruiter":
+                logging.getLogger("JobSpy:ZipRecruiter").error(
+                    "ZipRecruiter response status code 403 with response: forbidden aa")
+                return pd.DataFrame()
+            return _make_df({site: 2})
+
+        result, calls = self._crawl(fake, threshold=3)
+        assert calls.count("zip_recruiter") == 1
+        assert result["disabled_sites"] == ["zip_recruiter"]
+        assert result["site_stats"]["reasons"] == {"zip_recruiter": "blocked (HTTP 403)"}
+
+    def test_empty_site_disabled_only_after_threshold(self):
+        def fake(**kwargs):
+            (site,) = kwargs["site_name"]
+            return _make_df({site: 0 if site == "zip_recruiter" else 2})
+
+        result, calls = self._crawl(fake, threshold=3, n_locations=5)
+        assert calls.count("zip_recruiter") == 3
+        assert result["disabled_sites"] == ["zip_recruiter"]
+        assert result["site_stats"]["reasons"]["zip_recruiter"] == "0 results on 3 consecutive searches"
+
+    def test_one_site_exception_keeps_other_counts(self):
+        def fake(**kwargs):
+            (site,) = kwargs["site_name"]
+            if site == "indeed":
+                raise RuntimeError("boom")
+            return _make_df({site: 2})
+
+        result, _ = self._crawl(fake, threshold=1, n_locations=2)
+        counts = result["site_stats"]["counts"]
+        assert counts == {"linkedin": 4, "zip_recruiter": 4}
+        assert result["new"] == 8
+        assert result["errors"] == 2
+        assert result["disabled_sites"] == []
+
+    def test_tracker_blocked_reason_without_code(self):
+        t = _SiteTracker(threshold=3)
+        assert t.note(["glassdoor"], {"glassdoor": 0}, blocked={"glassdoor"}) == ["glassdoor"]
+        assert t.reasons == {"glassdoor": "blocked"}
 
 
 # ---------------------------------------------------------------------------
