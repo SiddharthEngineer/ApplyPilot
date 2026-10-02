@@ -1,6 +1,7 @@
 """Integration tests for content-library-based tailoring end-to-end flow."""
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -85,6 +86,11 @@ def _test_job() -> dict:
         "url": "https://example.com/job/1",
         "fit_score": 9,
     }
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI styling (rich colors help output when CI forces a terminal)."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def _fake_render_pdf(overflows: int = 0):
@@ -322,7 +328,7 @@ class TestRunLimit:
 
         from applypilot.cli import app
 
-        out = CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output
+        out = _plain(CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output)
         assert "--limit" in out
 
 
@@ -356,7 +362,7 @@ class TestDefaultSource:
 
         from applypilot.cli import app
 
-        out = CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "250"}).output
+        out = _plain(CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "250"}).output)
         assert "default when content_library.md exists" in " ".join(out.split())
 
 
