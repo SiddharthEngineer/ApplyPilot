@@ -174,6 +174,9 @@ pytest -m llm --run-llm -v                                # LLM tests (requires 
 pytest --run-live --run-llm -v                             # Everything
 ```
 
+Unit tests are hermetic: `tests/conftest.py` points `APPLYPILOT_DIR` at a temp dir, and any test not marked
+`live` or `llm` that opens a non-localhost connection fails with `NetworkAccessBlocked`. Mock the call or mark the test.
+
 Test fixtures in `tests/fixtures/` are gitignored. Generate locally:
 ```bash
 python scripts/capture_fixtures.py --n 1

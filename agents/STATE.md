@@ -1,18 +1,18 @@
 # Current State
 
-**Last updated:** 2026-10-02 (R0 Task 1 done by nightly routine on `claude/plan-test-tiers-and-qc`)
+**Last updated:** 2026-10-02 (R0 Task 2 done by nightly routine on `claude/plan-test-tiers-and-qc`)
 
 ## Active Plan
 
 `agents/plans/test-tiers-and-qc.md` (R0), next in `agents/ROADMAP.md`. Work is done one task per night by the
 Claude Code cloud routine "ApplyPilot nightly build" (see `agents/BUILD_AGENT.md`).
-Branch: `claude/plan-test-tiers-and-qc` (draft PR to `trunk`).
-Done: Task 1 (2026-10-02) — Workday/SmartExtract stubbed in `tests/test_pipeline.py`; `--ignore=tests/test_pipeline.py` no longer needed.
-Next step: routine runs R0 Task 2 (hermetic guard: block network + isolate `APPLYPILOT_DIR` in `tests/conftest.py`).
+Branch: `claude/plan-test-tiers-and-qc` (Task 1 merged via PR #1; Task 2 on a new draft PR to `trunk`).
+Done: Task 1 (2026-10-02) — Workday/SmartExtract stubbed in `tests/test_pipeline.py`.
+Done: Task 2 (2026-10-02) — hermetic guard in `tests/conftest.py` (isolated `APPLYPILOT_DIR`, `NetworkAccessBlocked` for non-localhost sockets), `tests/test_hermetic.py`.
+Next step: routine runs R0 Task 3 (CI on pull requests in `.github/workflows/ci.yml`).
 
-Known test-gate exclusions until R0 Task 2 lands: two tests that need a real `~/.applypilot` (listed in BUILD_AGENT.md).
-Cloud check 2026-10-02: `pytest tests/ -q` → 359 passed, 25 skipped, 2 deselected in 14.6s.
-Blockers: none. Note: `scripts/cloud_setup.sh` fails at `pip install --upgrade pip` in the cloud image (Debian-owned pip 24.0, "RECORD file not found"), and `python-jobspy` now needs `curl_cffi` — both worked around by hand tonight.
+Test gate now needs no exclusions. Cloud check 2026-10-02: `pytest tests/ -q` → 367 passed, 26 skipped in 13.1s.
+Blockers: none. Note: in the cloud image, pip installs into the user site under `$HOME/.local`, so an empty-HOME run needs `PYTHONUSERBASE=/root/.local`.
 
 ### Previous plans
 ### Progress — Cap Live Test Scope
