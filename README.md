@@ -165,6 +165,14 @@ ApplyPilot/
 
 ### Testing
 
+Reviewing a plan's PR? Start with the morning QC script. It runs the unit, live and LLM tiers, then prints the
+plan's Success Criteria and any tasks left for you:
+
+```bash
+python scripts/qc.py <plan-slug>                   # all tiers
+python scripts/qc.py <plan-slug> --skip-live --skip-llm   # unit tier only
+```
+
 ```bash
 pytest tests/ -v                                           # All unit tests
 pytest tests/test_scoring.py -v                            # Specific file
