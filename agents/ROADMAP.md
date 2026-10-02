@@ -41,6 +41,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | M4 | Review `template_preview.pdf` side by side with your resume and sign off (R5 Task 3). Confirm any wording or typo fixes in the education block. | During R5 | ☐ |
 | M5 | `applypilot apply`: keep a human in the loop long-term (agent fills forms, you submit, no automated CAPTCHA solving). Needs its own plan later; see Backlog. | Later | ☐ |
 | M6 | Capture and commit scrubbed recorded-response data (R0 Task 4). | During R0 | ☐ |
+| M7 | Connect GitHub to your Claude account at https://claude.ai/connect-github (grant access to `SiddharthEngineer/ApplyPilot`), then create the routine "ApplyPilot nightly build" (daily 2:07 AM CT, Default environment, model `claude-opus-5-5`, no connectors). | Before the first nightly run | ☐ |
 
 ## Decisions log
 
