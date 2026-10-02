@@ -1,11 +1,13 @@
 # Current State
 
-**Last updated:** 2026-09-01 (Gemini 2.5 Flash Lite migration complete — target pivoted to gemini-3.1-flash-lite; plan completed)
+**Last updated:** 2026-10-01 (Roadmap created; 5 plans queued. See `agents/ROADMAP.md`)
 
 ## Active Plan
 
-None
+`agents/plans/claude-code-plan-worker.md` (queue position 1 of 5). Full order and status: `agents/ROADMAP.md`.
+Next step: user completes manual step M1 (install + log in to the Claude Code CLI), then the build agent starts Task 1.
 
+### Previous plans
 ### Progress — Cap Live Test Scope
 
 | Task | Status |

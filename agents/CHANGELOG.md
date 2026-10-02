@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- **Roadmap + 5 plans** (2026-10-01): Added `agents/ROADMAP.md` as the single tracker for planned work, and queued `claude-code-plan-worker`, `job-board-discovery-repair`, `scoring-error-recovery`, `gemini-free-tier-llm`, and `resume-template-tailoring` in `agents/plan_queue.json`. Based on a live board probe (Indeed/LinkedIn OK; Glassdoor/ZipRecruiter 403; Google 0 rows) and a DB audit (326 jobs stuck at `fit_score = 0` from a pre-fix Gemini 404; 0 tailored). The user chose the Gemini free tier over the Claude subscription for pipeline LLM calls.
+
 ### Completed
 - **Gemini 2.5 Flash Lite Migration (Tasks 1-6)** (2026-09-01) — Migrated discovery/LLM tests from deprecated `gemini-2.0-flash-lite` to `gemini-3.1-flash-lite` (discovery target pivoted from `gemini-2.5-flash-lite` to `gemini-3.1-flash-lite` after API 404 confirmed `2.5-flash-lite` is deprecated for new users):
   - `src/applypilot/llm.py`: Changed discovery fallback from `gemini-2.0-flash-lite` to `gemini-3.1-flash-lite` in `_detect_provider()`. Updated docstrings.

@@ -1,5 +1,11 @@
 {
-  "queue": [],
+  "queue": [
+    "agents/plans/claude-code-plan-worker.md",
+    "agents/plans/job-board-discovery-repair.md",
+    "agents/plans/scoring-error-recovery.md",
+    "agents/plans/gemini-free-tier-llm.md",
+    "agents/plans/resume-template-tailoring.md"
+  ],
   "completed": [
     {
       "plan": "agents/plans/gemini-3.6-flash-migration.md",
