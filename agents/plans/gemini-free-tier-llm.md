@@ -1,6 +1,6 @@
 # Plan: Run the Pipeline Within Gemini's Free Tier
 **Started:** 2026-10-01
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-02)
 
 ## Goal
 All LLM stages stay on Google Gemini's **free tier**. The user chose this over routing pipeline calls
@@ -96,7 +96,7 @@ Google's products, per Google's terms. Mention the paid tier as the opt-out.
 **Acceptance:**
 - `applypilot doctor` shows 4 per-stage model lines.
 - Historical Record lists models + quotas + date.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ## Implementation Order
 ```
@@ -123,3 +123,5 @@ Task 4 (independent)
 - 2026-10-02: Task 2 done. `LLMQuotaExhausted(model, scope)`; `_parse_quota_error` reads native `{"error":…}` and compat `[{"error":…}]` bodies; per-minute 429s wait `retryDelay`+1s (cap 90s). Scoring/tailor/cover break out of their loops with `"stopped": "daily_quota"` and record no attempt on the aborted job. SmartExtract re-raises through the judge/Phase 1/Phase 2/exec handlers and marks the site `fatal` (parallel mode cancels pending sites). Beyond the plan: `pipeline.py` shows `stopped: daily quota` (yellow, not an error) and streaming mode no longer re-runs a stopped stage, which would have spent one request per poll. Tests: `tests/test_llm.py::TestDailyQuota`, `tests/test_quota_stop.py`.
 - 2026-10-02: Task 3 done. `chat(response_schema=…)` sends `responseMimeType`/`responseSchema` on the native API for Gemini (compat stays the default without a schema); other providers ignore it. `SCORE_SCHEMA` in `scorer.py`, `RESUME_SCHEMA` in `tailor.py` (the 5 skill categories the prompts already name are fixed properties, since `responseSchema` has no free-form keys). Logs `JSON parse retries (scoring|tailoring): N`. **Live (Success Criterion 3):** both schemas accepted by `gemini-3.1-flash-lite`; `run_scoring(limit=20)` with `LLM_SCORING_MODEL=gemini-3.1-flash-lite` on the real DB → 20 scored, 0 errors, **0 JSON parse retries**, 87s (scores 3–8).
 - 2026-10-02: Task 4 done. `prefilter_jobs()`/`load_target_tokens()` in `scorer.py` (targets: `queries[].query` + profile `experience.target_role` split on `,;/|` + optional `target_titles`; stop-words include seniority/level/work-mode words). Skipped jobs get `fit_score = 1`, `score_reasoning = "prefilter: title not relevant"`, `scored_at`. `--no-prefilter` on `applypilot run` is plumbed through `run_pipeline` (sequential + streaming). `database.py` needed no change. Read-only dry run on the real DB: 674 of 2,594 pending jobs would be skipped (e.g. "HVAC Application Specialist", "VP Sales Enablement", "Client Care Representative").
+- 2026-10-02: Task 5 done. **Quotas:** the official rate-limits page (last updated 2026-09-02) no longer lists per-model numbers. It says limits are per project and per model, shown only in AI Studio (https://aistudio.google.com/rate-limit, needs the user's login). Third-party pages report about 15 RPM / 1,500 RPD for free Flash models (unverified). **Models chosen:** discovery + scoring `gemini-3.1-flash-lite` (lite, verified live today with both schemas, 21 calls); tailor + cover `gemini-3.6-flash` (verified 200 on 2026-10-01). The key also lists `gemini-3.7-flash`/`gemini-3.8-flash`/`gemini-3.5-flash-lite`, but at 14:20 UTC every full flash model (3.6/3.7/3.8) returned 503 UNAVAILABLE (overloaded), so 3.8 couldn't be checked. `LLM_RPM_LIMIT=10`. User `.env` (repo-root `/srv/ApplyPilot/.env`, which `load_env` falls back to because `~/.applypilot/.env` doesn't exist) now has the 4 `LLM_*_MODEL` lines + `LLM_RPM_LIMIT`; backup `.env.bak-2026-10-02`. `doctor` prints 4 per-stage model lines + RPM + the AI Studio link. README "Cost & Rate Limits" rewritten (per-stage table, daily-quota stop, pre-filter, structured output, free-tier data-use note + paid-tier opt-out). Also fixed: the Gemini key was sent as `?key=` and httpx's INFO log printed it (doctor and native calls). It now goes in the `x-goog-api-key` header (verified live). The 429/503 retry log no longer says "15 RPM".
+- 2026-10-02: Success Criterion 6: `pytest tests/ -q` → 493 passed, 20 skipped. The criterion's `pytest -m llm --run-llm tests/test_llm.py` collects 0 tests (that file has no `llm`-marked tests). The real LLM tier, `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py` with `GEMINI_API_KEY` exported, → **6 passed** in 76s on the free key (all stages pinned to `gemini-3.1-flash-lite`; the fixtures now pin every `LLM_{STAGE}_MODEL`, since a per-stage var in `.env` would otherwise override `LLM_MODEL`).

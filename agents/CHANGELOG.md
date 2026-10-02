@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Gemini Free Tier — Task 5** (2026-10-02): The Gemini API key was sent as a `?key=` URL parameter (native generateContent calls and `doctor`'s model list), and httpx logs request URLs at INFO, so the key could be printed in logs. It now goes in the `x-goog-api-key` header.
+
 ### Added
+- **Gemini Free Tier — Task 5** (2026-10-02): `applypilot doctor` prints the model for each stage (discovery, scoring, tailor, cover), the RPM limit, and a link to AI Studio's free-tier limits. README "Cost & Rate Limits" now points to the official limits instead of a hardcoded "15 RPM", has a per-stage model table, and notes that the free tier may use submitted content (the paid tier opts out). `.env.example` suggests lite models for discovery/scoring and flash for tailor/cover. The retry log says "rate limited" or "model overloaded" instead of a fixed RPM tip.
 - **Gemini Free Tier — Task 4** (2026-10-02): Scoring pre-filter. Before any LLM call, a job whose title shares no significant word (seniority and filler words ignored) with your `searches.yaml` queries or profile `target_role` gets `fit_score = 1` with reasoning `prefilter: title not relevant`, and the run logs `prefilter skipped N/M jobs`. `applypilot run score --no-prefilter` scores everything. On the VPS DB it would skip 674 of 2,594 pending jobs. `tests/test_scoring_prefilter.py`.
 
 ### Changed

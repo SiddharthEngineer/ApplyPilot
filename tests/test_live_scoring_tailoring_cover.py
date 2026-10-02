@@ -30,7 +30,8 @@ def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
 
     # Force flash-lite for cost efficiency
     monkeypatch.setenv("LLM_MODEL", "gemini-3.1-flash-lite")
-    monkeypatch.setenv("LLM_DISCOVERY_MODEL", "gemini-3.1-flash-lite")
+    for purpose in ("DISCOVERY", "SCORING", "TAILOR", "COVER"):
+        monkeypatch.setenv(f"LLM_{purpose}_MODEL", "gemini-3.1-flash-lite")
 
     import applypilot.llm as llm_mod
     llm_mod.reset_clients()
