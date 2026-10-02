@@ -11,7 +11,7 @@ roles: 4 roles and about 19 projects, each with Context/Scope/Tools/Outcome/Angl
 `~/.applypilot/resume.pdf`) looks different:
 - Header: name, then a contact line separated by `▫` (city, email, phone, LinkedIn, GitHub)
 - **WORK EXPERIENCE**: `<Title> at <Company>` with right-aligned dates, an optional one-line company tagline, and `•` bullets
-- **EDUCATION**: fixed text (OSU, B.S. Data Analytics, coursework)
+- **EDUCATION**: fixed text, copied verbatim from the base resume
 - **SKILLS**: `Category: items` rows
 - No summary, no projects section, no title line
 
@@ -31,6 +31,7 @@ to HTML to PDF, with no text round-trip, and every bullet can be traced back to 
 ## Task Chain
 
 ### Task 1: Structured tailored-resume model
+**Runs:** cloud
 **Files:** `src/applypilot/scoring/resume_model.py` (new), `tests/test_resume_template.py` (new)
 **What:** Define typed dataclasses matching the user's resume, not the generic one:
 ```python
@@ -62,6 +63,7 @@ Add `TailoredResume.from_llm_json(data: dict, library: ContentLibrary) -> Tailor
 **Status:** ❌ Not started
 
 ### Task 2: Template renderer
+**Runs:** cloud
 **Files:** `src/applypilot/scoring/template.py` (new), `src/applypilot/config/resume_template.default.html` (new), `pyproject.toml` (modify), `tests/test_resume_template.py` (modify)
 **What:** Add the `jinja2>=3.1` dependency. Implement
 `render_resume(resume: TailoredResume, profile: dict, template_path: Path | None = None) -> str`. It loads
@@ -76,6 +78,7 @@ the generic look still works for users without a custom template.
 **Status:** ❌ Not started
 
 ### Task 3: Build the user's template from resume.pdf
+**Runs:** local (authoring against your resume PDF, needs your review)
 **Files:** `~/.applypilot/resume_template.html` (new, user data), `~/.applypilot/resume_fixed.yaml` (new, user data), `src/applypilot/cli.py` (modify)
 **What:** Add `applypilot template preview`, which builds a `TailoredResume` from the **base resume**
 (parse `resume.txt` WORK EXPERIENCE/SKILLS into the model, with bullets carrying empty `project_ids`),
@@ -83,17 +86,18 @@ renders it with `render_resume`, and writes `template_preview.pdf` via `pdf.rend
 hand-author `resume_template.html` to match `resume.pdf`: inspect the PDF's page image for font family
 and sizes, margins, `▫` contact separators, the `Title at Company … dates` row with right-aligned dates,
 the italic tagline, `•` bullets, and the section-rule style. Iterate until the preview matches. Also
-transcribe EDUCATION into `resume_fixed.yaml`. Note: fix the typo "Mathenatics" → "Mathematics" only if the user confirms.
+transcribe EDUCATION into `resume_fixed.yaml` verbatim. Change any wording, including typos, only if the user confirms.
 **Acceptance:**
 - Success Criterion 1, with the user's sign-off noted in Historical Record.
 **Status:** ❌ Not started
 
 ### Task 4: Tailor prompt + structured output against the model
+**Runs:** cloud; live check: local
 **Files:** `src/applypilot/scoring/tailor.py` (modify), `tests/test_content_library_tailor_prompt.py` (modify), `tests/test_content_library_tailor.py` (modify)
 **What:** Rewrite `_build_content_library_tailor_prompt()` to match the template. Remove the title,
 summary, and projects requirements. List each role with its `role_key`, dates, tagline, and bullet slot
-range (min/max taken from the base resume's bullet count for that role: Associate 4–6, Assistant 2–4,
-internships 0–1). Each project is presented with its `slug`. Ask for JSON matching `TailoredResume`
+range (min/max taken from the base resume's bullet count for that role, e.g. most recent role 4–6,
+earlier roles 2–4, internships 0–1). Each project is presented with its `slug`. Ask for JSON matching `TailoredResume`
 (`roles[].bullets[] = {text, project_ids}`, `skills`, `dropped_roles`). Put the content library first in
 the system prompt and the job description in the user message, so the library prefix stays identical across jobs (eligible for Gemini implicit caching). Parse the result with `TailoredResume.from_llm_json` and treat a `ValueError` as a
 retryable validation failure (append it to `avoid_notes`). Pass the `TailoredResume` JSON schema via
@@ -104,6 +108,7 @@ retryable validation failure (append it to `avoid_notes`). Pass the `TailoredRes
 **Status:** ❌ Not started
 
 ### Task 5: Provenance validator
+**Runs:** cloud
 **Files:** `src/applypilot/scoring/validator.py` (modify), `tests/test_resume_template.py` (modify)
 **What:** Add `validate_provenance(resume: TailoredResume, library: ContentLibrary) -> list[str]`. For each
 bullet, extract numeric tokens (`\d[\d,.]*%?`, plus `→` pairs). Return an error for any number that doesn't
@@ -114,6 +119,7 @@ Call it from `tailor_from_content_library` as part of Layer 1 validation, and fe
 **Status:** ❌ Not started
 
 ### Task 6: One-page fit loop + new output path
+**Runs:** cloud (stubbed `render_pdf` in tests); live 3-job run: local
 **Files:** `src/applypilot/scoring/tailor.py` (modify), `src/applypilot/scoring/pdf.py` (modify), `tests/test_resume_template.py` (modify)
 **What:** In `run_tailoring` for `content-library`, replace `assemble_resume_text` → `convert_to_pdf` with
 `render_resume` → `render_pdf`. If `overflow` is true, drop the last bullet of the role with the most bullets
@@ -127,6 +133,7 @@ plus `job_url`), and a `<job>.txt` plain-text export for the apply agent and ATS
 **Status:** ❌ Not started
 
 ### Task 7: Default source + cover letter reuse
+**Runs:** cloud
 **Files:** `src/applypilot/cli.py` (modify), `src/applypilot/scoring/cover_letter.py` (modify), `README.md` (modify)
 **What:** Default `--source` to `content-library` when `CONTENT_LIBRARY_PATH.exists()`, otherwise `resume`.
 In `generate_cover_letter`, if the job's tailored `.json` exists, pass the selected bullets and their source

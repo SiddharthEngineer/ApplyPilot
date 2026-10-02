@@ -153,7 +153,7 @@ ApplyPilot/
 ├── agents/               # Agent plans, state, and queue
 │   ├── BUILD_AGENT.md    # Build agent prompt
 │   ├── STATE.md          # Current implementation state
-│   ├── plan_queue.json   # Plan queue for continuous implementation
+│   ├── ROADMAP.md        # Single tracker for planned work
 │   └── plans/            # Individual plan files
 ├── scripts/              # Automation scripts
 ├── config/               # Default configuration files
@@ -216,19 +216,23 @@ ruff format src/             # Format code
 
 Each backend has its own command builder, MCP config generator, and output parser in `apply/launcher.py`. The prompt in `apply/prompt.py` uses backend-agnostic tool names and works with both. When adding new MCP tools or changing permissions, update **both** backend paths.
 
-### Plan Queue Worker
+### Planned Work & Nightly Builds
 
-Continuously implements plans using agentic sessions. Reads from `agents/plan_queue.json`, launches `opencode run --auto`, loops until queue is empty.
+All planned work is tracked in [`agents/ROADMAP.md`](agents/ROADMAP.md), with one plan per initiative in
+`agents/plans/`. A Claude Code cloud routine ("ApplyPilot nightly build", managed at
+[claude.ai/code/routines](https://claude.ai/code/routines) or with `/schedule` in the CLI) implements **one task per night**,
+following `agents/BUILD_AGENT.md`. It pushes to `claude/plan-<slug>` and keeps a draft PR updated.
+
+Each morning:
 
 ```bash
-./scripts/plan_worker.py                              # Start (runs until queue empty)
-./scripts/plan_worker.py --enqueue agents/plans/X.md  # Add a plan
-./scripts/plan_worker.py --dequeue agents/plans/X.md  # Remove a plan
-./scripts/plan_worker.py --status                     # Check queue
-./scripts/plan_worker.py --dry-run                    # Preview without executing
+git fetch origin && git switch claude/plan-<slug>
+python scripts/qc.py <slug>        # unit + live + LLM tiers, then prints the plan's checklist
 ```
 
-A plan is considered done when `agents/STATE.md` says "No remaining work" or the plan file's status is `✅ Completed`. Retries up to 2x on failure, skips after 20 iterations.
+Do any tasks marked `Runs: local` on that branch, then merge the PR when the plan (or a stable part of it) is done.
+The routine starts the next plan only after the current plan branch is merged. Cloud runs install
+dependencies with `scripts/cloud_setup.sh` and run only hermetic unit tests. Live and LLM tests run locally.
 
 ---
 

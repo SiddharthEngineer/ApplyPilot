@@ -20,6 +20,7 @@ existing 326 rows are reset.
 ## Task Chain
 
 ### Task 1: Don't persist LLM errors as scores
+**Runs:** cloud
 **Files:** `src/applypilot/scoring/scorer.py` (modify), `src/applypilot/database.py` (modify), `tests/test_scoring_errors.py` (new)
 **What:** Change `score_job()` to return `{"score": None, "error": "<msg>", …}` on an exception instead
 of `score: 0`. In `run_scoring`, when `score is None`, write `score_reasoning = 'LLM error: …'` and
@@ -34,6 +35,7 @@ duplicate query at `database.py:271` the same way.
 **Status:** ❌ Not started
 
 ### Task 2: `--reset-errors` flag
+**Runs:** cloud
 **Files:** `src/applypilot/cli.py` (modify), `src/applypilot/database.py` (modify), `tests/test_scoring_errors.py` (modify)
 **What:** Add `reset_score_errors(conn) -> int`, which runs
 `UPDATE jobs SET fit_score=NULL, score_reasoning=NULL, scored_at=NULL, score_attempts=0 WHERE score_reasoning LIKE 'LLM error%'`

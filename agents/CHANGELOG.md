@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
+- **Nightly cloud routine workflow** (2026-10-02): Retired `scripts/plan_worker.py` and `agents/plan_queue.json` (history moved to `agents/ROADMAP.md` → Done). Dropped the never-started `claude-code-plan-worker` plan. Rewrote `AGENTS.md`, `agents/BUILD_AGENT.md` (one task per night, `claude/plan-<slug>` branch, draft PR with Morning QC), and `agents/PLAN_AGENT.md` (every task tagged `Runs: cloud|local`, no personal data in plans). Added `scripts/cloud_setup.sh` (verified in a clean venv with an empty HOME). Added plan `test-tiers-and-qc` (R0) and tagged every task in R2–R5 as cloud or local.
 - **Roadmap + 5 plans** (2026-10-01): Added `agents/ROADMAP.md` as the single tracker for planned work, and queued `claude-code-plan-worker`, `job-board-discovery-repair`, `scoring-error-recovery`, `gemini-free-tier-llm`, and `resume-template-tailoring` in `agents/plan_queue.json`. Based on a live board probe (Indeed/LinkedIn OK; Glassdoor/ZipRecruiter 403; Google 0 rows) and a DB audit (326 jobs stuck at `fit_score = 0` from a pre-fix Gemini 404; 0 tailored). The user chose the Gemini free tier over the Claude subscription for pipeline LLM calls.
 
 ### Completed

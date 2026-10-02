@@ -27,6 +27,7 @@ pre-filters keep obviously irrelevant jobs from using LLM calls at all.
 ## Task Chain
 
 ### Task 1: Per-stage model routing
+**Runs:** cloud
 **Files:** `src/applypilot/llm.py` (modify), `src/applypilot/scoring/scorer.py` (modify), `src/applypilot/scoring/tailor.py` (modify), `src/applypilot/scoring/cover_letter.py` (modify), `tests/test_llm.py` (modify)
 **What:** Generalize `_detect_provider(purpose)` so that for every purpose in
 `{"discovery","scoring","tailor","cover"}` the model resolves as `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → provider
@@ -41,6 +42,7 @@ two clients on the same model don't double the effective rate (module-level `dic
 **Status:** ❌ Not started
 
 ### Task 2: Daily-quota detection and clean stop
+**Runs:** cloud
 **Files:** `src/applypilot/llm.py` (modify), `src/applypilot/scoring/scorer.py` (modify), `src/applypilot/scoring/tailor.py` (modify), `src/applypilot/scoring/cover_letter.py` (modify), `src/applypilot/discovery/smartextract.py` (modify), `tests/test_llm.py` (modify)
 **What:** Add `class LLMQuotaExhausted(RuntimeError)` with fields `model: str` and `scope: str`. In
 `LLMClient.chat()`, on HTTP 429, parse the Gemini error body (`error.status == "RESOURCE_EXHAUSTED"`, and
@@ -54,6 +56,7 @@ current job. This depends on scoring-error-recovery Task 1, so an aborted job st
 **Status:** ❌ Not started
 
 ### Task 3: Structured JSON output for Gemini
+**Runs:** cloud (code + unit tests); live parse-retry count: local
 **Files:** `src/applypilot/llm.py` (modify), `src/applypilot/scoring/scorer.py` (modify), `src/applypilot/scoring/tailor.py` (modify), `tests/test_llm.py` (modify)
 **What:** Add an optional `response_schema: dict | None = None` argument to `chat()`. When the client is
 Gemini, send it via the native API's `generationConfig.responseMimeType = "application/json"` and
@@ -67,6 +70,7 @@ Tailoring passes the resume JSON schema (resume-template-tailoring Task 4 will r
 **Status:** ❌ Not started
 
 ### Task 4: Pre-filter jobs before scoring
+**Runs:** cloud
 **Files:** `src/applypilot/scoring/scorer.py` (modify), `src/applypilot/database.py` (modify), `tests/test_scoring_prefilter.py` (new)
 **What:** Before calling the LLM, compute a cheap relevance check. The job title must share at least one
 significant token (lower-cased, stop-words removed) with any `queries[].query` in `searches.yaml` or
@@ -78,6 +82,7 @@ to bypass it. Log `"prefilter skipped N/M jobs"`.
 **Status:** ❌ Not started
 
 ### Task 5: Model choice + doctor + docs
+**Runs:** local (quota lookup, user `.env`, doctor run)
 **Files:** `src/applypilot/cli.py` (modify), `.env.example` (modify), `README.md` (modify), `~/.applypilot/.env` (modify, user data)
 **What:** Look up the current free-tier per-model limits (RPM and requests/day) on the official Gemini
 rate-limits page, and pick per-stage defaults. Use a **lite** model for discovery and scoring (highest

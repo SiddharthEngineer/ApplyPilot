@@ -1,11 +1,15 @@
 # Current State
 
-**Last updated:** 2026-10-01 (Roadmap created; 5 plans queued. See `agents/ROADMAP.md`)
+**Last updated:** 2026-10-02 (Nightly cloud routine workflow; plan worker retired; R0 test-tiers plan added)
 
 ## Active Plan
 
-`agents/plans/claude-code-plan-worker.md` (queue position 1 of 5). Full order and status: `agents/ROADMAP.md`.
-Next step: user completes manual step M1 (install + log in to the Claude Code CLI), then the build agent starts Task 1.
+`agents/plans/test-tiers-and-qc.md` (R0), next in `agents/ROADMAP.md`. Work is done one task per night by the
+Claude Code cloud routine "ApplyPilot nightly build" (see `agents/BUILD_AGENT.md`).
+Next step: routine runs R0 Task 1 (stub Workday/SmartExtract in `tests/test_pipeline.py`).
+
+Known test-gate exclusions until R0 Tasks 1–2 land: `--ignore=tests/test_pipeline.py` (live network) and two
+tests that need a real `~/.applypilot` (listed in BUILD_AGENT.md). Clean-env check 2026-10-02: 364 passed, 15 skipped, 2 deselected.
 
 ### Previous plans
 ### Progress — Cap Live Test Scope

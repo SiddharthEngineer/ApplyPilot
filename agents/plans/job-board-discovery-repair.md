@@ -35,6 +35,7 @@ board health in seconds, and new block-free sources (Greenhouse, Lever, Ashby pu
 ## Task Chain
 
 ### Task 1: Board probe command
+**Runs:** cloud (code + unit tests); live `--probe` check: local
 **Files:** `src/applypilot/discovery/jobspy.py` (modify), `src/applypilot/cli.py` (modify), `tests/test_jobspy.py` (modify)
 **What:** Add `probe_boards(sites: list[str], query: str = "Software Engineer", location: str = "Remote") -> list[BoardHealth]`
 with `@dataclass class BoardHealth: site: str; status: str; rows: int; latency_s: float; detail: str`.
@@ -49,6 +50,7 @@ prints a Rich table and exits.
 **Status:** ❌ Not started
 
 ### Task 2: One scrape call per board + blocked-vs-empty tracking
+**Runs:** cloud
 **Files:** `src/applypilot/discovery/jobspy.py` (modify), `tests/test_jobspy.py` (modify)
 **What:** In `_run_one_search()`, replace the combined `other_sites` call with one
 `_scrape_with_retry` call per site (Glassdoor keeps its simplified location). Reuse the log-capture
@@ -62,6 +64,7 @@ and include them in `report()`.
 **Status:** ❌ Not started
 
 ### Task 3: Safe defaults + migrate user config
+**Runs:** cloud (code + tests), then local (edit `~/.applypilot/searches.yaml`, live discover run)
 **Files:** `src/applypilot/wizard/init.py` (modify), `src/applypilot/config/searches.example.yaml` (modify), `src/applypilot/discovery/jobspy.py` (modify), `~/.applypilot/searches.yaml` (modify, user data)
 **What:** Add a module constant `_REQUIRES_PROXY = {"glassdoor", "zip_recruiter"}` and `_UNSUPPORTED = {"google"}`.
 In `run_discovery()`, drop those sites unless `PROXY` is set (proxy sites) or `defaults.allow_unsupported: true`
@@ -77,6 +80,7 @@ triggers throttling at `results_per_site: 50`. Edit the user's `~/.applypilot/se
 **Status:** ❌ Not started
 
 ### Task 4: Greenhouse / Lever / Ashby source module
+**Runs:** cloud (module + tests using hand-written samples shaped like each ATS's documented JSON); local (verify and seed `ats_boards.yaml` slugs, which needs network)
 **Files:** `src/applypilot/discovery/ats_boards.py` (new), `src/applypilot/config/ats_boards.yaml` (new), `tests/test_ats_boards.py` (new)
 **What:** These ATSes expose public, unauthenticated JSON job lists with no anti-bot protection:
 Greenhouse `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true`, Lever
@@ -94,23 +98,20 @@ verify each slug returns HTTP 200 before adding it. Use `httpx` (already a depen
 **Status:** ❌ Not started
 
 ### Task 5: Wire ATS source into pipeline + probe
+**Runs:** cloud; live check: local
 **Files:** `src/applypilot/pipeline.py` (modify), `src/applypilot/discovery/jobspy.py` (modify), `tests/test_pipeline.py` (modify)
 **What:** In the discover stage in `pipeline.py` (where `stats["jobspy"]`, `stats["workday"]`, and
 `stats["smartextract"]` are set), add a `stats["ats"]` block that calls `run_ats_discovery` with the
 search config's queries and location lists, using the same error-isolation pattern. Make
 `probe_boards` also report one `ats:<kind>` row per ATS kind (first board in the yaml).
-Also fix the existing `test_banner_printed_when_sites_disabled` and `test_stats_show_disabled_when_sites_disabled`
-(every test in this file that mocks only JobSpy). They're unmarked but call `_run_discover`,
-which runs the **real** Workday crawl (48 employers) and SmartExtract over the network, so `pytest tests/`
-hangs for 15+ minutes (found 2026-10-01). Patch `run_workday_discovery`, `run_smart_extract`, and the
-new `run_ats_discovery` with stubs in that test (`unittest.mock.patch`).
+Patch `run_ats_discovery` in `tests/test_pipeline.py` wherever `_run_discover` is called, so the suite stays hermetic (test-tiers-and-qc Task 2 enforces this).
 **Acceptance:**
 - `pytest tests/test_pipeline.py -v` passes in under 10s, with a test asserting the `ats` key in discover stats.
-- `pytest tests/ -q` completes in under 3 minutes.
 - Success Criterion 4 verified with a live run.
 **Status:** ❌ Not started
 
 ### Task 6: Diagnose SmartExtract zero output
+**Runs:** local (needs network + Gemini)
 **Files:** `src/applypilot/discovery/smartextract.py` (modify), `src/applypilot/config/sites.yaml` (modify)
 **What:** SmartExtract has never stored a job (`select count(*) from jobs where strategy not in ('jobspy','workday_api')` = 0).
 Run `applypilot discover` restricted to SmartExtract with `-v` against 5 sites from `sites.yaml`
@@ -124,6 +125,7 @@ For sites that are individually broken (dead URL, CAPTCHA), add `disabled: true`
 **Status:** ❌ Not started
 
 ### Task 7: Live tests that actually catch regressions + docs
+**Runs:** cloud; live test run: local
 **Files:** `tests/test_live_jobspy.py` (modify), `README.md` (modify)
 **What:** In `test_jobspy_single_site`, remove `indeed` and `linkedin` from the xfail tuple so 0 results
 fails. Turn glassdoor/zip_recruiter/google into `pytest.mark.skip(reason="blocked without proxy / unsupported")`
