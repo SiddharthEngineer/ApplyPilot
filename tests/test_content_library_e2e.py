@@ -56,32 +56,22 @@ def _minimal_library() -> ContentLibrary:
 
 def _valid_llm_response() -> str:
     return json.dumps({
-        "title": "Data Engineer",
-        "summary": "Data engineer with production pipeline experience.",
-        "skills": {
-            "Languages": "Python, SQL",
-            "Frameworks": "Airflow, Dagster",
-            "DevOps & Infra": "Docker, AWS",
-        },
-        "experience": [
+        "roles": [
             {
-                "header": "Data Science Associate at AIR",
-                "subtitle": "Sep 2025-Present",
+                "role_key": "data-science-associate-air",
                 "bullets": [
-                    "Built PatentsView data pipeline with Airflow and Celery, enabling successful federal data release on schedule",
+                    {"text": "Built PatentsView data pipeline with Airflow and Celery for a federal data release",
+                     "project_ids": ["patentsview-pipeline"]},
+                    {"text": "Released the PatentsView data on schedule using RabbitMQ task distribution",
+                     "project_ids": ["patentsview-pipeline"]},
                 ],
             },
         ],
-        "projects": [
-            {
-                "header": "PatentsView Pipeline",
-                "subtitle": "Nov 2025-present",
-                "bullets": [
-                    "Built data pipeline using Airflow and Celery, enabling successful federal patent data release on schedule",
-                ],
-            },
+        "skills": [
+            {"category": "Languages", "items": "Python, SQL"},
+            {"category": "DevOps & Infra", "items": "Docker, AWS"},
         ],
-        "education": "University of Illinois Urbana-Champaign | B.S. Computer Science",
+        "dropped_roles": [],
     })
 
 

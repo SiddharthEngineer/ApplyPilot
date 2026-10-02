@@ -47,6 +47,12 @@ class ContentLibrary:
     roles: list[RoleSection] = field(default_factory=list)
     all_angles: set[str] = field(default_factory=set)
 
+    def ensure_keys(self) -> "ContentLibrary":
+        """Assign role keys / project slugs if this library was built by hand rather than parsed."""
+        if any(not r.key for r in self.roles) or any(not p.slug for r in self.roles for p in r.projects):
+            _assign_keys(self.roles)
+        return self
+
     def role_by_key(self, key: str) -> RoleSection | None:
         return next((r for r in self.roles if r.key == key), None)
 

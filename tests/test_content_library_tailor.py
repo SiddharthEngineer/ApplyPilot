@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from applypilot.scoring.content_library import ContentLibrary, Project, RoleSection
+from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.tailor import (
     _build_content_library_judge_prompt,
     _build_content_library_tailor_prompt,
@@ -87,37 +88,35 @@ def _minimal_library() -> ContentLibrary:
     )
 
 
-def _valid_llm_response() -> str:
-    """Return a valid JSON response that the LLM would produce."""
-    return json.dumps({
-        "title": "Data Engineer",
-        "summary": "Data engineer with experience building production pipelines using Airflow and Dagster.",
-        "skills": {
-            "Languages": "Python, SQL, R",
-            "Frameworks": "Airflow, Dagster, Flask",
-            "DevOps & Infra": "Docker, AWS, Azure",
-        },
-        "experience": [
+def _valid_llm_response(**overrides) -> str:
+    """A valid TailoredResume JSON response, as the LLM would produce."""
+    data = {
+        "roles": [
             {
-                "header": "Data Science Associate at AIR",
-                "subtitle": "Sep 2025-Present",
+                "role_key": "data-science-associate-air",
                 "bullets": [
-                    "Built PatentsView data pipeline with Airflow and Celery, enabling successful federal data release on schedule",
-                    "Designed CAFE multi-container architecture using Dagster and Docker, processing multi-modal classroom feedback",
+                    {"text": "Built PatentsView data pipeline with Airflow and Celery, enabling a federal data release on schedule",
+                     "project_ids": ["patentsview-pipeline"]},
+                    {"text": "Designed CAFE multi-container architecture using Dagster and Docker on AKS",
+                     "project_ids": ["cafe-pipeline"]},
+                ],
+            },
+            {
+                "role_key": "data-science-assistant-air",
+                "bullets": [
+                    {"text": "Built an OCR pipeline turning thousands of scanned PDFs into structured JSON",
+                     "project_ids": ["project-talent-ocr"]},
                 ],
             },
         ],
-        "projects": [
-            {
-                "header": "Project Talent OCR",
-                "subtitle": "May 2024-Aug 2024",
-                "bullets": [
-                    "Processed thousands of scanned PDFs using OCR pipeline and JSON extraction, producing structured student outcome data",
-                ],
-            },
+        "skills": [
+            {"category": "Languages", "items": "Python, SQL, R"},
+            {"category": "DevOps & Infra", "items": "Docker, AWS, Azure"},
         ],
-        "education": "University of Illinois Urbana-Champaign | B.S. Computer Science",
-    })
+        "dropped_roles": [],
+    }
+    data.update(overrides)
+    return json.dumps(data)
 
 
 def _job() -> dict:
@@ -177,8 +176,68 @@ class TestTailorFromContentLibrary:
         assert report["status"] == "approved"
         assert report["source"] == "content-library"
         assert report["attempts"] >= 1
-        assert "Data Engineer" in tailored
-        assert "AIR" in tailored
+        assert isinstance(tailored, TailoredResume)
+        assert [r.role_key for r in tailored.roles] == ["data-science-associate-air", "data-science-assistant-air"]
+        assert tailored.roles[0].bullets[0].project_ids == ["patentsview-pipeline"]
+        assert list(tailored.skills) == ["Languages", "DevOps & Infra"]
+
+    @patch("applypilot.scoring.tailor.get_client")
+    def test_unknown_slug_triggers_retry(self, mock_get_client):
+        bad = json.loads(_valid_llm_response())
+        bad["roles"][0]["bullets"][0]["project_ids"] = ["invented-project"]
+        mock_client = MagicMock()
+        mock_client.chat.side_effect = [json.dumps(bad), _valid_llm_response()]
+        mock_get_client.return_value = mock_client
+
+        _, report = tailor_from_content_library(
+            _minimal_library(), _job(), _minimal_profile(), max_retries=2, validation_mode="lenient",
+        )
+
+        assert report["status"] == "approved"
+        assert report["attempts"] == 2
+        retry_user_msg = mock_client.chat.call_args_list[1][0][0][1]["content"]
+        assert "invented-project" in retry_user_msg
+
+    @patch("applypilot.scoring.tailor.get_client")
+    def test_slot_violation_triggers_retry(self, mock_get_client):
+        one_bullet = json.loads(_valid_llm_response())
+        one_bullet["roles"][0]["bullets"] = one_bullet["roles"][0]["bullets"][:1]  # needs 2-5 without a base resume
+        mock_client = MagicMock()
+        mock_client.chat.side_effect = [json.dumps(one_bullet), _valid_llm_response()]
+        mock_get_client.return_value = mock_client
+
+        _, report = tailor_from_content_library(
+            _minimal_library(), _job(), _minimal_profile(), max_retries=2, validation_mode="lenient",
+        )
+
+        assert report["attempts"] == 2
+        assert "needs 2-5" in mock_client.chat.call_args_list[1][0][0][1]["content"]
+
+    @patch("applypilot.scoring.tailor.get_client")
+    def test_requests_structured_schema(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.chat.return_value = _valid_llm_response()
+        mock_get_client.return_value = mock_client
+
+        tailor_from_content_library(_minimal_library(), _job(), _minimal_profile(), validation_mode="lenient")
+
+        schema = mock_client.chat.call_args.kwargs["response_schema"]
+        assert set(schema["properties"]) == {"roles", "skills", "dropped_roles"}
+        slugs = schema["properties"]["roles"]["items"]["properties"]["bullets"]["items"]["properties"]["project_ids"]
+        assert slugs["items"]["enum"] == ["patentsview-pipeline", "cafe-pipeline", "project-talent-ocr"]
+
+    @patch("applypilot.scoring.tailor.get_client")
+    def test_roles_sorted_in_library_order(self, mock_get_client):
+        data = json.loads(_valid_llm_response())
+        data["roles"].reverse()
+        mock_client = MagicMock()
+        mock_client.chat.return_value = json.dumps(data)
+        mock_get_client.return_value = mock_client
+
+        tailored, _ = tailor_from_content_library(
+            _minimal_library(), _job(), _minimal_profile(), validation_mode="lenient")
+
+        assert tailored.roles[0].role_key == "data-science-associate-air"
 
     @patch("applypilot.scoring.tailor.get_client")
     def test_retry_on_invalid_json(self, mock_get_client):
@@ -267,10 +326,11 @@ class TestTailorFromContentLibrary:
             max_retries=2, validation_mode="lenient",
         )
 
-        # Second call should have avoid notes
+        # Second call should have avoid notes, in the user message so the system prompt stays cacheable
+        first_call_messages = mock_client.chat.call_args_list[0][0][0]
         second_call_messages = mock_client.chat.call_args_list[1][0][0]
-        system_prompt = second_call_messages[0]["content"]
-        assert "AVOID THESE ISSUES" in system_prompt
+        assert "AVOID THESE ISSUES" in second_call_messages[1]["content"]
+        assert second_call_messages[0]["content"] == first_call_messages[0]["content"]
 
     @patch("applypilot.scoring.tailor.get_client")
     def test_report_contains_source(self, mock_get_client):

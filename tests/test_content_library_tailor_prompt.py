@@ -114,28 +114,56 @@ class TestBuildContentLibraryTailorPrompt:
         for word in BANNED_WORDS[:5]:
             assert word in prompt
 
-    def test_includes_school(self):
+    def test_education_and_header_not_requested(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
-        assert "University of Illinois Urbana-Champaign" in prompt
+        assert "University of Illinois Urbana-Champaign" not in prompt
+        assert "filled in by code" in prompt
 
     def test_includes_json_schema(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
-        assert '"title"' in prompt
-        assert '"summary"' in prompt
+        assert '"roles"' in prompt
+        assert '"role_key"' in prompt
+        assert '"project_ids"' in prompt
         assert '"skills"' in prompt
-        assert '"experience"' in prompt
-        assert '"projects"' in prompt
-        assert '"education"' in prompt
+        assert '"dropped_roles"' in prompt
+        for gone in ('"summary"', '"projects"', '"title"', '"education"', '"experience"'):
+            assert gone not in prompt
+
+    def test_includes_all_project_slugs_and_role_keys(self):
+        lib = _minimal_library().ensure_keys()
+        prompt = _build_content_library_tailor_prompt(_minimal_profile(), lib)
+        for role in lib.roles:
+            assert f"ROLE {role.key}:" in prompt
+            for proj in role.projects:
+                assert f"PROJECT {proj.slug}:" in prompt
+        assert "patentsview-pipeline" in prompt and "data-science-associate-air" in prompt
+
+    def test_slot_ranges_from_base_resume(self):
+        from applypilot.scoring.resume_model import Bullet, RoleEntry, TailoredResume
+        lib = _minimal_library().ensure_keys()
+        base = TailoredResume(roles=[
+            RoleEntry("data-science-associate-air", "Data Science Associate", "AIR", "2025", None,
+                      [Bullet(f"b{i}") for i in range(6)]),
+            RoleEntry("data-science-assistant-air", "Data Science Assistant", "AIR", "2023", None,
+                      [Bullet("b")]),
+        ], skills={"Data Engineering": "Airflow, Docker"})
+        prompt = _build_content_library_tailor_prompt(_minimal_profile(), lib, base)
+        assert "data-science-associate-air: Data Science Associate at AIR (2025); 4-6 bullets, required" in prompt
+        assert "data-science-assistant-air: Data Science Assistant at AIR (2023); 0-1 bullets, optional" in prompt
+        assert "Data Engineering: Airflow, Docker" in prompt
 
     def test_includes_selection_process_instructions(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
-        assert "SELECTION PROCESS" in prompt
-        assert "5-7 projects" in prompt
+        assert "YOUR JOB" in prompt
         assert "Angle tags" in prompt
 
     def test_includes_fact_traceability_rule(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
-        assert "MUST trace to a fact" in prompt
+        assert "must appear in the facts of the projects the bullet cites" in prompt
+
+    def test_library_comes_before_rules(self):
+        prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
+        assert prompt.index("CONTENT LIBRARY") < prompt.index("YOUR JOB") < prompt.index("OUTPUT")
 
     def test_includes_project_raw_facts(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
@@ -151,7 +179,7 @@ class TestBuildContentLibraryTailorPrompt:
     def test_empty_library(self):
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), ContentLibrary())
         assert isinstance(prompt, str)
-        assert "SELECTION PROCESS" in prompt
+        assert "YOUR JOB" in prompt
 
 
 @pytest.mark.skipif(not REAL_LIBRARY.exists(), reason="content_library.md not found")

@@ -13,6 +13,10 @@ lenient -- banned words ignored; only fabrication and required structure checked
 
 import re
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from applypilot.scoring.resume_model import TailoredResume
 
 log = logging.getLogger(__name__)
 
@@ -187,6 +191,64 @@ def validate_json_fields(
                 warnings.append(msg)
 
     return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+# ── TailoredResume (template mode) Validation ─────────────────────────────
+
+def validate_resume_model(
+    resume: "TailoredResume", profile: dict, mode: str = "normal",
+    slots: dict[str, tuple[int, int]] | None = None,
+    known_text: str = "",
+) -> dict:
+    """Layer-1 checks for a template-mode TailoredResume (content-library source).
+
+    Args:
+        resume:  The parsed TailoredResume.
+        profile: User profile dict.
+        mode:    "strict" | "normal" | "lenient" (banned-word severity, as in validate_json_fields).
+        slots:   role_key -> (min, max) bullets. A role with min > 0 must appear; counts must be in range.
+        known_text: The candidate's real material (base resume skills, library facts). Watchlist
+            terms found here or in the profile's skills_boundary are not fabrication (e.g. Vue, Django).
+
+    Returns:
+        {"passed": bool, "errors": list[str], "warnings": list[str]}
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not resume.roles:
+        errors.append("No roles in output")
+    if not resume.skills:
+        errors.append("Missing required field: skills")
+
+    skills_text = " ".join(resume.skills.values()).lower()
+    known = known_text.lower() + " " + " ".join(_build_skills_set(profile))
+    for fake in FABRICATION_WATCHLIST:
+        if len(fake) > 2 and fake not in known and re.search(r"\b" + re.escape(fake) + r"\b", skills_text):
+            errors.append(f"Fabricated skill: '{fake}'")
+
+    if slots:
+        present = {r.role_key: len(r.bullets) for r in resume.roles}
+        for key, (lo, hi) in slots.items():
+            n = present.get(key)
+            if n is None:
+                if lo > 0:
+                    errors.append(f"Role '{key}' is required ({lo}-{hi} bullets) but missing")
+            elif not lo <= n <= hi:
+                errors.append(f"Role '{key}' has {n} bullets; it needs {lo}-{hi}")
+
+    all_text = " ".join(b.text for r in resume.roles for b in r.bullets).lower()
+    found_leaks = [p for p in LLM_LEAK_PHRASES if p in all_text]
+    if found_leaks:
+        errors.append(f"LLM self-talk: '{found_leaks[0]}'")
+
+    if mode != "lenient":
+        found_banned = [w for w in BANNED_WORDS if re.search(r"\b" + re.escape(w) + r"\b", all_text)]
+        if found_banned:
+            msg = f"Banned words: {', '.join(found_banned[:5])}"
+            (errors if mode == "strict" else warnings).append(msg)
+
+    return {"passed": not errors, "errors": errors, "warnings": warnings}
 
 
 # ── Full Resume Text Validation ───────────────────────────────────────────
