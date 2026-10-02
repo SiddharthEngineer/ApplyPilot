@@ -1,6 +1,6 @@
 # Plan: Template-Driven Tailored Resumes from the Content Library
 **Started:** 2026-10-01
-**Status:** 🔄 In Progress
+**Status:** 🟡 All code done; waiting on the user's template sign-off (M4, Task 3)
 
 ## Goal
 The user maintains `~/.applypilot/content_library.md`, a bank of raw facts per project grouped under
@@ -142,7 +142,7 @@ as the resume. Document the template workflow (`resume_template.html`, `resume_f
 **Acceptance:**
 - Success Criterion 5.
 - `pytest tests/ -q` passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ## Implementation Order
 ```
@@ -176,3 +176,5 @@ Task 1 ──► Task 2 ──► Task 3
 - 2026-10-02: Task 5 done. `validate_provenance()` in validator.py. Numbers are tokens not preceded by a letter, so EC2 and S3 are ignored. Commas, a trailing `%` and sentence punctuation are normalized away, and a number must match as a whole number (`4` doesn't match `40`). Both sides of `a → b` are ordinary tokens, so each is checked. `Project.facts()` now includes the project's dates, so years pass. Errors are added to Layer-1 errors in `tailor_from_content_library` and fed back as retry notes (in every validation mode).
 - 2026-10-02: Task 6 done. `fit_to_one_page()` (drops the last bullet of the role with the largest surplus over its minimum, ties to the later role, ≤4 drops) and `_save_template_outputs()` write `<job>.pdf`, `<job>.json` (TailoredResume + `job_url`) and `<job>.txt` (`resume_to_text`). `tailored_resume_path` now holds the **.pdf** path (apply's `prompt.py` already resolves `.with_suffix(".pdf")`, and the `pdf` stage only counts `%.txt` paths). New statuses: `overflow` (counted as failed) and `pdf_error`; neither is stored, so the job is retried. The legacy path moved unchanged into `_save_legacy_outputs()`. Added `applypilot run --limit N` (tailor/cover) because Success Criterion 2's command needs it; `run` had no `--limit`. Bug found and fixed: `run_tailoring` computed slot ranges before a hand-built library had keys.
 - 2026-10-02: **Success Criterion 2 verified live** (`applypilot run tailor --source content-library --limit 3`): 3 approved, 3 one-page PDFs (`pages: 1`, no bullets dropped), each with a `.json` listing `project_ids` per bullet, 0 JSON parse retries, no invalid ids. Run on `LLM_TAILOR_MODEL=gemini-3.1-flash-lite`, because gemini-3.6-flash and 3.8-flash hit Google's per-day quota after ~5 successful calls each: their 503 "overloaded" retries appear to count against the 20 RPD. That also verifies Task 4's live check. Live findings fixed: (1) the content-library judge only allowed `skills_boundary` skills, so it rejected the user's own resume skills (Airflow, Vue.js…). It now also gets the base resume's skills. (2) The judge never saw the library, so it called real tools (SurrealDB, Databricks, Superset) fabrication, and it had no date ("Sep 2025 is in the future"). It now gets the facts of the cited projects and today's date. On flash-lite the judge is still noisy (passed on attempt 2).
+- 2026-10-02: Task 7 done. `run --source` defaults to `content-library` when `content_library.md` exists (help text says so; doctor says it's the default and suggests `template init` if the template is missing). `cover_letter.tailored_evidence(job)` reads the job's `<job>.json` sidecar and builds "SELECTED BULLETS" + "SOURCE PROJECT FACTS" for the cited slugs, which replace resume.txt in the cover-letter prompt (tools named there count as real). Live smoke test (flash-lite, no DB write): the letter cited AIM-HI, PatentsView and CAFE, the same projects as the resume. README: Tailor/Cover pipeline rows, config files, a "Resume template" section, and CLI lines.
+- 2026-10-02: Success criteria: 1 ⏳ (preview renders, 1 page; waiting on the user's sign-off), 2 ✅ (live, see above), 3 ✅ (`-k fixed_blocks`), 4 ✅ (`-k provenance`, 10 tests), 5 ✅ (`run --help`), 6 ✅ (`pytest tests/ -q` 569 passed, 20 skipped).

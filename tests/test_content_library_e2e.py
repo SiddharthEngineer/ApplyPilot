@@ -324,3 +324,88 @@ class TestRunLimit:
 
         out = CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output
         assert "--limit" in out
+
+
+class TestDefaultSource:
+    """resume-template-tailoring Task 7: --source defaults to content-library when the library exists."""
+
+    def _invoke(self, library_exists: bool):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        lib = MagicMock()
+        lib.exists.return_value = library_exists
+        with (
+            patch("applypilot.config.CONTENT_LIBRARY_PATH", lib),
+            patch("applypilot.config.check_tier"),
+            patch("applypilot.pipeline.run_pipeline", return_value={}) as rp,
+        ):
+            result = CliRunner().invoke(app, ["run", "tailor"])
+        assert result.exit_code == 0, result.output
+        return rp.call_args.kwargs["source"]
+
+    def test_default_content_library_when_present(self):
+        assert self._invoke(True) == "content-library"
+
+    def test_default_resume_when_missing(self):
+        assert self._invoke(False) == "resume"
+
+    def test_help_shows_default(self):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        out = CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "250"}).output
+        assert "default when content_library.md exists" in " ".join(out.split())
+
+
+class TestCoverLetterEvidence:
+    """resume-template-tailoring Task 7: cover letters cite the tailored resume's projects."""
+
+    def _sidecar(self, tmp_path) -> dict:
+        lib_path = tmp_path / "content_library.md"
+        lib_path.write_text(
+            "## CURRENT ROLE — Data Science Associate, AIR (Sep 2025–Present)\n\n"
+            "### PatentsView Pipeline (Nov 2025–present)\n\n"
+            "- **Context:** Federal patent database.\n"
+            "- **Outcome/Metrics:** Released 9.1M records on schedule.\n\n"
+            "### Unused Project (2024)\n\n- **Context:** Should not appear.\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "Job.json").write_text(json.dumps({
+            "roles": [{"role_key": "data-science-associate-air", "title": "Data Science Associate",
+                       "company": "AIR", "dates": "Sep 2025 – present", "tagline": None,
+                       "bullets": [{"text": "Released 9.1M patent records.", "project_ids": ["patentsview-pipeline"]}]}],
+            "skills": [], "dropped_roles": [], "job_url": "https://x",
+        }), encoding="utf-8")
+        return {"tailored_resume_path": str(tmp_path / "Job.pdf"), "lib": lib_path}
+
+    def test_evidence_from_sidecar(self, tmp_path):
+        from applypilot.scoring.cover_letter import tailored_evidence
+
+        job = self._sidecar(tmp_path)
+        ev = tailored_evidence(job, library_path=job["lib"])
+        assert "Data Science Associate at AIR (Sep 2025 – present)" in ev
+        assert "- Released 9.1M patent records." in ev
+        assert "PatentsView Pipeline" in ev and "Released 9.1M records on schedule." in ev
+        assert "Unused Project" not in ev
+
+    def test_no_sidecar_returns_none(self, tmp_path):
+        from applypilot.scoring.cover_letter import tailored_evidence
+
+        assert tailored_evidence({"tailored_resume_path": str(tmp_path / "Legacy.txt")}) is None
+        assert tailored_evidence({}) is None
+
+    def test_generate_uses_evidence_instead_of_resume(self, tmp_path):
+        from applypilot.scoring import cover_letter
+
+        client = MagicMock()
+        client.chat.return_value = "Dear Hiring Manager,\n\nI released 9.1M records.\n\nAlex"
+        with patch.object(cover_letter, "get_client", return_value=client):
+            cover_letter.generate_cover_letter("BASE RESUME TEXT", _test_job(), _minimal_profile(),
+                                               validation_mode="lenient", evidence="SELECTED BULLETS: x")
+        system, user = (m["content"] for m in client.chat.call_args[0][0])
+        assert "CANDIDATE EVIDENCE:\nSELECTED BULLETS: x" in user
+        assert "BASE RESUME TEXT" not in user
+        assert "plus any tool named in the CANDIDATE EVIDENCE" in system

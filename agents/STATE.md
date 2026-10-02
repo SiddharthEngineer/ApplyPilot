@@ -1,25 +1,35 @@
 # Current State
 
-**Last updated:** 2026-10-02 (VPS session 3 complete)
+**Last updated:** 2026-10-02 (VPS session 4 complete)
 
 ## Active Plan
 
 Sessions run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
 Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6) and R3 `scoring-error-recovery` (2/2 ✅).
 Session 2 done: R2 `job-board-discovery-repair` 8/8 ✅ (PR #5).
-Session 3 done: R4 `gemini-free-tier-llm` 5/5 ✅ (PR #6). Per-stage models (`get_client(purpose)`, shared per-model RPM window),
-daily-quota stop (`LLMQuotaExhausted`, stages return `stopped: daily_quota`), Gemini structured JSON (scoring + tailoring),
-title pre-filter before scoring (`--no-prefilter`), doctor per-stage lines, API key moved from URL to `x-goog-api-key` header.
-After session 3 (user request): per-model `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` (JSON objects, single-quoted in `.env`), with the daily count in `~/.applypilot/llm_usage.json` (Pacific day). The user's `.env` has 15/500 for flash-lite and 5/20 for the 3.6/3.7/3.8 flash models.
-Next step: session 4, R5 `resume-template-tailoring` (stops at the user's M4 sign-off). M3 (re-score) is unblocked.
+Session 3 done: R4 `gemini-free-tier-llm` 5/5 ✅ (PR #6), plus per-model `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` (PR #7).
+Session 4 done: R5 `resume-template-tailoring` 6/7 (🟡). All code is done. Task 3 waits on the user's sign-off of the template preview (M4).
+- New modules: `scoring/resume_model.py` (TailoredResume), `scoring/template.py` (Jinja renderer, base-resume parser,
+  fixed blocks, text export), `config/resume_template.default.html`. CLI: `applypilot template init|preview`, `run --limit`.
+- Content-library tailoring: slug-citing structured output (enums), slot ranges from the base resume, `validate_resume_model`
+  + `validate_provenance`, judge sees cited facts + base skills + date, one-page fit loop, `.pdf/.json/.txt` outputs,
+  `tailored_resume_path` = PDF. `--source` defaults to content-library. Cover letters use the job's sidecar as evidence.
+- User data on the VPS (not in git): `~/.applypilot/resume_template.html` (hand-authored), `resume_fixed.yaml`,
+  `template_preview.pdf/.html`, `template_side_by_side.png`; 3 live tailored resumes in `tailored_resumes/` (DB rows set).
+Next step: the user signs off M4 (then mark Task 3 ✅, R5 ✅). No other plan is queued, so a new plan is needed (see MORNING.md).
 
-Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 493 passed, 20 skipped in ~24s. LLM tier: export `GEMINI_API_KEY`
-from the repo-root `.env`, then `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py` → 6 passed (~75s).
+Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 569 passed, 20 skipped in ~16s. LLM tier: export `GEMINI_API_KEY`
+from the repo-root `.env`, then `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py`.
 The user's LLM env lives in `/srv/ApplyPilot/.env` (`~/.applypilot/.env` doesn't exist; `load_env` falls back to CWD).
+System packages added on the VPS: `fonts-liberation` (session 4). PDF inspection in sessions: install PyMuPDF to a scratch dir
+(`uv pip install --target <scratch>/pylib pymupdf`), not into `.venv`.
 
 ### Blockers
 
-None. Known gap: `run_scoring` writes all results to the DB only at the end of a run, so a crash or Ctrl-C mid-run loses that run's scores (a daily-quota stop is fine: it breaks out of the loop and writes).
+None for code. Known gaps:
+- Gemini free tier: gemini-3.6-flash and 3.8-flash were exhausted after about 5 successful calls each, because 503 "overloaded" retries seem to count against the 20 RPD. The LLM client retries a 503 up to 5 times.
+- The content-library judge on flash-lite is noisy (it rejects real tools); see MORNING.md for options.
+- `run_scoring` writes results only at the end of a run (unchanged from session 3).
 
 ### Previous plans
 ### Progress — Cap Live Test Scope

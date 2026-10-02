@@ -101,13 +101,14 @@ def run(
             "lenient: banned words ignored, LLM judge skipped (fastest, fewest API calls)."
         ),
     ),
-    source: str = typer.Option(
-        "resume",
+    source: str | None = typer.Option(
+        None,
         "--source",
         help=(
             "Resume source for tailoring. "
-            "resume: use ~/.applypilot/resume.txt (default). "
-            "content-library: use content_library.md (selects projects from raw facts)."
+            "content-library: write bullets from ~/.applypilot/content_library.md and render them "
+            "through your resume template (default when content_library.md exists). "
+            "resume: rewrite ~/.applypilot/resume.txt (default otherwise)."
         ),
     ),
     no_cache: bool = typer.Option(
@@ -166,6 +167,11 @@ def run(
             f"Choose from: {', '.join(valid_modes)}"
         )
         raise typer.Exit(code=1)
+
+    # Default source: the content library when the user has one
+    if source is None:
+        from applypilot.config import CONTENT_LIBRARY_PATH
+        source = "content-library" if CONTENT_LIBRARY_PATH.exists() else "resume"
 
     # Validate the --source flag value
     valid_sources = ("resume", "content-library")
@@ -738,7 +744,10 @@ def doctor() -> None:
         console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code or OpenCode CLI + Chrome + Node.js)[/dim]")
 
     if CONTENT_LIBRARY_PATH.exists():
-        console.print("[dim]  → Content library mode available (use --source content-library)[/dim]")
+        from applypilot.config import RESUME_FIXED_PATH, RESUME_TEMPLATE_PATH
+        console.print("[dim]  → Content library mode is the default for tailoring (--source content-library)[/dim]")
+        if not (RESUME_TEMPLATE_PATH.exists() and RESUME_FIXED_PATH.exists()):
+            console.print("[dim]  → Run `applypilot template init` to set up your resume template[/dim]")
 
     console.print()
 
