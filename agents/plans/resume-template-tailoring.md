@@ -115,7 +115,7 @@ bullet, extract numeric tokens (`\d[\d,.]*%?`, plus `→` pairs). Return an erro
 appear in the concatenated facts of the bullet's `project_ids`. Also flag bullets with empty `project_ids`.
 Call it from `tailor_from_content_library` as part of Layer 1 validation, and feed errors back as `avoid_notes`.
 **Acceptance:**
-- `provenance` tests: invented "35%" flagged; "0.899 → 0.428" from the PatentsView DQ project passes.
+- `provenance` tests (synthetic fixture library, not the user's file): a number absent from the cited project's facts is flagged; a number present in them, including an `a → b` pair, passes.
 **Status:** ❌ Not started
 
 ### Task 6: One-page fit loop + new output path
