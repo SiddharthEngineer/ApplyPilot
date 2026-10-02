@@ -23,6 +23,11 @@ class Project:
     tools_actions: str = ""
     outcome_metrics: str = ""
     angles: list[str] = field(default_factory=list)
+    slug: str = ""  # stable id, unique within the library (set by parse_content_library)
+
+    def facts(self) -> str:
+        """All raw facts for this project, concatenated (used for provenance checks)."""
+        return f"{self.name} {self.context} {self.scope_scale} {self.tools_actions} {self.outcome_metrics}"
 
 
 @dataclass
@@ -32,6 +37,7 @@ class RoleSection:
     title: str
     dates: str
     projects: list[Project] = field(default_factory=list)
+    key: str = ""  # kebab-case of the title, e.g. "data-science-associate-air"
 
 
 @dataclass
@@ -40,6 +46,34 @@ class ContentLibrary:
 
     roles: list[RoleSection] = field(default_factory=list)
     all_angles: set[str] = field(default_factory=set)
+
+    def role_by_key(self, key: str) -> RoleSection | None:
+        return next((r for r in self.roles if r.key == key), None)
+
+    def project_by_slug(self, slug: str) -> Project | None:
+        return next((p for r in self.roles for p in r.projects if p.slug == slug), None)
+
+
+def slugify(text: str) -> str:
+    """Kebab-case ASCII slug: 'CAFE Pipeline Engineer' -> 'cafe-pipeline-engineer'."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def _assign_keys(roles: list[RoleSection]) -> None:
+    """Give each role a key and each project a slug that is unique across the library."""
+    seen: set[str] = set()
+    for role in roles:
+        role.key = slugify(re.sub(r"\s*\([^)]*\)\s*$", "", role.title))
+        for proj in role.projects:
+            slug = slugify(proj.name) or "project"
+            if slug in seen:
+                slug = f"{slug}-{role.key}"
+            base, n = slug, 2
+            while slug in seen:
+                slug = f"{base}-{n}"
+                n += 1
+            seen.add(slug)
+            proj.slug = slug
 
 
 def _parse_dates(header: str) -> str:
@@ -248,4 +282,5 @@ def parse_content_library(path: str | Path) -> ContentLibrary:
 
         roles.append(RoleSection(title=role_title, dates=role_dates, projects=projects))
 
+    _assign_keys(roles)
     return ContentLibrary(roles=roles, all_angles=all_angles)
