@@ -461,10 +461,10 @@ class TestLinkedinFetchDescription:
         return scrape.call_args.kwargs
 
     def test_off_by_default(self):
-        assert self._linkedin_kwargs({})["linkedin_fetch_description"] is False
+        assert self._linkedin_kwargs({})["fetch_description"] is False
 
     def test_opt_in(self):
-        assert self._linkedin_kwargs({"linkedin_fetch_description": True})["linkedin_fetch_description"] is True
+        assert self._linkedin_kwargs({"linkedin_fetch_description": True})["fetch_description"] is True
 
 
 # ---------------------------------------------------------------------------
