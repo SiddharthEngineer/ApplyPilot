@@ -133,8 +133,9 @@ class TestDoctorContentLibraryCheck:
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
-        assert "Content library mode available" in result.output
+        assert "Content library mode is the default" in result.output
         assert "--source content-library" in result.output
+        assert "applypilot template init" in result.output
 
     def test_tier_summary_no_hint_when_missing(self, tmp_path: Path) -> None:
         """When content library is missing, no usage hint in tier summary."""
@@ -148,7 +149,7 @@ class TestDoctorContentLibraryCheck:
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
-        assert "Content library mode available" not in result.output
+        assert "Content library mode is the default" not in result.output
 
 
 class TestDoctorRateLimitTuning:

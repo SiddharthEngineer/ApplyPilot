@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Resume Template Tailoring — Task 7** (2026-10-02): `applypilot run` uses `--source content-library` by default when `~/.applypilot/content_library.md` exists. Cover letters for jobs tailored that way are written from that resume's bullets and the facts of the projects they cite, instead of `resume.txt`, so both documents cite the same work. README documents the template workflow.
+
+### Changed
 - **Resume Template Tailoring — Task 6** (2026-10-02): `--source content-library` renders each resume through your template straight to PDF, with no text round-trip. If the PDF runs past one page, bullets are dropped (never below a role's minimum) and it's re-rendered, up to 4 times. Each job gets `<job>.pdf`, `<job>.json` (bullets with their `project_ids` + `job_url`) and `<job>.txt`, and `tailored_resume_path` points at the PDF. A resume that still overflows gets status `overflow` and is retried later. `applypilot run --limit N` caps the tailor and cover stages. The content-library judge now sees the facts of the cited projects, your base resume's skills and today's date, so it no longer flags your real tools as fabricated. Each rejected attempt is logged with its reason.
 
 ### Added

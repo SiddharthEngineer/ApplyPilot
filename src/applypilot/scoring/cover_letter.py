@@ -10,10 +10,12 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
-from applypilot.config import COVER_LETTER_DIR, RESUME_PATH, load_profile
+from applypilot.config import CONTENT_LIBRARY_PATH, COVER_LETTER_DIR, RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import LLMQuotaExhausted, get_client
+from applypilot.scoring.content_library import parse_content_library
 from applypilot.scoring.validator import (
     BANNED_WORDS,
     LLM_LEAK_PHRASES,
@@ -28,10 +30,12 @@ MAX_ATTEMPTS = 5  # max cross-run retries before giving up
 
 # ── Prompt Builder (profile-driven) ──────────────────────────────────────
 
-def _build_cover_letter_prompt(profile: dict) -> str:
+def _build_cover_letter_prompt(profile: dict, evidence_mode: bool = False) -> str:
     """Build the cover letter system prompt from the user's profile.
 
     All personal data, skills, and sign-off name come from the profile.
+    evidence_mode: the user message carries the tailored resume's bullets plus their source
+    project facts (instead of a resume), and tools named there count as real.
     """
     personal = profile.get("personal", {})
     boundary = profile.get("skills_boundary", {})
@@ -65,6 +69,12 @@ def _build_cover_letter_prompt(profile: dict) -> str:
     all_banned = ", ".join(f'"{w}"' for w in BANNED_WORDS)
     leak_banned = ", ".join(f'"{p}"' for p in LLM_LEAK_PHRASES)
 
+    tools_extra = ", plus any tool named in the CANDIDATE EVIDENCE" if evidence_mode else ""
+    evidence_hint = (
+        "\nThe CANDIDATE EVIDENCE lists the bullets on the resume sent with this letter and the raw facts "
+        "behind them. Pick the 2 achievements from those bullets, and take numbers only from those facts."
+        if evidence_mode else ""
+    )
     return f"""Write a cover letter for {sign_off_name}. The goal is to get an interview.
 
 STRUCTURE: 3 short paragraphs. Under 250 words. Every sentence must earn its place.
@@ -91,8 +101,8 @@ VOICE:
 - Read it out loud. If it sounds like a robot wrote it, rewrite it.
 
 FABRICATION = INSTANT REJECTION:
-The candidate's real tools are ONLY: {skills_str}.
-Do NOT mention ANY tool not in this list. If the job asks for tools not listed, talk about the work you did, not the tools.
+The candidate's real tools are ONLY: {skills_str}{tools_extra}.
+Do NOT mention ANY tool not in this list. If the job asks for tools not listed, talk about the work you did, not the tools.{evidence_hint}
 
 Sign off: just "{sign_off_name}"
 
@@ -117,9 +127,46 @@ def _strip_preamble(text: str) -> str:
 
 # ── Core Generation ──────────────────────────────────────────────────────
 
+def tailored_evidence(job: dict, library_path: Path | None = None) -> str | None:
+    """Evidence block from the job's tailored-resume sidecar (<job>.json), if there is one.
+
+    Lists the selected bullets by role, then the content-library facts of every project they
+    cite, so the cover letter cites the same projects as the resume. Returns None when the job
+    has no sidecar (e.g. --source resume) or the content library is missing.
+    """
+    path = job.get("tailored_resume_path")
+    if not path:
+        return None
+    sidecar = Path(path).with_suffix(".json")
+    library_path = Path(library_path) if library_path else CONTENT_LIBRARY_PATH
+    if not sidecar.exists() or not library_path.exists():
+        return None
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    library = parse_content_library(library_path)
+
+    lines = ["SELECTED BULLETS (on the resume sent with this letter):"]
+    cited: list[str] = []
+    for role in data.get("roles", []):
+        head = " at ".join(x for x in (role.get("title"), role.get("company")) if x)
+        lines.append(f"{head} ({role.get('dates', '')})")
+        for b in role.get("bullets", []):
+            lines.append(f"- {b.get('text', '')}")
+            cited.extend(pid for pid in b.get("project_ids", []) if pid not in cited)
+    lines += ["", "SOURCE PROJECT FACTS:"]
+    for pid in cited:
+        proj = library.project_by_slug(pid)
+        if proj:
+            lines.append(f"- {proj.name}: {proj.facts()}")
+    return "\n".join(lines)
+
+
 def generate_cover_letter(
     resume_text: str, job: dict, profile: dict,
     max_retries: int = 3, validation_mode: str = "normal",
+    evidence: str | None = None,
 ) -> str:
     """Generate a cover letter with fresh context on each retry + auto-sanitize.
 
@@ -128,6 +175,7 @@ def generate_cover_letter(
 
     Args:
         resume_text:      The candidate's resume text (base or tailored).
+        evidence:         tailored_evidence() for this job; replaces resume_text when given.
         job:              Job dict with title, site, location, full_description.
         profile:          User profile dict.
         max_retries:      Maximum retry attempts.
@@ -146,7 +194,8 @@ def generate_cover_letter(
     avoid_notes: list[str] = []
     letter = ""
     client = get_client("cover")
-    cl_prompt_base = _build_cover_letter_prompt(profile)
+    cl_prompt_base = _build_cover_letter_prompt(profile, evidence_mode=bool(evidence))
+    candidate = f"CANDIDATE EVIDENCE:\n{evidence}" if evidence else f"RESUME:\n{resume_text}"
 
     for attempt in range(max_retries + 1):
         # Fresh conversation every attempt
@@ -159,7 +208,7 @@ def generate_cover_letter(
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": (
-                f"RESUME:\n{resume_text}\n\n---\n\n"
+                f"{candidate}\n\n---\n\n"
                 f"TARGET JOB:\n{job_text}\n\n"
                 "Write the cover letter:"
             )},
@@ -236,7 +285,8 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
         completed += 1
         try:
             letter = generate_cover_letter(resume_text, job, profile,
-                                          validation_mode=validation_mode)
+                                          validation_mode=validation_mode,
+                                          evidence=tailored_evidence(job))
 
             # Build safe filename prefix
             safe_title = re.sub(r"[^\w\s-]", "", job["title"])[:50].strip().replace(" ", "_")
