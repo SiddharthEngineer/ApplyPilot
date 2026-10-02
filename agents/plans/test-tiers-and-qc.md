@@ -56,7 +56,7 @@ and `tests/test_init_wizard.py::TestSetupTraditionalResume::test_pdf_file_copied
 **Acceptance:**
 - Success Criteria 2 and 3.
 - `HOME=$(mktemp -d) pytest tests/ -q` passes (simulates a cloud session with no user data).
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 3: CI on pull requests
 **Runs:** cloud
@@ -121,3 +121,4 @@ Task 4 (local capture; any time after Task 2)
 ## Historical Record
 - 2026-10-01: Plan created (roadmap initiative R0). Suite hang diagnosed with `-o faulthandler_timeout=60`: `workday.py:158 _urlopen` reached from `tests/test_pipeline.py:16`.
 - 2026-10-02: Task 1 done (nightly routine). `tests/test_pipeline.py` gets an autouse fixture patching `applypilot.discovery.workday.run_workday_discovery` and `applypilot.discovery.smartextract.run_smart_extract` (covers all 4 `_run_discover()` tests), plus a test asserting the stubs ran. `pytest tests/test_pipeline.py -q`: 5 passed in 1.0s. `pytest tests/ -q` (2 deselects pending Task 2): 359 passed, 25 skipped, 2 deselected in 14.6s.
+- 2026-10-02: Task 2 done (nightly routine). `tests/conftest.py`: `pytest_configure` sets `APPLYPILOT_DIR` to a `mkdtemp` session dir (removed in `pytest_unconfigure`); autouse `_block_network` patches `socket.socket.connect`/`connect_ex` via `patch.object` to raise `NetworkAccessBlocked` for non-localhost, non-`AF_UNIX` addresses, skipped for `live`/`llm` items. New `tests/test_hermetic.py` (7 tests). The two tests that needed a real `~/.applypilot` now pass with no changes, because the isolated APP_DIR exists; the gate no longer needs any `--deselect`. `HOME=$(mktemp -d) pytest tests/ -q`: 367 passed, 26 skipped in 13.4s (in the cloud image this also needs `PYTHONUSERBASE=/root/.local`, since pip installs to the user site under HOME). No other test touched the network.

@@ -5,8 +5,76 @@ Default `pytest tests/ -v` excludes live, llm, and expensive tests.
 """
 
 import os
+import shutil
+import socket
+import tempfile
+from unittest.mock import patch
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Hermetic guard: unit tests (not marked live/llm) may not reach the network
+# or the real ~/.applypilot directory.
+# ---------------------------------------------------------------------------
+
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_ISOLATED_APP_DIR: str | None = None
+
+
+class NetworkAccessBlocked(RuntimeError):
+    """Raised when a unit test tries to open a non-localhost connection."""
+
+
+def _is_local_address(sock: socket.socket, address: object) -> bool:
+    if getattr(socket, "AF_UNIX", None) is not None and sock.family == socket.AF_UNIX:
+        return True
+    if isinstance(address, tuple) and address:
+        host = address[0]
+        if isinstance(host, bytes):
+            host = host.decode(errors="replace")
+        return host in _LOCAL_HOSTS
+    return False
+
+
+def _make_guard(original):
+    def guarded(self, address, *args, **kwargs):
+        if not _is_local_address(self, address):
+            raise NetworkAccessBlocked(
+                f"Unit test tried to connect to {address!r}. Mock the call, "
+                "or mark the test @pytest.mark.live / @pytest.mark.llm."
+            )
+        return original(self, address, *args, **kwargs)
+
+    return guarded
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Point APPLYPILOT_DIR at a session temp dir before applypilot.config is imported.
+
+    APP_DIR is computed at import time (src/applypilot/config.py), so this must run
+    before any test module imports applypilot.
+    """
+    global _ISOLATED_APP_DIR
+    _ISOLATED_APP_DIR = tempfile.mkdtemp(prefix="applypilot-test-")
+    os.environ["APPLYPILOT_DIR"] = _ISOLATED_APP_DIR
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    if _ISOLATED_APP_DIR:
+        shutil.rmtree(_ISOLATED_APP_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _block_network(request: pytest.FixtureRequest):
+    """Block non-localhost socket connections for tests not marked live/llm."""
+    if "live" in request.keywords or "llm" in request.keywords:
+        yield
+        return
+    with (
+        patch.object(socket.socket, "connect", _make_guard(socket.socket.connect)),
+        patch.object(socket.socket, "connect_ex", _make_guard(socket.socket.connect_ex)),
+    ):
+        yield
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

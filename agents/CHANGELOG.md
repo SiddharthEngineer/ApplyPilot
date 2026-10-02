@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Test Tiers + QC — Task 2** (2026-10-02): Unit tests are hermetic. `tests/conftest.py` points `APPLYPILOT_DIR` at a session temp dir before `applypilot.config` is imported, and an autouse fixture makes any non-localhost socket connect raise `NetworkAccessBlocked` (tests marked `live`/`llm` are exempt). New `tests/test_hermetic.py`. The two tests that previously needed a real `~/.applypilot` now pass, so the build gate needs no `--deselect`.
 - **Test Tiers + QC — Task 1** (2026-10-02): `tests/test_pipeline.py` no longer runs the real Workday crawl or SmartExtract. An autouse fixture patches `run_workday_discovery` and `run_smart_extract` at their source modules; a new test asserts the stubs ran. The file runs in ~1s (was 15+ min), so the full suite no longer needs `--ignore=tests/test_pipeline.py`.
 
 ### Planned
