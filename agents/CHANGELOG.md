@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Job Board Discovery Repair — Task 4** (2026-10-02): New discovery source `discovery/ats_boards.py` for Greenhouse, Lever and Ashby public job-board JSON APIs (no bot protection). It keeps jobs whose title contains every word of a searches.yaml query as whole words, and whose location passes the location filter. `config/ats_boards.yaml` is seeded with 23 live-verified data/ML/infra employers. `tests/test_ats_boards.py` (25 tests, mock transport). Not yet wired into the pipeline (Task 5).
+
 ### Changed
 - **Job Board Discovery Repair — Task 3** (2026-10-02): Glassdoor and ZipRecruiter are skipped unless a proxy is set (`PROXY` or `proxy:` in searches.yaml), and Google unless `defaults.allow_unsupported: true`. Each skip logs one line naming the reason. `site_fail_threshold` below 2 is raised to 2 with a warning. New `defaults.linkedin_fetch_description` (default `false`). The wizard writes `sites: [indeed, linkedin]`. Live: 200 new jobs from Indeed (173) and LinkedIn (27) in one crawl.
 - **Job Board Discovery Repair — Task 0** (2026-10-02): Adopted `python-jobspy` 1.2.0 (adds `curl_cffi`, drops the `numpy==1.26.3` pin). Install is now `uv pip install -e ".[dev]" "python-jobspy>=1.2.0"`, with no `--no-deps` (README, `scripts/cloud_setup.sh`, CI, `doctor` hint). The live probe is unchanged: Indeed/LinkedIn ok, Glassdoor/ZipRecruiter still 403, Google no data.
