@@ -1,6 +1,6 @@
 # Plan: Scoring Error Recovery
 **Started:** 2026-10-01
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-02)
 
 ## Goal
 All 326 scored jobs in `~/.applypilot/applypilot.db` have `fit_score = 0` with reasoning
@@ -32,7 +32,7 @@ duplicate query at `database.py:271` the same way.
 **Acceptance:**
 - Tests: error → `fit_score` NULL and `score_attempts == 1`; third failure excludes the job from `pending_score`; success still stores an integer score.
 - `pytest tests/ -q` passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 2: `--reset-errors` flag
 **Runs:** cloud
@@ -44,7 +44,7 @@ and returns the row count. Expose it as `applypilot run score --reset-errors` (o
 run after gemini-free-tier-llm lands (see ROADMAP manual steps).
 **Acceptance:**
 - Test with an in-memory DB seeded with 2 error rows + 1 real score → returns 2, real score untouched.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ## Implementation Order
 ```
@@ -60,3 +60,4 @@ Task 1 ──► Task 2
 
 ## Historical Record
 - 2026-10-01: Plan created after DB audit (roadmap initiative R3).
+- 2026-10-02: Tasks 1+2 done (VPS session 1, one commit). `score_job()` returns `score: None` + `error` on an LLM exception **or an unparseable reply** (no SCORE line; previously also saved as 0). `run_scoring` leaves `fit_score`/`scored_at` NULL, stores `LLM error: …` and increments new column `score_attempts` (schema + `_ALL_COLUMNS` migration). `database.PENDING_SCORE_WHERE` (`… AND COALESCE(score_attempts,0) < MAX_SCORE_ATTEMPTS=3`) is shared by `pending_score` and `get_stats()["unscored"]`. `reset_score_errors(conn)` + `applypilot run score --reset-errors` (resets, prints the count, exits). Finding: the 326 historical rows are stored as `"\nLLM error: …"` (empty keywords + newline), so the plan's `LIKE 'LLM error%'` matched 0; the reset uses `LTRIM(score_reasoning, char(10))`. Verified on a scratch copy of the user DB: migration OK, reset → 326, pending_score 2009 → 2335, zero scores left 0. The user DB was not modified (M3). `tests/test_scoring_errors.py`: 8 tests. Gate: 394 passed, 20 skipped.

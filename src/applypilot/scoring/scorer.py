@@ -80,7 +80,8 @@ def score_job(resume_text: str, job: dict) -> dict:
         job: Job dict with keys: title, site, location, full_description.
 
     Returns:
-        {"score": int, "keywords": str, "reasoning": str}
+        {"score": int, "keywords": str, "reasoning": str} on success. On an LLM error or an unparseable
+        reply, "score" is None and "error" holds the message, so the job stays unscored and retryable.
     """
     job_text = (
         f"TITLE: {job['title']}\n"
@@ -97,7 +98,10 @@ def score_job(resume_text: str, job: dict) -> dict:
     try:
         client = get_client()
         response = client.chat(messages, max_tokens=512, temperature=0.2)
-        return _parse_score_response(response)
+        parsed = _parse_score_response(response)
+        if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10
+            return _error_result(f"unparseable response: {response[:200]!r}")
+        return parsed
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         body = e.response.text[:300]
@@ -111,10 +115,15 @@ def score_job(resume_text: str, job: dict) -> dict:
             "LLM error scoring job '%s': HTTP %d%s — %s",
             job.get("title", "?"), status, hint, body,
         )
-        return {"score": 0, "keywords": "", "reasoning": f"LLM error: HTTP {status}"}
+        return _error_result(f"HTTP {status}")
     except Exception as e:
         log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
-        return {"score": 0, "keywords": "", "reasoning": f"LLM error: {e}"}
+        return _error_result(str(e))
+
+
+def _error_result(msg: str) -> dict:
+    """Result for a job that couldn't be scored. `reasoning` keeps the 'LLM error' prefix --reset-errors matches."""
+    return {"score": None, "keywords": "", "reasoning": f"LLM error: {msg}", "error": msg}
 
 
 def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
@@ -159,7 +168,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         result["url"] = job["url"]
         completed += 1
 
-        if result["score"] == 0:
+        if result["score"] is None:
             errors += 1
             if not first_error_msg:
                 first_error_msg = result.get("reasoning", "")
@@ -167,8 +176,9 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         results.append(result)
 
         log.info(
-            "[%d/%d] score=%d  %s",
-            completed, len(jobs), result["score"], job.get("title", "?")[:60],
+            "[%d/%d] score=%s  %s",
+            completed, len(jobs), result["score"] if result["score"] is not None else "error",
+            job.get("title", "?")[:60],
         )
 
     # If all jobs failed, check for systemic LLM config issue
@@ -184,14 +194,23 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     # Write scores to DB
     now = datetime.now(timezone.utc).isoformat()
     for r in results:
-        conn.execute(
-            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
-        )
+        if r["score"] is None:
+            # Leave fit_score NULL so the job is retried, up to MAX_SCORE_ATTEMPTS runs.
+            conn.execute(
+                "UPDATE jobs SET fit_score = NULL, score_reasoning = ?, scored_at = NULL, "
+                "score_attempts = COALESCE(score_attempts, 0) + 1 WHERE url = ?",
+                (r["reasoning"], r["url"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
+                (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
+            )
     conn.commit()
 
     elapsed = time.time() - t0
-    log.info("Done: %d scored in %.1fs (%.1f jobs/sec)", len(results), elapsed, len(results) / elapsed if elapsed > 0 else 0)
+    log.info("Done: %d scored, %d errors in %.1fs (%.1f jobs/sec)", len(results) - errors, errors, elapsed,
+             len(results) / elapsed if elapsed > 0 else 0)
 
     # Score distribution
     dist = conn.execute("""
@@ -202,7 +221,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     distribution = [(row[0], row[1]) for row in dist]
 
     return {
-        "scored": len(results),
+        "scored": len(results) - errors,
         "errors": errors,
         "elapsed": elapsed,
         "distribution": distribution,
