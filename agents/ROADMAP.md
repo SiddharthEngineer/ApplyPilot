@@ -29,7 +29,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 1 | R2 | Repair job-board discovery (Indeed/LinkedIn reliable, blocked boards gated, add Greenhouse/Lever/Ashby, fix SmartExtract) | [job-board-discovery-repair](plans/job-board-discovery-repair.md) | 8/8 | ✅ | R0 |
 | 2 | R3 | Stop saving LLM errors as `fit_score = 0`; make them retryable | [scoring-error-recovery](plans/scoring-error-recovery.md) | 2/2 | ✅ | R0 |
 | 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 5/5 | ✅ | R3 |
-| 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 6/7 | 🟡 | R4 |
+| 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 7/7 | ✅ | R4 |
 
 ## Manual steps (you)
 
@@ -38,7 +38,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | M1 | Install the Claude Code CLI and log in with your subscription account. | Before the first routine run | ☑ 2026-10-01 (v2.1.287) |
 | M2 | Decide whether to pay for a residential proxy. Without one, Glassdoor and ZipRecruiter stay disabled (Cloudflare 403). | Any time; R2 works without it | ☐ |
 | M3 | After R3 + R4 land, run `applypilot run score --reset-errors`, then `applypilot run score` to re-score the 326 jobs stuck at 0. With a free-tier daily quota this may take more than one day; the stage stops cleanly and resumes. | After R4 | ☐ |
-| M4 | Review `~/.applypilot/template_preview.pdf` (or `template_side_by_side.png`) against your resume and sign off (R5 Task 3). Confirm whether to fix the typo in the education block and the `profile.json` name/GitHub mismatches. | During R5 (now) | ☐ |
+| M4 | Review `template_preview.pdf` side by side with your resume and sign off (R5 Task 3). | During R5 | ☑ 2026-10-02 |
 | M5 | `applypilot apply`: keep a human in the loop long-term (agent fills forms, you submit, no automated CAPTCHA solving). Needs its own plan later; see Backlog. | Later | ☐ |
 | M6 | Capture and commit scrubbed recorded-response data (R0 Task 4): `python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin`, check with `grep -ri "<your email or name>" tests/data`, commit. | During R0 | ☐ |
 | M7 | Connect GitHub to your Claude account at https://claude.ai/connect-github (grant access to `SiddharthEngineer/ApplyPilot`), then create the routine "ApplyPilot nightly build" (daily 2:07 AM CT, Default environment, model `claude-opus-5-5`, no connectors). | Before the first nightly run | ☑ 2026-10-02: routine `trig_01LsAQHDWu531mcmvkqSspVB`, cron `7 7 * * *` UTC |
@@ -50,6 +50,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 - 2026-10-02: The nightly routine keeps completing tasks until nothing is runnable or its usage limit ends the session (was: one task per night), with stacked per-plan branches and PRs.
 - 2026-10-02: Plans now run in **VPS mode** (`agents/BUILD_AGENT.md` §0): sessions on the user's VPS, one plan at a time, rebase-merged to `trunk` by the agent, summarized in `agents/MORNING.md`. The cloud routine is disabled. CI lint gates on real errors only (`--select E9,F63,F7,F82`).
 - 2026-10-01: `applypilot apply` will keep the user in the loop long-term. Deferred behind R0–R5.
+- 2026-10-02 (user): Gemini 503s fail over immediately to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`, with a 5-minute cooldown) instead of 5 backoff retries, because Google counts 503s against the free-tier daily quota. Content-library tailoring defaults to `--validation lenient` (no LLM judge).
 - 2026-10-02 (R5): Tailored resumes take the header from `resume_fixed.yaml` (copied verbatim from resume.txt), not profile.json, because profile.json's `full_name` is just "Siddharth" and its phone and state are formatted differently from the resume. `tailored_resume_path` now stores the template PDF. Role dates print inline after `Title at Company`, as on resume.pdf (the plan said right-aligned). Overflow is detected from the PDF page count.
 
 ## Findings behind this roadmap (2026-10-01 audit)

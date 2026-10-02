@@ -131,7 +131,8 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
 - **Daily quota**: when a model reaches its `LLM_RPD_LIMITS` count, or Google returns a per-day 429, the stage stops before spending more requests (`Gemini daily quota exhausted for <model>`). The remaining jobs are left as they are, and the next run picks them up.
 - **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1 without an LLM call. Use `--no-prefilter` to score them anyway.
 - **Structured output**: scoring and tailoring ask Gemini for schema-constrained JSON, so malformed replies don't cost retries.
-- **`--validation lenient`** on `applypilot run tailor` saves about one LLM call per attempt.
+- **`--validation lenient`** skips the LLM judge, saving one call per attempt. It's the default for content-library tailoring, whose bullets are already checked mechanically (project ids, numbers, bullet ranges). Pass `--validation normal` to bring the judge back.
+- **503 failover**: when a Gemini model answers 503 ("overloaded"), the request goes straight to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`), and that model is used for the next 5 minutes (`LLM_FALLBACK_COOLDOWN`). Google counts 503s against the daily quota, so retrying a 20-request/day model five times could use up most of a day. Set `LLM_FALLBACK_MODEL=none` to retry with backoff instead.
 - **OpenCode free models**: set `OPENCODE_API_KEY` to route through `opencode/*` free models at no cost.
 
 **Privacy:** on the free tier, Google may use what you submit (your resume, profile facts and job descriptions) to improve its products, per the [Gemini API terms](https://ai.google.dev/gemini-api/terms). Enabling billing on the project (the paid tier) opts you out of that.
@@ -166,7 +167,7 @@ applypilot run --source resume           # Tailor by rewriting resume.txt
 applypilot run tailor --limit 3          # Cap the tailor/cover stages at N jobs
 applypilot template init                # Create resume_fixed.yaml + resume_template.html from resume.txt
 applypilot template preview             # Render your base resume through the template (template_preview.pdf)
-applypilot run --validation lenient     # Relax validation (recommended for Gemini free tier)
+applypilot run --validation normal      # Run the LLM judge (default: lenient for content-library tailoring, else normal)
 applypilot run score --reset-errors     # Re-queue jobs whose scoring failed with an LLM error
 applypilot run score --no-prefilter     # Also LLM-score jobs whose title shares no word with your queries/target role
 applypilot discover --probe             # Check each job board (ok/empty/blocked/error) in seconds, no DB writes

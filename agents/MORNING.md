@@ -13,12 +13,27 @@ Session plan (remaining):
 1. ~~Session 1: setup, R0, R3~~ ✅ 2026-10-02
 2. ~~Session 2: R2 `job-board-discovery-repair`~~ ✅ 2026-10-02
 3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
-4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (6/7; Task 3 waits on your M4 sign-off)
+4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (signed off)
 5. **Session 5:** nothing is queued in ROADMAP. Pick one and I'll plan it (PLAN_AGENT) and build it:
    - `apply` human-in-the-loop mode (M5 / Backlog), then `applypilot apply --dry-run` on the 3 tailored jobs
    - Location filter whole-word matching (open since session 2)
    - Save scores per job during `run score` (open since session 3)
-   - LLM 503 handling that doesn't burn the daily quota (new, see below)
+
+## Session 4 follow-up (2026-10-02): your answers
+
+**Landed on trunk:** [PR #9](https://github.com/SiddharthEngineer/ApplyPilot/pull/9)
+- **503 failover:** a 503 from gemini-3.6-flash (or any non-lite Gemini model) goes to `gemini-3.1-flash-lite` right away, with no backoff retries. That model stays in use for the next 5 minutes. `doctor` shows `503 fallback`. Turn it off with `LLM_FALLBACK_MODEL=none`.
+- **Lenient by default for content-library tailoring:** no LLM judge. `--validation normal` brings it back. Cover letters still default to `normal`.
+- **R5 is ✅**, now that you've signed off the template.
+
+**Fixed in your files (outside the repo; backups `*.bak-2026-10-02b`)**
+- "Mathenatics" → "Mathematics" in `resume.txt` (`~/.applypilot` and `personal/`), `resume_fixed.yaml`, and the PDFs `~/.applypilot/resume.pdf`, `resume_reference.pdf` and `personal/resume.pdf`. In the PDFs the word was patched in place.
+- The GitHub link in those 3 PDFs now points to `github.com/SiddharthEngineer`. `SiddharthEngineer23` no longer appears anywhere outside the backups.
+- `profile.json`: `full_name` is now "Siddharth Engineer".
+- I re-rendered `template_preview.pdf` and your 3 tailored resumes with the fixes, without any LLM calls.
+
+**Waiting on you**
+- **Fix the Google Doc your resume.pdf comes from.** It still has the typo and the old GitHub link, so your next export would bring both back.
 
 ## Session 4 (2026-10-02): R5 tailored resumes from your template
 
