@@ -2,8 +2,11 @@
 
 Each test hits one JobSpy board once with results_per_site=1.
 Marked @live @expensive — run with: pytest -m live --run-live -v
+Indeed and LinkedIn must return a row (0 fails the test). Glassdoor and
+ZipRecruiter run only when PROXY is set; Google is skipped as unsupported.
 """
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -24,6 +27,9 @@ def _isolated_db(tmp_path: Path):
     conn.close()
 
 
+_NEEDS_PROXY = pytest.mark.skipif(not os.environ.get("PROXY"), reason="blocked without proxy (Cloudflare 403); set PROXY")
+
+
 @pytest.mark.live
 @pytest.mark.expensive
 @pytest.mark.parametrize(
@@ -31,9 +37,9 @@ def _isolated_db(tmp_path: Path):
     [
         "indeed",
         "linkedin",
-        "zip_recruiter",
-        "glassdoor",
-        "google",
+        pytest.param("zip_recruiter", marks=_NEEDS_PROXY),
+        pytest.param("glassdoor", marks=_NEEDS_PROXY),
+        pytest.param("google", marks=pytest.mark.skip(reason="unsupported: JobSpy returns no Google jobs")),
     ],
 )
 def test_jobspy_single_site(site: str, _isolated_db: sqlite3.Connection):
@@ -54,13 +60,7 @@ def test_jobspy_single_site(site: str, _isolated_db: sqlite3.Connection):
     assert isinstance(result, dict)
     assert "total" in result
 
-    total = result.get("total", 0)
-
-    # Boards known to be flaky: allow 0 results (xfail)
-    if site in ("indeed", "linkedin", "glassdoor", "google", "zip_recruiter") and total == 0:
-        pytest.xfail(f"{site} returned 0 results (likely blocked/flaky)")
-
-    # If we got results, verify DB was updated
-    if total > 0:
-        stats = get_stats(_isolated_db)
-        assert stats["total"] >= 1, f"DB should have >=1 job after {site} search"
+    # Indeed and LinkedIn are the boards discovery relies on: 0 results is a regression.
+    assert result.get("total", 0) >= 1, f"{site} returned 0 results: {result}"
+    stats = get_stats(_isolated_db)
+    assert stats["total"] >= 1, f"DB should have >=1 job after {site} search"
