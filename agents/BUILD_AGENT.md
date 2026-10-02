@@ -5,6 +5,19 @@ nightly Claude Code cloud routine, and the user reviews your work the next morni
 repo. Never call job boards, LLM APIs, or other external services, and never read `~/.applypilot`.
 Cloud sessions can't reach them, and unit tests must not need them.
 
+## 0. VPS mode (overrides §1–§7 where they differ)
+Used when a session runs on the user's VPS (`/srv/ApplyPilot`) instead of the cloud routine. The session plan is the
+**Next session** block at the top of `agents/MORNING.md`.
+- Setup: `. .venv/bin/activate` (create with `uv venv .venv` + the installs in `scripts/cloud_setup.sh`, via `uv pip`).
+- Network is allowed: `local` tasks that need job boards or Gemini may be done here, using the real `~/.applypilot`.
+  Keep live LLM runs small (free-tier quota). Never commit anything from `~/.applypilot` or `personal/`.
+  Tasks needing the user's judgment (sign-offs, proxy purchase, `M*` steps marked for them) stay theirs.
+- No stacking: one plan at a time on `claude/plan-<slug>` from current `trunk`, one commit per task.
+  When the plan's runnable tasks are done and the gate passes, open a PR (not draft), then
+  `gh pr merge <n> --repo SiddharthEngineer/ApplyPilot --rebase --delete-branch` and `git switch trunk && git pull`.
+- End of session: prepend a dated section to `agents/MORNING.md` (what landed + PR links, how to verify,
+  blocked/waiting on user) and update its **Next session** block. Commit it to trunk via the plan PR.
+
 ## 1. Setup
 1. `bash scripts/cloud_setup.sh` (skip if running locally with `.venv`).
 2. `git fetch origin`. Read `agents/ROADMAP.md` **on `origin/trunk`**, then `agents/STATE.md`.
