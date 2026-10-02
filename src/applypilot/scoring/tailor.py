@@ -35,6 +35,40 @@ MAX_ATTEMPTS = 5  # max cross-run retries before giving up
 
 # ── Prompt Builders (profile-driven) ──────────────────────────────────────
 
+_SECTION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "header": {"type": "STRING"},
+        "subtitle": {"type": "STRING"},
+        "bullets": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": ["header", "subtitle", "bullets"],
+    "propertyOrdering": ["header", "subtitle", "bullets"],
+}
+_SKILL_CATEGORIES = ["Languages", "Frameworks", "DevOps & Infra", "Databases", "Tools"]
+
+# Gemini structured output (responseSchema format) for the JSON shape both tailor prompts ask for.
+# resume-template-tailoring Task 4 replaces this with the TailoredResume schema.
+RESUME_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "title": {"type": "STRING"},
+        "summary": {"type": "STRING"},
+        "skills": {
+            "type": "OBJECT",
+            "properties": {cat: {"type": "STRING"} for cat in _SKILL_CATEGORIES},
+            "required": _SKILL_CATEGORIES,
+            "propertyOrdering": _SKILL_CATEGORIES,
+        },
+        "experience": {"type": "ARRAY", "items": _SECTION_SCHEMA},
+        "projects": {"type": "ARRAY", "items": _SECTION_SCHEMA},
+        "education": {"type": "STRING"},
+    },
+    "required": ["title", "summary", "skills", "experience", "projects", "education"],
+    "propertyOrdering": ["title", "summary", "skills", "experience", "projects", "education"],
+}
+
+
 def _build_tailor_prompt(profile: dict) -> str:
     """Build the resume tailoring system prompt from the user's profile.
 
@@ -495,7 +529,7 @@ def tailor_from_content_library(
     )
 
     report: dict = {
-        "attempts": 0, "validator": None, "judge": None,
+        "attempts": 0, "json_retries": 0, "validator": None, "judge": None,
         "status": "pending", "validation_mode": validation_mode,
         "source": "content-library",
     }
@@ -519,12 +553,13 @@ def tailor_from_content_library(
             {"role": "user", "content": f"TARGET JOB:\n{job_text}\n\nSelect projects from the content library and return the JSON:"},
         ]
 
-        raw = client.chat(messages, max_tokens=2048, temperature=0.4)
+        raw = client.chat(messages, max_tokens=2048, temperature=0.4, response_schema=RESUME_SCHEMA)
 
         # Parse JSON from response
         try:
             data = extract_json(raw)
         except ValueError:
+            report["json_retries"] += 1
             avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
             continue
 
@@ -693,7 +728,7 @@ def tailor_resume(
     )
 
     report: dict = {
-        "attempts": 0, "validator": None, "judge": None,
+        "attempts": 0, "json_retries": 0, "validator": None, "judge": None,
         "status": "pending", "validation_mode": validation_mode,
     }
     avoid_notes: list[str] = []
@@ -716,12 +751,13 @@ def tailor_resume(
             {"role": "user", "content": f"ORIGINAL RESUME:\n{resume_text}\n\n---\n\nTARGET JOB:\n{job_text}\n\nReturn the JSON:"},
         ]
 
-        raw = client.chat(messages, max_tokens=2048, temperature=0.4)
+        raw = client.chat(messages, max_tokens=2048, temperature=0.4, response_schema=RESUME_SCHEMA)
 
         # Parse JSON from response
         try:
             data = extract_json(raw)
         except ValueError:
+            report["json_retries"] += 1
             avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
             continue
 
@@ -817,6 +853,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
     results: list[dict] = []
     stats: dict[str, int] = {"approved": 0, "failed_validation": 0, "failed_judge": 0, "error": 0}
     stopped = ""
+    json_retries = 0
 
     for job in jobs:
         completed += 1
@@ -829,6 +866,8 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             else:
                 tailored, report = tailor_resume(resume_text, job, profile,
                                                  validation_mode=validation_mode)
+
+            json_retries += report.get("json_retries", 0)
 
             # Build safe filename prefix
             safe_title = re.sub(r"[^\w\s-]", "", job["title"])[:50].strip().replace(" ", "_")
@@ -942,11 +981,13 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         stats.get("failed_judge", 0),
         stats.get("error", 0),
     )
+    log.info("JSON parse retries (tailoring): %d", json_retries)
 
     out = {
         "approved": stats.get("approved", 0),
         "failed": stats.get("failed_validation", 0) + stats.get("failed_judge", 0),
         "errors": stats.get("error", 0),
+        "json_retries": json_retries,
         "elapsed": elapsed,
     }
     if stopped:

@@ -387,6 +387,46 @@ class TestDailyQuota:
 
 
 # ---------------------------------------------------------------------------
+# Structured JSON output (response_schema)
+# ---------------------------------------------------------------------------
+
+_SCHEMA = {"type": "OBJECT", "properties": {"score": {"type": "INTEGER"}}, "required": ["score"]}
+
+
+class TestResponseSchema:
+    def test_gemini_schema_goes_to_native_url(self):
+        client = LLMClient(base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                           model="gemini-3.1-flash-lite", api_key="k")
+        with patch.object(client._client, "post", return_value=_make_native_response('{"score": 7}')) as post:
+            assert client.chat([{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}],
+                               response_schema=_SCHEMA) == '{"score": 7}'
+        assert post.call_count == 1
+        url = post.call_args.args[0]
+        assert url == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+        cfg = post.call_args.kwargs["json"]["generationConfig"]
+        assert cfg["responseMimeType"] == "application/json"
+        assert cfg["responseSchema"] == _SCHEMA
+        # Compat stays the default for calls without a schema.
+        assert client._use_native_gemini is False
+
+    def test_gemini_without_schema_uses_compat(self):
+        client = LLMClient(base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                           model="gemini-3.1-flash-lite", api_key="k")
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        with patch.object(client._client, "post", return_value=ok) as post:
+            client.chat([{"role": "user", "content": "hi"}])
+        assert post.call_args.args[0].endswith("/chat/completions")
+
+    def test_other_providers_ignore_schema(self):
+        client = LLMClient(base_url="https://api.openai.com/v1", model="gpt-4o-mini", api_key="k")
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        with patch.object(client._client, "post", return_value=ok) as post:
+            client.chat([{"role": "user", "content": "hi"}], response_schema=_SCHEMA)
+        assert post.call_args.args[0] == "https://api.openai.com/v1/chat/completions"
+        assert "responseSchema" not in json.dumps(post.call_args.kwargs["json"])
+
+
+# ---------------------------------------------------------------------------
 # OpenAI 404 does NOT fallback
 # ---------------------------------------------------------------------------
 

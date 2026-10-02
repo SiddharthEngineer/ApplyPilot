@@ -233,6 +233,7 @@ class LLMClient:
         messages: list[dict],
         temperature: float,
         max_tokens: int,
+        response_schema: dict | None = None,
     ) -> str:
         """Call the native Gemini generateContent API.
 
@@ -240,7 +241,8 @@ class LLMClient:
         which happens for preview/experimental models not exposed via compat.
 
         Converts OpenAI-style messages to Gemini's contents/systemInstruction
-        format transparently.
+        format transparently. With `response_schema`, asks for JSON output
+        constrained to that schema (Gemini `responseSchema` format).
         """
         contents: list[dict] = []
         system_parts: list[dict] = []
@@ -263,6 +265,9 @@ class LLMClient:
                 "maxOutputTokens": max_tokens,
             },
         }
+        if response_schema is not None:
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+            payload["generationConfig"]["responseSchema"] = response_schema
         if system_parts:
             payload["systemInstruction"] = {"parts": system_parts}
 
@@ -323,8 +328,16 @@ class LLMClient:
         messages: list[dict],
         temperature: float = 0.0,
         max_tokens: int = 4096,
+        response_schema: dict | None = None,
     ) -> str:
-        """Send a chat completion request and return the assistant message text."""
+        """Send a chat completion request and return the assistant message text.
+
+        `response_schema` (Gemini `responseSchema` format) requests structured
+        JSON output. Gemini clients send it via the native API, since the
+        compat layer has no equivalent; other providers ignore it and callers
+        parse the text as before.
+        """
+        schema = response_schema if self._is_gemini else None
         # Qwen3 optimization: prepend /no_think to skip chain-of-thought
         # reasoning, saving tokens on structured extraction tasks.
         if "qwen" in self.model.lower() and messages:
@@ -336,9 +349,9 @@ class LLMClient:
             try:
                 self._throttle_if_needed()
 
-                # Route to native Gemini if we've already confirmed it's needed
-                if self._use_native_gemini:
-                    result = self._chat_native_gemini(messages, temperature, max_tokens)
+                # Native Gemini once confirmed needed, or for structured output
+                if self._use_native_gemini or schema is not None:
+                    result = self._chat_native_gemini(messages, temperature, max_tokens, schema)
                     self._record_request()
                     return result
 
