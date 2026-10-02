@@ -156,6 +156,22 @@ BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, De
 {{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
 
 
+def _split_skills(values) -> list[str]:
+    """'Airflow, CI/CD (GitHub Actions), AWS (EC2, S3)' -> ['Airflow', 'CI/CD (GitHub Actions)', 'AWS (EC2, S3)']."""
+    items: list[str] = []
+    for v in values:
+        depth, cur = 0, ""
+        for ch in v:
+            depth += (ch == "(") - (ch == ")")
+            if ch == "," and depth == 0:
+                items.append(cur.strip())
+                cur = ""
+            else:
+                cur += ch
+        items.append(cur.strip())
+    return [i for i in items if i]
+
+
 def _role_slots(
     library: ContentLibrary, base: TailoredResume | None = None,
 ) -> dict[str, tuple[int, int]]:
@@ -165,6 +181,7 @@ def _role_slots(
     for the most recent role). A role the base resume doesn't show gets 0-2. Without a base
     resume: most recent role 2-5, others 0-3.
     """
+    library.ensure_keys()
     counts = {r.role_key: len(r.bullets) for r in base.roles} if base else {}
     slots: dict[str, tuple[int, int]] = {}
     for i, role in enumerate(library.roles):
@@ -499,13 +516,16 @@ def assemble_resume_text(data: dict, profile: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_content_library_judge_prompt(profile: dict) -> str:
+def _build_content_library_judge_prompt(profile: dict, extra_skills: list[str] | None = None) -> str:
     """Build the LLM judge prompt for content-library-based tailoring.
 
     Unlike the standard judge, this one understands that:
     - Projects were SELECTED from a content library (not all must appear)
     - Bullets were written from raw facts (not reworded from existing bullets)
     - The comparison baseline is the content library, not a pre-written resume
+
+    extra_skills: skills from the base resume's SKILLS section, which are real even when the
+    profile's skills_boundary doesn't list them.
     """
     boundary = profile.get("skills_boundary", {})
 
@@ -513,9 +533,15 @@ def _build_content_library_judge_prompt(profile: dict) -> str:
     for items in boundary.values():
         if isinstance(items, list):
             all_skills.extend(items)
+    for item in extra_skills or []:
+        if item.lower() not in {s.lower() for s in all_skills}:
+            all_skills.append(item)
     skills_str = ", ".join(all_skills) if all_skills else "N/A"
 
-    return f"""You are a resume quality judge. A tailoring engine built a resume by selecting projects from a content library and writing bullets from raw project facts. Your job is to catch LIES, not style changes.
+    today = time.strftime("%B %Y", time.gmtime())
+    return f"""You are a resume quality judge. A tailoring engine built a resume by selecting projects from a content library and writing bullets from raw project facts. Your job is to catch LIES, not style changes. Today is {today}; dates up to now are not in the future.
+
+When CANDIDATE FACTS are provided, every tool, platform, metric and piece of work stated there is TRUE and may appear in bullets. The allowed-skills limit below applies only to the SKILLS section, not to tools named in bullets.
 
 You must answer with EXACTLY this format:
 VERDICT: PASS or FAIL
@@ -531,9 +557,10 @@ ISSUES: (list any problems, or "none")
 - Mirror JD terminology for ATS keyword matching
 
 ## WHAT IS FABRICATION (FAIL for these):
-1. Adding tools, languages, or frameworks to TECHNICAL SKILLS that aren't in the allowed set. The allowed skills are ONLY: {skills_str}
+1. Adding tools, languages, or frameworks to the SKILLS section that aren't in the allowed set. The allowed skills are ONLY: {skills_str}
+   This rule is about the SKILLS section only. A tool named in a bullet is fine when it appears in the CANDIDATE FACTS.
 2. Inventing metrics, numbers, or outcomes not present in any content library project fact.
-3. Inventing work that has no basis in any content library project (completely new achievements).
+3. Inventing work that has no basis in any content library project (completely new achievements). Check bullets against the CANDIDATE FACTS when given.
 4. Adding companies, roles, or degrees that don't exist.
 5. Changing real numbers (inflating 80% to 95%, 500 nodes to 1000 nodes).
 
@@ -584,6 +611,7 @@ def tailor_from_content_library(
     fixed_roles = {**(fixed_roles_from_resume(base) if base else {}), **(fixed.get("roles") or {})}
     slots = _role_slots(content_library, base)
     known_text = " ".join(base.skills.values()) if base else ""
+    base_skills = _split_skills(base.skills.values()) if base else []
     known_text += " " + " ".join(p.facts() for r in content_library.roles for p in r.projects)
 
     job_text = (
@@ -630,6 +658,7 @@ def tailor_from_content_library(
         try:
             candidate = TailoredResume.from_llm_json(data, content_library, fixed_roles=fixed_roles)
         except ValueError as e:
+            log.info("Tailor attempt %d: invalid ids: %s", attempt + 1, e)
             avoid_notes.append(f"Invalid ids: {e}")
             continue
 
@@ -649,6 +678,7 @@ def tailor_from_content_library(
             validation["passed"] = False
         report["validator"] = validation
         if not validation["passed"]:
+            log.info("Tailor attempt %d failed validation: %s", attempt + 1, "; ".join(validation["errors"])[:500])
             avoid_notes.extend(validation["errors"])
             if attempt < max_retries:
                 continue
@@ -662,10 +692,12 @@ def tailor_from_content_library(
             return resume, report
 
         judge = judge_content_library_resume(
-            resume_to_text(resume, profile, fixed), job.get("title", ""), profile,
+            resume_to_text(resume, profile, fixed), job.get("title", ""), profile, extra_skills=base_skills,
+            evidence=_cited_evidence(resume, content_library),
         )
         report["judge"] = judge
         if not judge["passed"]:
+            log.info("Tailor attempt %d rejected by judge: %s", attempt + 1, judge["issues"][:500])
             avoid_notes.append(f"Judge rejected: {judge['issues']}")
             if attempt < max_retries:
                 continue
@@ -680,7 +712,8 @@ def tailor_from_content_library(
 
 
 def judge_content_library_resume(
-    tailored_text: str, job_title: str, profile: dict,
+    tailored_text: str, job_title: str, profile: dict, extra_skills: list[str] | None = None,
+    evidence: str = "",
 ) -> dict:
     """LLM judge for content-library-based tailoring.
 
@@ -696,14 +729,16 @@ def judge_content_library_resume(
     Returns:
         {"passed": bool, "verdict": str, "issues": str, "raw": str}
     """
-    judge_prompt = _build_content_library_judge_prompt(profile)
+    judge_prompt = _build_content_library_judge_prompt(profile, extra_skills)
 
     messages = [
         {"role": "system", "content": judge_prompt},
         {"role": "user", "content": (
             f"JOB TITLE: {job_title}\n\n"
             f"TAILORED RESUME:\n{tailored_text}\n\n"
-            "Judge this tailored resume:"
+            + (f"CANDIDATE FACTS (the content-library projects the bullets cite; all of this is true):\n"
+               f"{evidence}\n\n" if evidence else "")
+            + "Judge this tailored resume:"
         )},
     ]
 
@@ -722,6 +757,18 @@ def judge_content_library_resume(
         "issues": issues,
         "raw": response,
     }
+
+
+def _cited_evidence(resume: TailoredResume, library: ContentLibrary) -> str:
+    """Facts of every project the resume's bullets cite, one block per project."""
+    seen: dict[str, str] = {}
+    for role in resume.roles:
+        for b in role.bullets:
+            for pid in b.project_ids:
+                proj = library.project_by_slug(pid)
+                if proj and pid not in seen:
+                    seen[pid] = f"- {pid}: {proj.facts()}"
+    return "\n".join(seen.values())
 
 
 # ── LLM Judge ────────────────────────────────────────────────────────────
@@ -883,6 +930,126 @@ def tailor_resume(
 
 # ── Batch Entry Point ────────────────────────────────────────────────────
 
+def fit_to_one_page(
+    resume: TailoredResume,
+    profile: dict,
+    fixed: dict,
+    slots: dict[str, tuple[int, int]],
+    pdf_path: Path,
+    max_iterations: int = 4,
+) -> tuple[dict, list[str]]:
+    """Render to PDF; while it overflows one page, drop a bullet and re-render.
+
+    Each round drops the last bullet of the role with the most bullets above its minimum
+    (ties go to the later, older role). Never goes below a role's minimum.
+
+    Returns:
+        (render_pdf info of the final render, texts of the dropped bullets). info["overflow"]
+        is still True if the resume couldn't be made to fit.
+    """
+    from applypilot.scoring import pdf as pdf_mod
+    from applypilot.scoring.template import render_resume
+
+    dropped: list[str] = []
+    info = pdf_mod.render_pdf(render_resume(resume, profile, fixed=fixed), str(pdf_path))
+    for _ in range(max_iterations):
+        if not info["overflow"]:
+            break
+        surplus = [
+            (len(r.bullets) - slots.get(r.role_key, (0, 0))[0], i)
+            for i, r in enumerate(resume.roles)
+        ]
+        best, idx = max(surplus, default=(0, -1))
+        if best <= 0:
+            break
+        dropped.append(resume.roles[idx].bullets.pop().text)
+        info = pdf_mod.render_pdf(render_resume(resume, profile, fixed=fixed), str(pdf_path))
+    return info, dropped
+
+
+_SUCCESS_STATUSES = ("approved", "approved_with_judge_warning")
+
+
+def _save_legacy_outputs(tailored: str, report: dict, job: dict, prefix: str) -> tuple[str, str | None, dict | None]:
+    """--source resume: write <prefix>.txt and, for approved resumes, a best-effort generic PDF.
+
+    Returns:
+        (path stored in tailored_resume_path, pdf path or None, overflow info or None)
+    """
+    txt_path = TAILORED_DIR / f"{prefix}.txt"
+    txt_path.write_text(tailored, encoding="utf-8")
+
+    # "approved_with_judge_warning" is also a success — resume was generated.
+    pdf_path = None
+    overflow_info = None
+    if report["status"] in _SUCCESS_STATUSES:
+        try:
+            from applypilot.scoring.pdf import convert_to_pdf
+            pdf_result = convert_to_pdf(txt_path)
+            pdf_path = str(pdf_result["path"])
+            if pdf_result["overflow"]:
+                overflow_info = {
+                    "content_height_pt": pdf_result["content_height_pt"],
+                    "usable_height_pt": pdf_result["usable_height_pt"],
+                }
+                report["page_overflow"] = True
+                log.warning(
+                    "Resume overflows one page for %s (%.1fpt > %.1fpt)",
+                    job["title"][:40],
+                    pdf_result["content_height_pt"],
+                    pdf_result["usable_height_pt"],
+                )
+        except Exception:
+            log.debug("PDF generation failed for %s", txt_path, exc_info=True)
+    return str(txt_path), pdf_path, overflow_info
+
+
+def _save_template_outputs(
+    model: TailoredResume | None, report: dict, job: dict, prefix: str,
+    profile: dict, fixed: dict, slots: dict[str, tuple[int, int]],
+) -> tuple[str | None, str | None, dict | None]:
+    """--source content-library: render through the template, fit to one page, write outputs.
+
+    Writes <prefix>.pdf, <prefix>.json (TailoredResume + job_url, the provenance record) and
+    <prefix>.txt (plain text for the apply agent and ATS fields). A resume that still overflows
+    after the fit loop gets status "overflow"; a render failure gets "pdf_error". Neither is
+    stored in the DB, so the job is retried on a later run.
+
+    Returns:
+        (path stored in tailored_resume_path, pdf path or None, overflow info or None)
+    """
+    if model is None:
+        return None, None, None
+    json_path = TAILORED_DIR / f"{prefix}.json"
+    pdf_path = None
+    overflow_info = None
+    if report["status"] in _SUCCESS_STATUSES:
+        out = TAILORED_DIR / f"{prefix}.pdf"
+        try:
+            info, dropped = fit_to_one_page(model, profile, fixed, slots, out)
+        except Exception as e:  # noqa: BLE001 — Playwright/Chromium raise many types; the job is retried later
+            log.error("PDF render failed for %s: %s", job["title"][:40], e)
+            report["status"] = "pdf_error"
+            report["pdf_error"] = str(e)
+        else:
+            pdf_path = str(out)
+            report["pages"] = info.get("pages")
+            if dropped:
+                report["fit_dropped"] = dropped
+            if info["overflow"]:
+                overflow_info = {
+                    "content_height_pt": info["content_height_pt"],
+                    "usable_height_pt": info["usable_height_pt"],
+                }
+                report["page_overflow"] = True
+                report["status"] = "overflow"
+                log.warning("Resume still overflows one page after the fit loop: %s", job["title"][:40])
+    json_path.write_text(model.to_json(job_url=job["url"]), encoding="utf-8")
+    if pdf_path:
+        (TAILORED_DIR / f"{prefix}.txt").write_text(resume_to_text(model, profile, fixed), encoding="utf-8")
+    return pdf_path or str(json_path), pdf_path, overflow_info
+
+
 def run_tailoring(min_score: int = 7, limit: int = 20,
                   validation_mode: str = "normal",
                   source: str = "resume") -> dict:
@@ -913,6 +1080,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         base = (parse_base_resume(RESUME_PATH.read_text(encoding="utf-8"), content_library)
                 if RESUME_PATH.exists() else None)
         fixed = load_fixed()
+        slots = _role_slots(content_library, base)
     else:
         if not RESUME_PATH.exists():
             log.error("Resume not found at %s", RESUME_PATH)
@@ -930,7 +1098,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
     t0 = time.time()
     completed = 0
     results: list[dict] = []
-    stats: dict[str, int] = {"approved": 0, "failed_validation": 0, "failed_judge": 0, "error": 0}
+    stats: dict[str, int] = {"approved": 0, "failed_validation": 0, "failed_judge": 0, "error": 0, "overflow": 0}
     stopped = ""
     json_retries = 0
 
@@ -942,7 +1110,6 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
                     content_library, job, profile,
                     validation_mode=validation_mode, base=base, fixed=fixed,
                 )
-                tailored = resume_to_text(model, profile, fixed) if model else ""
             else:
                 tailored, report = tailor_resume(resume_text, job, profile,
                                                  validation_mode=validation_mode)
@@ -953,10 +1120,6 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             safe_title = re.sub(r"[^\w\s-]", "", job["title"])[:50].strip().replace(" ", "_")
             safe_site = re.sub(r"[^\w\s-]", "", job["site"])[:20].strip().replace(" ", "_")
             prefix = f"{safe_site}_{safe_title}"
-
-            # Save tailored resume text
-            txt_path = TAILORED_DIR / f"{prefix}.txt"
-            txt_path.write_text(tailored, encoding="utf-8")
 
             # Save job description for traceability
             job_path = TAILORED_DIR / f"{prefix}_JOB.txt"
@@ -970,29 +1133,12 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             )
             job_path.write_text(job_desc, encoding="utf-8")
 
-            # Generate PDF for approved resumes (best-effort)
-            # "approved_with_judge_warning" is also a success — resume was generated.
-            pdf_path = None
-            overflow_info = None
-            if report["status"] in ("approved", "approved_with_judge_warning"):
-                try:
-                    from applypilot.scoring.pdf import convert_to_pdf
-                    pdf_result = convert_to_pdf(txt_path)
-                    pdf_path = str(pdf_result["path"])
-                    if pdf_result["overflow"]:
-                        overflow_info = {
-                            "content_height_pt": pdf_result["content_height_pt"],
-                            "usable_height_pt": pdf_result["usable_height_pt"],
-                        }
-                        report["page_overflow"] = True
-                        log.warning(
-                            "Resume overflows one page for %s (%.1fpt > %.1fpt)",
-                            job["title"][:40],
-                            pdf_result["content_height_pt"],
-                            pdf_result["usable_height_pt"],
-                        )
-                except Exception:
-                    log.debug("PDF generation failed for %s", txt_path, exc_info=True)
+            if source == "content-library":
+                saved_path, pdf_path, overflow_info = _save_template_outputs(
+                    model, report, job, prefix, profile, fixed, slots,
+                )
+            else:
+                saved_path, pdf_path, overflow_info = _save_legacy_outputs(tailored, report, job, prefix)
 
             # Save validation report (after PDF so page_overflow is included)
             report_path = TAILORED_DIR / f"{prefix}_REPORT.json"
@@ -1000,7 +1146,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
 
             result = {
                 "url": job["url"],
-                "path": str(txt_path),
+                "path": saved_path,
                 "pdf_path": pdf_path,
                 "title": job["title"],
                 "site": job["site"],
@@ -1037,9 +1183,8 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
 
     # Persist to DB: increment attempt counter for ALL, save path only for approved
     now = datetime.now(timezone.utc).isoformat()
-    _success_statuses = {"approved", "approved_with_judge_warning"}
     for r in results:
-        if r["status"] in _success_statuses:
+        if r["status"] in _SUCCESS_STATUSES:
             conn.execute(
                 "UPDATE jobs SET tailored_resume_path=?, tailored_at=?, "
                 "tailor_attempts=COALESCE(tailor_attempts,0)+1 WHERE url=?",
@@ -1054,18 +1199,19 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
 
     elapsed = time.time() - t0
     log.info(
-        "Tailoring done in %.1fs: %d approved, %d failed_validation, %d failed_judge, %d errors",
+        "Tailoring done in %.1fs: %d approved, %d failed_validation, %d failed_judge, %d overflow, %d errors",
         elapsed,
         stats.get("approved", 0),
         stats.get("failed_validation", 0),
         stats.get("failed_judge", 0),
+        stats.get("overflow", 0),
         stats.get("error", 0),
     )
     log.info("JSON parse retries (tailoring): %d", json_retries)
 
     out = {
         "approved": stats.get("approved", 0),
-        "failed": stats.get("failed_validation", 0) + stats.get("failed_judge", 0),
+        "failed": stats.get("failed_validation", 0) + stats.get("failed_judge", 0) + stats.get("overflow", 0),
         "errors": stats.get("error", 0),
         "json_retries": json_retries,
         "elapsed": elapsed,

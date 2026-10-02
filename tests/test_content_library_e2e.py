@@ -1,6 +1,7 @@
 """Integration tests for content-library-based tailoring end-to-end flow."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -86,11 +87,27 @@ def _test_job() -> dict:
     }
 
 
-def _run_tailoring_with_tmp(tmp_path, validation_mode="lenient", jobs=None):
+def _fake_render_pdf(overflows: int = 0):
+    """Stub for pdf.render_pdf: writes a placeholder PDF; reports overflow for the first N renders."""
+    calls: list[str] = []
+
+    def render(html, out):
+        calls.append(html)
+        Path(out).write_bytes(b"%PDF-1.4 stub")
+        over = len(calls) <= overflows
+        return {"overflow": over, "content_height_pt": 800.0 if over else 700.0,
+                "usable_height_pt": 741.6, "pages": 2 if over else 1}
+
+    render.calls = calls
+    return render
+
+
+def _run_tailoring_with_tmp(tmp_path, validation_mode="lenient", jobs=None, render=None):
     """Helper that patches all dependencies and runs tailoring."""
     from applypilot.scoring.tailor import run_tailoring
 
     with (
+        patch("applypilot.scoring.pdf.render_pdf", new=render or _fake_render_pdf()),
         patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
         patch("applypilot.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
         patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
@@ -210,6 +227,7 @@ class TestRunTailoringContentLibrary:
             patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
             patch("applypilot.scoring.tailor.parse_content_library", return_value=_minimal_library()),
             patch("applypilot.scoring.tailor.get_client") as mock_client,
+            patch("applypilot.scoring.pdf.render_pdf", new=_fake_render_pdf()),
         ):
             mock_cl.exists.return_value = True
             mock_client.return_value.chat.return_value = _valid_llm_response()
@@ -223,3 +241,86 @@ class TestRunTailoringContentLibrary:
         assert result["approved"] == 1
         assert conn.execute.call_count >= 1
         conn.commit.assert_called_once()
+
+
+class TestTemplateOutputs:
+    """resume-template-tailoring Task 6: PDF/JSON/TXT outputs and the one-page fit loop."""
+
+    def test_writes_pdf_json_txt(self, tmp_path):
+        _run_tailoring_with_tmp(tmp_path)
+        stem = "TechCorp_Data_Engineer"
+        assert (tmp_path / f"{stem}.pdf").exists()
+        sidecar = json.loads((tmp_path / f"{stem}.json").read_text())
+        assert sidecar["job_url"] == "https://example.com/job/1"
+        assert sidecar["roles"][0]["bullets"][0]["project_ids"] == ["patentsview-pipeline"]
+        txt = (tmp_path / f"{stem}.txt").read_text()
+        assert "WORK EXPERIENCE" in txt and "• Built PatentsView data pipeline" in txt
+
+    def test_renders_through_template(self, tmp_path):
+        render = _fake_render_pdf()
+        _run_tailoring_with_tmp(tmp_path, render=render)
+        assert len(render.calls) == 1
+        assert "Built PatentsView data pipeline" in render.calls[0]
+        assert 'id="resume-experience"' in render.calls[0]
+
+    def test_db_stores_pdf_path(self, tmp_path):
+        from applypilot.scoring.tailor import run_tailoring
+
+        conn = MagicMock()
+        with (
+            patch("applypilot.scoring.pdf.render_pdf", new=_fake_render_pdf()),
+            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("applypilot.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
+            patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+            patch("applypilot.scoring.tailor.get_connection", return_value=conn),
+            patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
+            patch("applypilot.scoring.tailor.parse_content_library", return_value=_minimal_library()),
+            patch("applypilot.scoring.tailor.get_client") as mock_client,
+        ):
+            mock_cl.exists.return_value = True
+            mock_client.return_value.chat.return_value = _valid_llm_response()
+            mock_dir.__truediv__ = lambda self, x: tmp_path / x
+            mock_dir.mkdir = tmp_path.mkdir
+            run_tailoring(source="content-library", validation_mode="lenient")
+
+        update = next(c for c in conn.execute.call_args_list if "tailored_resume_path=?" in c[0][0])
+        assert update[0][1][0] == str(tmp_path / "TechCorp_Data_Engineer.pdf")
+
+    def test_fit_loop_drops_bullets_until_one_page(self, tmp_path):
+        # 2 bullets in a role whose minimum (no base resume) is 2 -> nothing droppable -> overflow status
+        render = _fake_render_pdf(overflows=99)
+        result = _run_tailoring_with_tmp(tmp_path, render=render)
+        report = json.loads(next(tmp_path.glob("*_REPORT.json")).read_text())
+        assert report["status"] == "overflow"
+        assert report["page_overflow"] is True
+        assert result["approved"] == 0 and result["failed"] == 1
+        assert len(render.calls) == 1  # nothing above minimum, so no re-render
+
+    def test_pdf_error_not_approved(self, tmp_path):
+        def boom(html, out):
+            raise RuntimeError("chromium missing")
+
+        result = _run_tailoring_with_tmp(tmp_path, render=boom)
+        report = json.loads(next(tmp_path.glob("*_REPORT.json")).read_text())
+        assert report["status"] == "pdf_error"
+        assert result["approved"] == 0
+        assert (tmp_path / "TechCorp_Data_Engineer.json").exists()
+
+
+class TestRunLimit:
+    def test_tailor_stage_passes_limit(self):
+        from applypilot import pipeline
+
+        with patch("applypilot.scoring.tailor.run_tailoring", return_value={"approved": 0}) as rt:
+            pipeline._run_tailor(min_score=7, source="content-library", limit=3)
+            pipeline._run_tailor(min_score=7)
+        assert rt.call_args_list[0].kwargs["limit"] == 3
+        assert "limit" not in rt.call_args_list[1].kwargs
+
+    def test_run_help_lists_limit(self):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        out = CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output
+        assert "--limit" in out
