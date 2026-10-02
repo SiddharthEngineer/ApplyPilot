@@ -26,6 +26,7 @@ from urllib.parse import quote_plus, urlparse
 import httpx
 import yaml
 from bs4 import BeautifulSoup
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from applypilot import config
@@ -34,6 +35,9 @@ from applypilot.database import get_connection, init_db, store_jobs, get_stats
 from applypilot.llm import get_discovery_client
 
 log = logging.getLogger(__name__)
+
+# How long to wait for network idle after the page has loaded before using it as-is.
+_NETWORKIDLE_TIMEOUT_MS = 15_000
 
 # Fix Windows encoding -- prevents charmap errors on emoji/unicode in job titles
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -120,13 +124,17 @@ def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> 
 # -- Site configuration from YAML --------------------------------------------
 
 def load_sites() -> list[dict]:
-    """Load scraping target sites from config/sites.yaml."""
+    """Load scraping target sites from config/sites.yaml, skipping ``disabled: true`` entries."""
     path = CONFIG_DIR / "sites.yaml"
     if not path.exists():
         log.warning("sites.yaml not found at %s", path)
         return []
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return data.get("sites", [])
+    sites = data.get("sites", [])
+    disabled = [s.get("name", "?") for s in sites if s.get("disabled")]
+    if disabled:
+        log.info("Skipping %d disabled site(s): %s", len(disabled), ", ".join(disabled))
+    return [s for s in sites if not s.get("disabled")]
 
 
 def _store_jobs_filtered(
@@ -211,7 +219,12 @@ def collect_page_intelligence(url: str, headless: bool = True) -> dict:
         page.on("response", on_response)
 
         page.goto(url, timeout=60000)
-        page.wait_for_load_state("networkidle")
+        try:
+            page.wait_for_load_state("networkidle", timeout=_NETWORKIDLE_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            # Pages with constant analytics/ad traffic never go idle; they are
+            # loaded by now (goto waits for "load"), so use what's there.
+            log.info("Network never went idle after %ds; using the page as loaded", _NETWORKIDLE_TIMEOUT_MS // 1000)
 
         intel["page_title"] = page.title()
 
@@ -1077,10 +1090,14 @@ def _run_one_site(name: str, url: str) -> dict:
     _is_captcha = any(s in full_html.lower() for s in _captcha_signals) if full_html else False
     if len(cleaned_check) < 5000 and full_html and not _is_captcha:
         log.info("Cleaned HTML only %s chars -- retrying headful...", f"{len(cleaned_check):,}")
-        intel = collect_page_intelligence(url, headless=False)
-        collect_time = time.time() - t0
-        log.info("Headful done in %.1fs | JSON-LD: %d | API: %d",
-                 collect_time, len(intel["json_ld"]), len(intel["api_responses"]))
+        try:
+            intel = collect_page_intelligence(url, headless=False)
+        except Exception as e:  # noqa: BLE001 - e.g. no display on a server; keep the headless result
+            log.info("Headful retry failed (%s); using the headless result", str(e).splitlines()[0][:120])
+        else:
+            collect_time = time.time() - t0
+            log.info("Headful done in %.1fs | JSON-LD: %d | API: %d",
+                     collect_time, len(intel["json_ld"]), len(intel["api_responses"]))
     elif _is_captcha:
         log.warning("CAPTCHA/rate-limit detected -- skipping headful retry")
 
@@ -1207,6 +1224,22 @@ def _run_one_site(name: str, url: str) -> dict:
     }
 
 
+def _run_one_site_safe(name: str, url: str) -> dict:
+    """``_run_one_site`` that never raises, so one broken site can't end the whole run.
+
+    A missing Playwright browser is marked ``fatal`` (every other site would fail the same way).
+    """
+    try:
+        return _run_one_site(name, url)
+    except Exception as e:  # noqa: BLE001 - page/network errors vary; report and continue
+        msg = str(e).splitlines()[0] if str(e) else type(e).__name__
+        if "Executable doesn't exist" in msg:
+            log.error("SmartExtract needs a Playwright browser: run `playwright install chromium`. Stopping.")
+            return {"name": name, "status": "ERROR", "error": msg, "fatal": True}
+        log.error("%s: %s: %s", name, type(e).__name__, msg)
+        return {"name": name, "status": "ERROR", "error": f"{type(e).__name__}: {msg}"}
+
+
 # -- Target building --------------------------------------------------------
 
 def build_scrape_targets(
@@ -1311,7 +1344,7 @@ def _run_all(
         # Parallel mode
         with ThreadPoolExecutor(max_workers=min(workers, len(targets))) as pool:
             future_to_target = {
-                pool.submit(_run_one_site, target["name"], target["url"]): target
+                pool.submit(_run_one_site_safe, target["name"], target["url"]): target
                 for target in targets
             }
             for future in as_completed(future_to_target):
@@ -1327,9 +1360,11 @@ def _run_all(
                 label = f"{target['name']} [{target['query']}]"
             log.info("[%d/%d] %s", i + 1, len(targets), label)
 
-            r = _run_one_site(target["name"], target["url"])
+            r = _run_one_site_safe(target["name"], target["url"])
             results.append(r)
             _process_result(r, target)
+            if r.get("fatal"):
+                break
 
     # Summary
     for r in results:

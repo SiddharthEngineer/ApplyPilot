@@ -1,0 +1,84 @@
+{
+  "RemoteOK|remoteok.com": {
+    "strategy": "json_ld",
+    "extraction": {
+      "title": "title",
+      "salary": "baseSalary.value",
+      "description": "description",
+      "location": "jobLocation[0].address.addressCountry",
+      "url": "hiringOrganization.url"
+    }
+  },
+  "WeWorkRemotely|weworkremotely.com": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": "#search-results > ul > li",
+      "title": ".new-listing__header__title__text",
+      "salary": ".new-listing__categories__category:contains('$')",
+      "description": null,
+      "location": ".new-listing__company-headquarters",
+      "url": "a.listing-link--unlocked, a.listing-ad-url--main"
+    },
+    "child_tag": "li"
+  },
+  "Remotive|remotive.com": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": "#hits li:not(.remotive-only-public)",
+      "title": ".job-tile-title a span:first-child",
+      "salary": ".tag-small:contains('$'), .tag-small:contains('usd')",
+      "description": null,
+      "location": ".tag-small:has(a[href*='location'])",
+      "url": ".job-tile-title a"
+    },
+    "child_tag": "li"
+  },
+  "JustRemote|justremote.co": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": "[class^=\"new-job-item__JobItemWrapper-\"]",
+      "title": "h3",
+      "salary": null,
+      "description": null,
+      "location": null,
+      "url": "a"
+    },
+    "child_tag": "div"
+  },
+  "4DayWeek|4dayweek.io": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": "[data-testid=\"job-card\"]",
+      "title": "h3 > a",
+      "salary": "span:contains(\"$\"), span:contains(\"\u00a3\"), span:contains(\"\u20ac\")",
+      "description": null,
+      "location": "p:nth-of-type(1)",
+      "url": "h3 > a"
+    },
+    "child_tag": "div"
+  },
+  "Hacker News Jobs|news.ycombinator.com": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": "tr.athing.submission",
+      "title": ".titleline > a",
+      "salary": null,
+      "description": null,
+      "location": null,
+      "url": ".titleline > a"
+    },
+    "child_tag": "tr"
+  },
+  "BuiltIn Remote|builtin.com": {
+    "strategy": "css_selectors",
+    "extraction": {
+      "job_card": ".job-bounded-responsive",
+      "title": "[data-id='job-card-title']",
+      "salary": ".text-gray-04:contains('Annually')",
+      "description": ".collapse .fs-sm",
+      "location": ".text-gray-04:not(:contains('Annually')):not(:contains('level')):not(:contains('Remote'))",
+      "url": "[data-id='job-card-title']"
+    },
+    "child_tag": "div"
+  }
+}
