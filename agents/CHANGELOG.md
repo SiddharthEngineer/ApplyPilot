@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Gemini Free Tier — Task 2** (2026-10-02): A Gemini 429 for a per-day quota (`RESOURCE_EXHAUSTED`, `quotaId` containing `PerDay`) raises `LLMQuotaExhausted` after one request instead of 5 backoff retries, logging `Gemini daily quota exhausted for <model>`. Per-minute 429s still retry and now wait Gemini's `retryDelay`. Scoring, tailoring, cover letters and SmartExtract stop cleanly with `"stopped": "daily_quota"`, leaving the remaining jobs untouched (no attempt counted) for the next run. The pipeline shows `stopped: daily quota` as a warning, and streaming mode doesn't re-run the stopped stage.
 - **Gemini Free Tier — Task 1** (2026-10-02): Per-stage models. `get_client(purpose)` returns one memoized client per stage (`discovery`, `scoring`, `tailor`, `cover`, or `default`); each resolves `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → provider default, so `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` (documented but never read) now work, plus new `LLM_COVER_MODEL`. Clients on the same model share one RPM window. `get_discovery_client()` is an alias; `reset_clients()` clears the cache. Tests in `tests/test_llm.py::TestPerStageRouting`.
 
 ### Fixed

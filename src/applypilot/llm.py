@@ -113,6 +113,52 @@ _GEMINI_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 _GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
+class LLMQuotaExhausted(RuntimeError):
+    """A per-day quota is used up: no retry inside this run can succeed.
+
+    Stage loops catch this, stop, and leave the remaining jobs for the next run.
+    """
+
+    def __init__(self, model: str, scope: str) -> None:
+        self.model = model
+        self.scope = scope
+        super().__init__(f"Gemini daily quota exhausted for {model} ({scope})")
+
+
+def _parse_quota_error(resp: httpx.Response) -> tuple[str | None, float | None]:
+    """Read a Gemini 429 body. Returns (per-day quotaId or None, retryDelay seconds or None).
+
+    Native errors are ``{"error": {...}}``; the OpenAI-compat layer wraps the
+    same object in a list.
+    """
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001 - non-JSON body: treat as a plain transient 429
+        return None, None
+    if isinstance(body, list):
+        body = body[0] if body else {}
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return None, None
+
+    per_day: str | None = None
+    retry_delay: float | None = None
+    for detail in err.get("details") or []:
+        if not isinstance(detail, dict):
+            continue
+        for v in detail.get("violations") or []:
+            quota_id = v.get("quotaId", "") if isinstance(v, dict) else ""
+            if "PerDay" in quota_id and err.get("status") == "RESOURCE_EXHAUSTED":
+                per_day = quota_id
+        delay = detail.get("retryDelay")
+        if isinstance(delay, str) and delay.endswith("s"):
+            try:
+                retry_delay = float(delay[:-1])
+            except ValueError:
+                pass
+    return per_day, retry_delay
+
+
 class LLMClient:
     """Thin LLM client supporting OpenAI-compatible and native Gemini endpoints.
 
@@ -314,6 +360,8 @@ class LLMClient:
                 try:
                     return self._chat_native_gemini(messages, temperature, max_tokens)
                 except httpx.HTTPStatusError as native_exc:
+                    if native_exc.response.status_code == 429:
+                        self._raise_if_daily_quota(native_exc.response)
                     raise RuntimeError(
                         f"Both Gemini endpoints failed. Compat: {exc.response.status_code}. "
                         f"Native: {native_exc.response.status_code} — "
@@ -322,13 +370,19 @@ class LLMClient:
 
             except httpx.HTTPStatusError as exc:
                 resp = exc.response
+                retry_delay = None
+                if resp.status_code == 429:
+                    retry_delay = self._raise_if_daily_quota(resp)
                 if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
                     # Respect Retry-After header if provided (Gemini sends this).
                     retry_after = (
                         resp.headers.get("Retry-After")
                         or resp.headers.get("X-RateLimit-Reset-Requests")
                     )
-                    if retry_after:
+                    if retry_delay is not None:
+                        # Gemini's RetryInfo says when the per-minute window frees up.
+                        wait = min(retry_delay + 1, 90)
+                    elif retry_after:
                         try:
                             wait = float(retry_after)
                         except (ValueError, TypeError):
@@ -358,6 +412,15 @@ class LLMClient:
                 raise
 
         raise RuntimeError("LLM request failed after all retries")
+
+    def _raise_if_daily_quota(self, resp: httpx.Response) -> float | None:
+        """Raise LLMQuotaExhausted for a per-day 429; else return its retryDelay (if any)."""
+        per_day, retry_delay = _parse_quota_error(resp)
+        if per_day:
+            log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.",
+                      self.model, per_day)
+            raise LLMQuotaExhausted(self.model, per_day)
+        return retry_delay
 
     def ask(self, prompt: str, **kwargs) -> str:
         """Convenience: single user prompt -> assistant response."""

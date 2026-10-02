@@ -112,8 +112,8 @@ def _run_discover(workers: int = 1, no_cache: bool = False) -> dict:
     console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
     try:
         from applypilot.discovery.smartextract import run_smart_extract
-        run_smart_extract(workers=workers, no_cache=no_cache)
-        stats["smartextract"] = "ok"
+        se = run_smart_extract(workers=workers, no_cache=no_cache)
+        stats["smartextract"] = _stage_status(se)["status"]
     except Exception as e:
         log.error("Smart extract failed: %s", e)
         console.print(f"  [red]Smart extract error:[/red] {e}")
@@ -133,12 +133,21 @@ def _run_enrich(workers: int = 1) -> dict:
         return {"status": f"error: {e}"}
 
 
+QUOTA_STOPPED = "stopped: daily quota"
+
+
+def _stage_status(stats: dict | None) -> dict:
+    """Map an LLM stage's stats to a pipeline status ("stopped" = daily quota hit, rest left for later)."""
+    if isinstance(stats, dict) and stats.get("stopped") == "daily_quota":
+        return {"status": QUOTA_STOPPED}
+    return {"status": "ok"}
+
+
 def _run_score() -> dict:
     """Stage: LLM scoring — assign fit scores 1-10."""
     try:
         from applypilot.scoring.scorer import run_scoring
-        run_scoring()
-        return {"status": "ok"}
+        return _stage_status(run_scoring())
     except Exception as e:
         log.error("Scoring failed: %s", e)
         return {"status": f"error: {e}"}
@@ -149,8 +158,7 @@ def _run_tailor(min_score: int = 7, validation_mode: str = "normal",
     """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
     try:
         from applypilot.scoring.tailor import run_tailoring
-        run_tailoring(min_score=min_score, validation_mode=validation_mode, source=source)
-        return {"status": "ok"}
+        return _stage_status(run_tailoring(min_score=min_score, validation_mode=validation_mode, source=source))
     except Exception as e:
         log.error("Tailoring failed: %s", e)
         return {"status": f"error: {e}"}
@@ -160,8 +168,7 @@ def _run_cover(min_score: int = 7, validation_mode: str = "normal") -> dict:
     """Stage: Cover letter generation."""
     try:
         from applypilot.scoring.cover_letter import run_cover_letters
-        run_cover_letters(min_score=min_score, validation_mode=validation_mode)
-        return {"status": "ok"}
+        return _stage_status(run_cover_letters(min_score=min_score, validation_mode=validation_mode))
     except Exception as e:
         log.error("Cover letter generation failed: %s", e)
         return {"status": f"error: {e}"}
@@ -331,11 +338,16 @@ def _run_stage_streaming(
 
         if pending > 0:
             try:
-                runner(**kwargs)
+                result = runner(**kwargs)
                 passes += 1
             except Exception as e:
                 log.error("Stage '%s' error (pass %d): %s", stage, passes, e)
                 passes += 1
+            else:
+                if isinstance(result, dict) and result.get("status") == QUOTA_STOPPED:
+                    # Re-running would only spend another request on the same exhausted quota.
+                    tracker.mark_done(stage, {"status": QUOTA_STOPPED, "passes": passes})
+                    return
         else:
             # No work right now
             upstream_done = upstream is None or tracker.is_done(upstream)
@@ -404,7 +416,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
             console.print(f"\n  [red]STAGE FAILED:[/red] {e}")
 
         results.append({"stage": name, "status": status, "elapsed": elapsed})
-        if status not in ("ok", "partial"):
+        if status not in ("ok", "partial", QUOTA_STOPPED):
             errors[name] = status
 
         console.print(f"\n  Stage '{name}' completed in {elapsed:.1f}s — {status}")
@@ -473,7 +485,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         status = r.get("status", "ok")
 
         results.append({"stage": name, "status": status, "elapsed": elapsed})
-        if status not in ("ok", "partial", "skipped"):
+        if status not in ("ok", "partial", "skipped", QUOTA_STOPPED):
             errors[name] = status
 
     return {"stages": results, "errors": errors, "elapsed": total_elapsed}
@@ -560,7 +572,7 @@ def run_pipeline(
         status_display = r["status"][:30]
         if r["status"] == "ok":
             style = "green"
-        elif r["status"] in ("partial", "skipped"):
+        elif r["status"] in ("partial", "skipped", QUOTA_STOPPED):
             style = "yellow"
         else:
             style = "red"

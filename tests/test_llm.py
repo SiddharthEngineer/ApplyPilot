@@ -9,6 +9,7 @@ import pytest
 
 from applypilot.llm import (
     LLMClient,
+    LLMQuotaExhausted,
     _detect_provider,
     _GeminiCompatForbidden,
     get_client,
@@ -307,6 +308,82 @@ class TestGeminiCompatFallback:
             with patch("applypilot.llm.time.sleep"):
                 result = client.chat([{"role": "user", "content": "hi"}])
                 assert result == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Daily-quota 429 → LLMQuotaExhausted (no retries)
+# ---------------------------------------------------------------------------
+
+def _gemini_429(quota_id: str, retry_delay: str | None = None, wrap_list: bool = False):
+    details: list[dict] = [{
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [{
+            "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+            "quotaId": quota_id,
+        }],
+    }]
+    if retry_delay:
+        details.append({"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay})
+    body: dict | list = {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota", "details": details}}
+    if wrap_list:
+        body = [body]
+    resp = _make_response(429, text=json.dumps(body))
+    resp.json.return_value = body
+    return resp
+
+
+_DAILY = "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+_MINUTE = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+
+
+class TestDailyQuota:
+    def _client(self):
+        return LLMClient(base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                         model="gemini-3.1-flash-lite", api_key="k")
+
+    @pytest.mark.parametrize("wrap_list", [False, True])
+    def test_daily_429_raises_after_one_request(self, wrap_list, caplog):
+        client = self._client()
+        with patch.object(client._client, "post", return_value=_gemini_429(_DAILY, wrap_list=wrap_list)) as post, \
+                patch("applypilot.llm.time.sleep") as sleep, caplog.at_level("ERROR", logger="applypilot.llm"), \
+                pytest.raises(LLMQuotaExhausted) as ei:
+            client.chat([{"role": "user", "content": "hi"}])
+        assert post.call_count == 1
+        sleep.assert_not_called()
+        assert ei.value.model == "gemini-3.1-flash-lite"
+        assert ei.value.scope == _DAILY
+        assert "Gemini daily quota exhausted for gemini-3.1-flash-lite" in caplog.text
+
+    def test_daily_429_on_native_path(self):
+        client = self._client()
+        client._use_native_gemini = True
+        with patch.object(client._client, "post", return_value=_gemini_429(_DAILY)) as post, \
+                pytest.raises(LLMQuotaExhausted):
+            client.chat([{"role": "user", "content": "hi"}])
+        assert post.call_count == 1
+
+    def test_daily_429_after_compat_fallback(self):
+        client = self._client()
+        with patch.object(client._client, "post", side_effect=[_make_response(404), _gemini_429(_DAILY)]), \
+                pytest.raises(LLMQuotaExhausted):
+            client.chat([{"role": "user", "content": "hi"}])
+
+    def test_per_minute_429_retries_with_backoff(self):
+        client = self._client()
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        with patch.object(client._client, "post", side_effect=[_gemini_429(_MINUTE), _gemini_429(_MINUTE), ok]) as post, \
+                patch("applypilot.llm.time.sleep") as sleep:
+            assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
+        assert post.call_count == 3
+        assert [c.args[0] for c in sleep.call_args_list] == [10, 20]
+
+    def test_per_minute_429_honors_retry_delay(self):
+        client = self._client()
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        with patch.object(client._client, "post", side_effect=[_gemini_429(_MINUTE, retry_delay="7s"), ok]), \
+                patch("applypilot.llm.time.sleep") as sleep:
+            assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
+        sleep.assert_called_once_with(8.0)
 
 
 # ---------------------------------------------------------------------------

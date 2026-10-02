@@ -18,7 +18,7 @@ from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
-from applypilot.llm import get_client
+from applypilot.llm import LLMQuotaExhausted, get_client
 from applypilot.scoring.content_library import ContentLibrary, parse_content_library
 from applypilot.scoring.validator import (
     BANNED_WORDS,
@@ -816,6 +816,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
     completed = 0
     results: list[dict] = []
     stats: dict[str, int] = {"approved": 0, "failed_validation": 0, "failed_judge": 0, "error": 0}
+    stopped = ""
 
     for job in jobs:
         completed += 1
@@ -888,6 +889,11 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
                 "attempts": report["attempts"],
                 "overflow": overflow_info,
             }
+        except LLMQuotaExhausted as e:
+            # Don't count an attempt for this job; it and the rest wait for the next run.
+            stopped = "daily_quota"
+            log.warning("Tailoring stopped: %s. %d jobs left for the next run.", e, len(jobs) - completed + 1)
+            break
         except Exception as e:
             result = {
                 "url": job["url"], "title": job["title"], "site": job["site"],
@@ -937,9 +943,12 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         stats.get("error", 0),
     )
 
-    return {
+    out = {
         "approved": stats.get("approved", 0),
         "failed": stats.get("failed_validation", 0) + stats.get("failed_judge", 0),
         "errors": stats.get("error", 0),
         "elapsed": elapsed,
     }
+    if stopped:
+        out["stopped"] = stopped
+    return out
