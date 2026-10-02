@@ -570,3 +570,97 @@ class TestRPMLimiter:
                 assert client._rpm_window == 30.0
             finally:
                 llm_mod.reset_clients()
+
+
+# ---------------------------------------------------------------------------
+# Per-model limits: LLM_RPM_LIMITS / LLM_RPD_LIMITS
+# ---------------------------------------------------------------------------
+
+class TestPerModelLimits:
+    _LIMIT_VARS = ("LLM_RPM_LIMITS", "LLM_RPD_LIMITS", "LLM_RPM_LIMIT", "LLM_RPD_LIMIT")
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self, tmp_path, monkeypatch):
+        import applypilot.llm as llm_mod
+        for k in self._LIMIT_VARS:
+            monkeypatch.delenv(k, raising=False)
+        monkeypatch.setattr(llm_mod, "daily_usage", llm_mod.DailyUsage(tmp_path / "usage.json"))
+        monkeypatch.setattr(llm_mod, "_warned_limit_vars", set())
+        llm_mod.reset_clients()
+        yield llm_mod
+        llm_mod.reset_clients()
+
+    def test_multiline_json_with_trailing_commas(self, monkeypatch):
+        from applypilot.llm import model_limits
+        monkeypatch.setenv("LLM_RPM_LIMITS", '{\n  "gemini-3.1-flash-lite": 15,\n  "gemini-3.6-flash": 5,\n}')
+        monkeypatch.setenv("LLM_RPD_LIMITS", '{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20,}')
+        assert model_limits("gemini-3.1-flash-lite") == (15, 500)
+        assert model_limits("gemini-3.6-flash") == (5, 20)
+        assert model_limits("other-model") == (0, 0)
+
+    def test_global_limit_is_fallback(self, monkeypatch):
+        from applypilot.llm import model_limits
+        monkeypatch.setenv("LLM_RPM_LIMITS", '{"a": 15}')
+        monkeypatch.setenv("LLM_RPM_LIMIT", "10")
+        assert model_limits("a") == (15, 0)
+        assert model_limits("b") == (10, 0)
+
+    def test_unquoted_dotenv_value_warns_once(self, monkeypatch, caplog):
+        from applypilot.llm import model_limits
+        monkeypatch.setenv("LLM_RPM_LIMITS", "{")  # what python-dotenv reads from an unquoted multi-line value
+        with caplog.at_level("WARNING", logger="applypilot.llm"):
+            assert model_limits("a") == (0, 0)
+            model_limits("a")
+        assert caplog.text.count("Ignoring LLM_RPM_LIMITS") == 1
+        assert "single quotes" in caplog.text
+
+    def test_get_client_uses_its_models_limits(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "g")
+        for k in ("LLM_URL", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_MODEL", "LLM_DISCOVERY_MODEL",
+                  "LLM_SCORING_MODEL", "LLM_TAILOR_MODEL", "LLM_COVER_MODEL"):
+            monkeypatch.delenv(k, raising=False)
+        monkeypatch.setenv("LLM_RPM_LIMITS", '{"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5}')
+        monkeypatch.setenv("LLM_RPD_LIMITS", '{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}')
+        d, t = get_client("discovery"), get_client("tailor")
+        assert (d.model, d._rpm_limit, d._rpd_limit) == ("gemini-3.1-flash-lite", 15, 500)
+        assert (t.model, t._rpm_limit, t._rpd_limit) == ("gemini-3.6-flash", 5, 20)
+
+    def test_daily_limit_stops_before_sending(self, _isolate, caplog):
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        client = LLMClient("https://api.openai.com/v1", "m", "k", rpd_limit=2)
+        with patch.object(client._client, "post", return_value=ok) as post:
+            client.chat([{"role": "user", "content": "1"}])
+            client.chat([{"role": "user", "content": "2"}])
+            with caplog.at_level("ERROR", logger="applypilot.llm"), pytest.raises(LLMQuotaExhausted) as ei:
+                client.chat([{"role": "user", "content": "3"}])
+        assert post.call_count == 2
+        assert "2/2 requests today" in ei.value.scope
+        assert "Gemini daily quota exhausted for m" in caplog.text
+
+    def test_daily_count_is_shared_across_clients_and_runs(self, _isolate, tmp_path):
+        llm_mod = _isolate
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        first = LLMClient("https://api.openai.com/v1", "m", "k", rpd_limit=1)
+        with patch.object(first._client, "post", return_value=ok):
+            first.chat([{"role": "user", "content": "1"}])
+        # A later run: new client, new DailyUsage object reading the same file.
+        llm_mod.daily_usage = llm_mod.DailyUsage(tmp_path / "usage.json")
+        second = LLMClient("https://api.openai.com/v1", "m", "k", rpd_limit=1)
+        with pytest.raises(LLMQuotaExhausted):
+            second.chat([{"role": "user", "content": "2"}])
+        assert llm_mod.daily_usage.count("other") == 0
+
+    def test_daily_count_resets_on_a_new_pacific_day(self, _isolate):
+        usage = _isolate.daily_usage
+        with patch.object(_isolate.DailyUsage, "today", return_value="2026-10-01"):
+            usage.increment("m")
+            assert usage.count("m") == 1
+        with patch.object(_isolate.DailyUsage, "today", return_value="2026-10-02"):
+            assert usage.count("m") == 0
+
+    def test_no_rpd_limit_writes_no_file(self, _isolate, tmp_path):
+        ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
+        client = LLMClient("https://api.openai.com/v1", "m", "k")
+        with patch.object(client._client, "post", return_value=ok):
+            client.chat([{"role": "user", "content": "1"}])
+        assert not (tmp_path / "usage.json").exists()

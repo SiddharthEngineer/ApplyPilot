@@ -161,7 +161,8 @@ class TestDoctorRateLimitTuning:
 
         for key in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL",
                     "LLM_MODEL", "LLM_DISCOVERY_MODEL", "LLM_SCORING_MODEL", "LLM_TAILOR_MODEL",
-                    "LLM_COVER_MODEL", "LLM_RPM_LIMIT", "LLM_RPM_WINDOW"):
+                    "LLM_COVER_MODEL", "LLM_RPM_LIMIT", "LLM_RPM_WINDOW", "LLM_RPM_LIMITS",
+                    "LLM_RPD_LIMITS", "LLM_RPD_LIMIT"):
             monkeypatch.delenv(key, raising=False)
         for key, val in env.items():
             monkeypatch.setenv(key, val)
@@ -187,8 +188,7 @@ class TestDoctorRateLimitTuning:
         )
         assert result.exit_code == 0
         assert "Discovery model" in result.output
-        assert "RPM limit" in result.output
-        assert "12" in result.output
+        assert "12 RPM" in result.output
 
     def test_four_per_stage_model_lines(self, tmp_path, monkeypatch) -> None:
         """doctor prints one model line per LLM stage, honoring LLM_{STAGE}_MODEL."""
@@ -198,11 +198,28 @@ class TestDoctorRateLimitTuning:
             ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
         )
         assert result.exit_code == 0
-        lines = {line.split()[0]: line.split()[-1] for line in result.output.splitlines()
+        lines = {line.split()[0]: line.split()[3] for line in result.output.splitlines()
                  if line.strip().split(" ")[0] in ("Discovery", "Scoring", "Tailor", "Cover")
                  and " model " in line}
         assert lines == {"Discovery": "gemini-3.1-flash-lite", "Scoring": "gemini-3.1-flash-lite",
                          "Tailor": "gemini-3.6-flash", "Cover": "gemini-3.6-flash"}
+
+    def test_per_model_limits_and_usage(self, tmp_path, monkeypatch) -> None:
+        """Stage lines show LLM_RPM_LIMITS / LLM_RPD_LIMITS for that stage's model and today's usage."""
+        from applypilot import llm
+        monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
+        llm.daily_usage.increment("gemini-3.6-flash")
+        result = self._invoke(
+            tmp_path, monkeypatch,
+            {"GEMINI_API_KEY": "k", "LLM_SCORING_MODEL": "gemini-3.1-flash-lite",
+             "LLM_RPM_LIMITS": '{"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5,}',
+             "LLM_RPD_LIMITS": '{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}'},
+            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
+        )
+        assert result.exit_code == 0
+        assert "gemini-3.1-flash-lite (15 RPM, 0/500 today)" in result.output
+        assert "gemini-3.6-flash (5 RPM, 1/20 today)" in result.output
+        assert "RPM limit" not in result.output
 
     def test_bad_discovery_model_warns_with_available(self, tmp_path, monkeypatch) -> None:
         """Bad discovery model triggers a WARN with an Available: model list."""

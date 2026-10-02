@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-model LLM limits** (2026-10-02): `LLM_RPM_LIMITS` and `LLM_RPD_LIMITS` take a JSON object of model → requests per minute / per day (trailing commas allowed; in `.env` a multi-line value must be single-quoted, and an unparseable value logs a warning once). Each client gets its own model's limits, falling back to `LLM_RPM_LIMIT` / `LLM_RPD_LIMIT`. Daily counts persist across runs in `~/.applypilot/llm_usage.json` and reset at midnight Pacific. At the limit, `chat()` raises `LLMQuotaExhausted` before sending, so stages stop cleanly. `doctor` shows each stage's model as `model (N RPM, used/limit today)`. Tests in `tests/test_llm.py::TestPerModelLimits` and `tests/test_doctor_content_library.py`.
+
 ### Security
 - **Gemini Free Tier — Task 5** (2026-10-02): The Gemini API key was sent as a `?key=` URL parameter (native generateContent calls and `doctor`'s model list), and httpx logs request URLs at INFO, so the key could be printed in logs. It now goes in the `x-goog-api-key` header.
 
