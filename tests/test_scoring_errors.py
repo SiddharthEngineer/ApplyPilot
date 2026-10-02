@@ -35,7 +35,7 @@ def _run(conn, resume, chat):
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client):
-        return scorer.run_scoring()
+        return scorer.run_scoring(prefilter=False)
 
 
 def _row(conn):

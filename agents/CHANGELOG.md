@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Gemini Free Tier — Task 4** (2026-10-02): Scoring pre-filter. Before any LLM call, a job whose title shares no significant word (seniority and filler words ignored) with your `searches.yaml` queries or profile `target_role` gets `fit_score = 1` with reasoning `prefilter: title not relevant`, and the run logs `prefilter skipped N/M jobs`. `applypilot run score --no-prefilter` scores everything. On the VPS DB it would skip 674 of 2,594 pending jobs. `tests/test_scoring_prefilter.py`.
+
 ### Changed
 - **Gemini Free Tier — Task 3** (2026-10-02): Scoring and tailoring ask Gemini for structured JSON (`responseMimeType: application/json` + `responseSchema`, via the native API). `LLMClient.chat()` takes `response_schema`; non-Gemini providers ignore it and keep text parsing. The score parser accepts JSON or the old `SCORE:` format. Each run logs its JSON-parse retry count. Live: 20 jobs scored on `gemini-3.1-flash-lite` with 0 parse retries.
 - **Gemini Free Tier — Task 2** (2026-10-02): A Gemini 429 for a per-day quota (`RESOURCE_EXHAUSTED`, `quotaId` containing `PerDay`) raises `LLMQuotaExhausted` after one request instead of 5 backoff retries, logging `Gemini daily quota exhausted for <model>`. Per-minute 429s still retry and now wait Gemini's `retryDelay`. Scoring, tailoring, cover letters and SmartExtract stop cleanly with `"stopped": "daily_quota"`, leaving the remaining jobs untouched (no attempt counted) for the next run. The pipeline shows `stopped: daily quota` as a warning, and streaming mode doesn't re-run the stopped stage.
