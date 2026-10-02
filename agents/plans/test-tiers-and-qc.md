@@ -68,7 +68,7 @@ Run `ruff check src/` and `pytest tests/ -q`. Drop the matrix to `3.13` only to 
 version the local `.venv` reports.
 **Acceptance:**
 - Success Criterion 4: the workflow run on the PR that adds this change is green.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 4: Committed recorded-response data
 **Runs:** local (capture needs network), then cloud for the tests
@@ -97,7 +97,7 @@ under Testing, as the first thing to run when reviewing a nightly PR.
 **Acceptance:**
 - `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` prints 5 criteria and exits 0.
 - Unit test for the plan parser (`tests/test_qc_script.py`) using a small inline plan string.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ## Implementation Order
 ```
@@ -122,3 +122,5 @@ Task 4 (local capture; any time after Task 2)
 - 2026-10-01: Plan created (roadmap initiative R0). Suite hang diagnosed with `-o faulthandler_timeout=60`: `workday.py:158 _urlopen` reached from `tests/test_pipeline.py:16`.
 - 2026-10-02: Task 1 done (nightly routine). `tests/test_pipeline.py` gets an autouse fixture patching `applypilot.discovery.workday.run_workday_discovery` and `applypilot.discovery.smartextract.run_smart_extract` (covers all 4 `_run_discover()` tests), plus a test asserting the stubs ran. `pytest tests/test_pipeline.py -q`: 5 passed in 1.0s. `pytest tests/ -q` (2 deselects pending Task 2): 359 passed, 25 skipped, 2 deselected in 14.6s.
 - 2026-10-02: Task 2 done (nightly routine). `tests/conftest.py`: `pytest_configure` sets `APPLYPILOT_DIR` to a `mkdtemp` session dir (removed in `pytest_unconfigure`); autouse `_block_network` patches `socket.socket.connect`/`connect_ex` via `patch.object` to raise `NetworkAccessBlocked` for non-localhost, non-`AF_UNIX` addresses, skipped for `live`/`llm` items. New `tests/test_hermetic.py` (7 tests). The two tests that needed a real `~/.applypilot` now pass with no changes, because the isolated APP_DIR exists; the gate no longer needs any `--deselect`. `HOME=$(mktemp -d) pytest tests/ -q`: 367 passed, 26 skipped in 13.4s (in the cloud image this also needs `PYTHONUSERBASE=/root/.local`, since pip installs to the user site under HOME). No other test touched the network.
+- 2026-10-02: Task 3 done (VPS session). `.github/workflows/ci.yml` runs on `pull_request`/`push` to `trunk` + `workflow_dispatch`, Python 3.12 via `astral-sh/setup-uv@v6` (matches the local `.venv`), installs jobspy `--no-deps` + its runtime deps like `scripts/cloud_setup.sh`. Deviation: lint is `ruff check src/ tests/ scripts/ --select E9,F63,F7,F82` (real errors only), because ruff 0.16's default rule set reports ~150 pre-existing style findings in `src/`; full-lint cleanup is not planned yet. CI green on PR #3.
+- 2026-10-02: Task 5 done (VPS session). `scripts/qc.py` (stdlib only) + `tests/test_qc_script.py` (5 tests). `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` prints 5 criteria and exits 0. README Testing section starts with it.
