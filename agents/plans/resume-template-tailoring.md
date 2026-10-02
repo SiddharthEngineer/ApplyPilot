@@ -75,7 +75,7 @@ the generic look still works for users without a custom template.
 **Acceptance:**
 - `fixed_blocks` test: two different `TailoredResume`s → identical header + education HTML substrings.
 - `pytest tests/test_pdf_overflow.py` still passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 3: Build the user's template from resume.pdf
 **Runs:** local (authoring against your resume PDF, needs your review)
@@ -170,3 +170,4 @@ Task 1 ──► Task 2 ──► Task 3
 - 2026-10-01: Plan created (roadmap initiative R5). Depends on gemini-free-tier-llm (Tasks 1 and 3) for per-stage models and structured output used in Task 4.
 - 2026-10-01: Switched from Claude/Anthropic structured output to Gemini `responseSchema` after the user chose the Gemini free tier.
 - 2026-10-02: Task 1 done (VPS session 4). `Project.slug` (kebab-case of the name; a duplicate name gets `-<role key>`) and `RoleSection.key` (kebab-case of the title without dates, e.g. `data-science-associate-air`). `from_llm_json` also rejects a project cited under a role it doesn't belong to, and takes optional `fixed_roles` so title/company/dates/tagline come from the base resume, not the LLM. Skills are a `[{category, items}]` list in JSON. Synthetic fixture `tests/fixtures/content_library_sample.md`.
+- 2026-10-02: Task 2 done. `scoring/template.py` `render_resume()` (Jinja2, autoescape, StrictUndefined) + `config/resume_template.default.html`. The generic CSS was **copied**, not moved: `pdf.build_html()` stays for the legacy `--source resume` path (Design Decision 6). `resume_fixed.yaml` holds `education:` and optional `roles:` (fixed title/company/dates/tagline per role key). Without the yaml, education falls back to resume.txt's EDUCATION section. Template blocks carry ids (`resume-header`, `resume-education`, …) that the `fixed_blocks` test compares.
