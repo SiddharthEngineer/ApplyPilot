@@ -5,6 +5,7 @@ and exports to PDF using headless Chromium via Playwright.
 """
 
 import logging
+import re
 from pathlib import Path
 
 from applypilot.config import TAILORED_DIR
@@ -380,7 +381,7 @@ def render_pdf(html: str, output_path: str) -> dict:
         )
         overflow = content_height_pt > _USABLE_HEIGHT_PT + 1  # 1pt tolerance
 
-        page.pdf(
+        data = page.pdf(
             path=output_path,
             format="Letter",
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
@@ -388,11 +389,26 @@ def render_pdf(html: str, output_path: str) -> dict:
         )
         browser.close()
 
+    # The page count is exact whatever @page margins the template uses; the height
+    # check above assumes the default 0.35in/0.5in margins and is only a fallback.
+    pages = _count_pdf_pages(data)
+    if pages is not None:
+        overflow = pages > 1
+
     return {
         "overflow": overflow,
         "content_height_pt": round(content_height_pt, 1),
         "usable_height_pt": _USABLE_HEIGHT_PT,
+        "pages": pages,
     }
+
+
+def _count_pdf_pages(data: object) -> int | None:
+    """Page count from the PDF's page tree (/Type /Pages ... /Count N), or None if unreadable."""
+    if not isinstance(data, bytes):
+        return None
+    counts = re.findall(rb"/Count\s+(\d+)", data)
+    return max(int(c) for c in counts) if counts else None
 
 
 # ── Public API ───────────────────────────────────────────────────────────
