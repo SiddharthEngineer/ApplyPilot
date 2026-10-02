@@ -53,3 +53,18 @@ def test_app_dir_isolated():
     assert config.APP_DIR != real
     assert config.APP_DIR.name.startswith("applypilot-test-")
     assert config.DB_PATH.parent == config.APP_DIR
+
+
+def test_load_env_ignores_repo_root_dotenv(tmp_path, monkeypatch):
+    """load_env() must not read a .env from the CWD (the developer's real keys) during unit tests."""
+    import os
+
+    from applypilot import pipeline
+    from applypilot.config import load_env
+
+    (tmp_path / ".env").write_text("APPLYPILOT_HERMETIC_PROBE=leaked\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("APPLYPILOT_HERMETIC_PROBE", raising=False)
+    load_env()
+    pipeline.load_env()
+    assert "APPLYPILOT_HERMETIC_PROBE" not in os.environ

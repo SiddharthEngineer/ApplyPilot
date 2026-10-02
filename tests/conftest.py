@@ -77,6 +77,32 @@ def _block_network(request: pytest.FixtureRequest):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_env_file(request: pytest.FixtureRequest):
+    """Keep load_env() away from the repo-root .env (its CWD fallback) in unit tests.
+
+    Otherwise CLI tests that run _bootstrap() pull the developer's real keys and limits into os.environ.
+    Only the isolated APPLYPILOT_DIR/.env is loaded. Tests marked live/llm keep the real loader.
+    Patched at ``dotenv.load_dotenv`` because config.load_env imports it at call time, which covers
+    modules that bound ``load_env`` by name (pipeline.py, cli.py).
+    """
+    if "live" in request.keywords or "llm" in request.keywords:
+        yield
+        return
+    import dotenv
+
+    real_load_dotenv = dotenv.load_dotenv
+
+    def _no_cwd_fallback(dotenv_path=None, *args, **kwargs):
+        # load_env() calls load_dotenv(ENV_PATH) and then load_dotenv() (search from CWD); drop the latter.
+        if dotenv_path is None and not kwargs.get("stream"):
+            return False
+        return real_load_dotenv(dotenv_path, *args, **kwargs)
+
+    with patch.object(dotenv, "load_dotenv", _no_cwd_fallback):
+        yield
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--run-live",

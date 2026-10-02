@@ -109,8 +109,13 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
 
 `applypilot doctor` prints the model each stage will use. Other ways to save quota:
 
-- **`LLM_RPM_LIMIT`** sets a client-side sliding-window limiter, shared by every stage on the same model (`0` disables it). Set it a little below your scoring model's free RPM.
-- **Daily quota**: when a model's per-day quota runs out, the stage stops after one request (`Gemini daily quota exhausted for <model>`). The remaining jobs are left as they are, and the next run picks them up.
+- **Per-model limits**: copy your numbers from AI Studio into `.env`. Multi-line values need single quotes:
+  ```
+  LLM_RPM_LIMITS='{"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5}'
+  LLM_RPD_LIMITS='{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}'
+  ```
+  The requests-per-minute limiter is shared by every stage on the same model. Requests per day are counted per model in `~/.applypilot/llm_usage.json`, across runs, and reset at midnight Pacific. `LLM_RPM_LIMIT` / `LLM_RPD_LIMIT` apply to models not listed. `applypilot doctor` shows each stage's limits and today's count.
+- **Daily quota**: when a model reaches its `LLM_RPD_LIMITS` count, or Google returns a per-day 429, the stage stops before spending more requests (`Gemini daily quota exhausted for <model>`). The remaining jobs are left as they are, and the next run picks them up.
 - **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1 without an LLM call. Use `--no-prefilter` to score them anyway.
 - **Structured output**: scoring and tailoring ask Gemini for schema-constrained JSON, so malformed replies don't cost retries.
 - **`--validation lenient`** on `applypilot run tailor` saves about one LLM call per attempt.

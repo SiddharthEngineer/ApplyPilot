@@ -10,10 +10,16 @@ Auto-detects provider from environment:
 LLM_MODEL env var overrides the model name for any provider.
 """
 
+import json
 import logging
 import os
+import re
+import threading
 import time
 from collections import deque
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -113,6 +119,98 @@ _GEMINI_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 _GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
+# ---------------------------------------------------------------------------
+# Per-model limits (LLM_RPM_LIMITS / LLM_RPD_LIMITS)
+# ---------------------------------------------------------------------------
+
+_warned_limit_vars: set[str] = set()
+
+
+def _parse_model_limits(var: str) -> dict[str, int]:
+    """Read a ``{"model": n, ...}`` env var. Trailing commas are allowed; a bad value logs once and is ignored.
+
+    In a .env file a multi-line value must be wrapped in single quotes, or python-dotenv reads only ``{``.
+    """
+    raw = os.environ.get(var, "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(re.sub(r",\s*([}\]])", r"\1", raw))
+        if not isinstance(data, dict):
+            raise TypeError("not an object")
+        return {str(k): int(v) for k, v in data.items()}
+    except (ValueError, TypeError) as e:
+        if var not in _warned_limit_vars:
+            _warned_limit_vars.add(var)
+            log.warning(
+                "Ignoring %s (%s): expected {\"model\": number, ...}. In .env, wrap a multi-line value "
+                "in single quotes: %s='{ ... }'", var, e, var,
+            )
+        return {}
+
+
+def model_limits(model: str) -> tuple[int, int]:
+    """(requests/minute, requests/day) for a model; 0 = no limit.
+
+    LLM_RPM_LIMITS / LLM_RPD_LIMITS (per model) win over LLM_RPM_LIMIT / LLM_RPD_LIMIT (all models).
+    """
+    rpm = _parse_model_limits("LLM_RPM_LIMITS").get(model, int(os.environ.get("LLM_RPM_LIMIT", "0") or 0))
+    rpd = _parse_model_limits("LLM_RPD_LIMITS").get(model, int(os.environ.get("LLM_RPD_LIMIT", "0") or 0))
+    return rpm, rpd
+
+
+# Gemini's per-day quotas reset at midnight Pacific time.
+_QUOTA_TZ = ZoneInfo("America/Los_Angeles")
+
+
+class DailyUsage:
+    """Requests sent per model today, persisted so separate runs share one daily budget.
+
+    File: ``<APPLYPILOT_DIR>/llm_usage.json`` = ``{"day": "YYYY-MM-DD", "counts": {model: n}}``.
+    It's re-read on every call, so concurrent runs stay roughly in step.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+
+    @property
+    def path(self) -> Path:
+        if self._path is None:
+            from applypilot.config import APP_DIR
+            self._path = APP_DIR / "llm_usage.json"
+        return self._path
+
+    @staticmethod
+    def today() -> str:
+        return datetime.now(_QUOTA_TZ).date().isoformat()
+
+    def _load(self) -> dict[str, int]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(data, dict) or data.get("day") != self.today():
+            return {}
+        return {str(k): int(v) for k, v in (data.get("counts") or {}).items()}
+
+    def count(self, model: str) -> int:
+        with self._lock:
+            return self._load().get(model, 0)
+
+    def increment(self, model: str) -> None:
+        with self._lock:
+            counts = self._load()
+            counts[model] = counts.get(model, 0) + 1
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"day": self.today(), "counts": counts}), encoding="utf-8")
+            tmp.replace(self.path)
+
+
+daily_usage = DailyUsage()
+
+
 class LLMQuotaExhausted(RuntimeError):
     """A per-day quota is used up: no retry inside this run can succeed.
 
@@ -176,6 +274,7 @@ class LLMClient:
         rpm_limit: int = 0,
         rpm_window: float = 60.0,
         request_timestamps: deque[float] | None = None,
+        rpd_limit: int = 0,
     ) -> None:
         self.base_url = base_url
         self.model = model
@@ -192,6 +291,8 @@ class LLMClient:
         self._request_timestamps: deque[float] = (
             request_timestamps if request_timestamps is not None else deque()
         )
+        # Client-side daily cap (LLM_RPD_LIMITS), counted in the shared DailyUsage file.
+        self._rpd_limit: int = rpd_limit
 
     # -- RPM limiter --------------------------------------------------------
 
@@ -222,9 +323,21 @@ class LLMClient:
                 self._request_timestamps.popleft()
 
     def _record_request(self) -> None:
-        """Record the timestamp of a request for RPM tracking."""
+        """Record a completed request for RPM and daily tracking."""
         if self._rpm_limit > 0:
             self._request_timestamps.append(time.monotonic())
+        if self._rpd_limit > 0:
+            daily_usage.increment(self.model)
+
+    def _check_daily_limit(self) -> None:
+        """Raise LLMQuotaExhausted before sending if today's LLM_RPD_LIMITS budget is used up."""
+        if self._rpd_limit <= 0:
+            return
+        used = daily_usage.count(self.model)
+        if used >= self._rpd_limit:
+            scope = f"LLM_RPD_LIMITS: {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
+            log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.", self.model, scope)
+            raise LLMQuotaExhausted(self.model, scope)
 
     # -- Native Gemini API --------------------------------------------------
 
@@ -346,6 +459,7 @@ class LLMClient:
                 messages = [{"role": first["role"], "content": f"/no_think\n{first['content']}"}] + messages[1:]
 
         for attempt in range(_MAX_RETRIES):
+            self._check_daily_limit()
             try:
                 self._throttle_if_needed()
 
@@ -371,7 +485,9 @@ class LLMClient:
                 self._use_native_gemini = True
                 # Retry immediately with native — don't count as a rate-limit wait
                 try:
-                    return self._chat_native_gemini(messages, temperature, max_tokens)
+                    result = self._chat_native_gemini(messages, temperature, max_tokens)
+                    self._record_request()
+                    return result
                 except httpx.HTTPStatusError as native_exc:
                     if native_exc.response.status_code == 429:
                         self._raise_if_daily_quota(native_exc.response)
@@ -404,7 +520,7 @@ class LLMClient:
                         wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
 
                     reason = (
-                        "rate limited; set LLM_RPM_LIMIT below the model's free RPM"
+                        "rate limited; check LLM_RPM_LIMITS for this model"
                         if resp.status_code == 429 else "model overloaded"
                     )
                     log.warning(
@@ -471,13 +587,15 @@ def get_client(purpose: str = "default") -> LLMClient:
     client = _clients.get(purpose)
     if client is None:
         base_url, model, api_key = _detect_provider(purpose)
-        rpm_limit = int(os.environ.get("LLM_RPM_LIMIT", "0"))
+        rpm_limit, rpd_limit = model_limits(model)
         rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
-        log.info("LLM provider (%s): %s  model: %s", purpose, base_url, model)
+        log.info("LLM provider (%s): %s  model: %s  limits: %s RPM, %s RPD", purpose, base_url, model,
+                 rpm_limit or "no", rpd_limit or "no")
         client = LLMClient(
             base_url, model, api_key,
             rpm_limit=rpm_limit, rpm_window=rpm_window,
             request_timestamps=_rpm_timestamps.setdefault(model, deque()),
+            rpd_limit=rpd_limit,
         )
         _clients[purpose] = client
     return client

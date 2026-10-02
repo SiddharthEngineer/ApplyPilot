@@ -591,14 +591,17 @@ def doctor() -> None:
 
     # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
     if has_gemini or has_openai or has_opencode or has_local:
-        from applypilot.llm import PURPOSES, _detect_provider
-        # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients).
+        from applypilot.llm import PURPOSES, _detect_provider, daily_usage, model_limits
+        # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients),
+        # with that model's limits from LLM_RPM_LIMITS / LLM_RPD_LIMITS (or LLM_RPM_LIMIT / LLM_RPD_LIMIT).
         for purpose in PURPOSES:
-            results.append((f"{purpose.title()} model", ok_mark, _detect_provider(purpose)[1]))
-        rpm_limit = os.environ.get("LLM_RPM_LIMIT", "0")
-        rpm_window = os.environ.get("LLM_RPM_WINDOW", "60")
-        rpm_text = f"{rpm_limit} (window {rpm_window}s)" if rpm_limit != "0" else "off (set LLM_RPM_LIMIT)"
-        results.append(("RPM limit", ok_mark, rpm_text))
+            stage_model = _detect_provider(purpose)[1]
+            rpm, rpd = model_limits(stage_model)
+            rpd_text = f"{daily_usage.count(stage_model)}/{rpd} today" if rpd else "no RPD limit"
+            rpm_text = f"{rpm} RPM" if rpm else "no RPM limit"
+            results.append((f"{purpose.title()} model", ok_mark, f"{stage_model} ({rpm_text}, {rpd_text})"))
+        if not (os.environ.get("LLM_RPM_LIMITS") or os.environ.get("LLM_RPM_LIMIT")):
+            results.append(("RPM limit", warn_mark, "off: set LLM_RPM_LIMITS (per model) in .env"))
         results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))
 
     # --- Tier 3 checks ---

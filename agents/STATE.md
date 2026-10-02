@@ -10,6 +10,7 @@ Session 2 done: R2 `job-board-discovery-repair` 8/8 ✅ (PR #5).
 Session 3 done: R4 `gemini-free-tier-llm` 5/5 ✅ (PR #6). Per-stage models (`get_client(purpose)`, shared per-model RPM window),
 daily-quota stop (`LLMQuotaExhausted`, stages return `stopped: daily_quota`), Gemini structured JSON (scoring + tailoring),
 title pre-filter before scoring (`--no-prefilter`), doctor per-stage lines, API key moved from URL to `x-goog-api-key` header.
+After session 3 (user request): per-model `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` (JSON objects, single-quoted in `.env`), with the daily count in `~/.applypilot/llm_usage.json` (Pacific day). The user's `.env` has 15/500 for flash-lite and 5/20 for the 3.6/3.7/3.8 flash models.
 Next step: session 4, R5 `resume-template-tailoring` (stops at the user's M4 sign-off). M3 (re-score) is unblocked.
 
 Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 493 passed, 20 skipped in ~24s. LLM tier: export `GEMINI_API_KEY`
