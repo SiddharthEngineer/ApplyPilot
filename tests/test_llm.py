@@ -143,14 +143,12 @@ class TestDiscoveryClient:
             os.environ.pop("OPENAI_API_KEY", None)
             os.environ.pop("LLM_MODEL", None)
             os.environ.pop("LLM_DISCOVERY_MODEL", None)
-            llm_mod._instance = None
-            llm_mod._discovery_instance = None
+            llm_mod.reset_clients()
             try:
                 assert get_client().model == "gemini-3.6-flash"
                 assert get_discovery_client().model == "gemini-3.1-flash-lite"
             finally:
-                llm_mod._instance = None
-                llm_mod._discovery_instance = None
+                llm_mod.reset_clients()
 
     def test_discovery_client_independent_singleton(self):
         import applypilot.llm as llm_mod
@@ -159,8 +157,7 @@ class TestDiscoveryClient:
             os.environ.pop("OPENAI_API_KEY", None)
             os.environ.pop("LLM_MODEL", None)
             os.environ.pop("LLM_DISCOVERY_MODEL", None)
-            llm_mod._instance = None
-            llm_mod._discovery_instance = None
+            llm_mod.reset_clients()
             try:
                 d1 = get_discovery_client()
                 d2 = get_discovery_client()
@@ -168,9 +165,68 @@ class TestDiscoveryClient:
                 # main client is a separate instance
                 assert get_client() is not d1
             finally:
-                llm_mod._instance = None
-                llm_mod._discovery_instance = None
+                llm_mod.reset_clients()
 
+
+
+class TestPerStageRouting:
+    """Success Criterion 1: LLM_{PURPOSE}_MODEL only affects that stage."""
+
+    _ENV_DROP = ("LLM_URL", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_MODEL",
+                 "LLM_DISCOVERY_MODEL", "LLM_SCORING_MODEL", "LLM_TAILOR_MODEL", "LLM_COVER_MODEL")
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        import applypilot.llm as llm_mod
+        llm_mod.reset_clients()
+        yield
+        llm_mod.reset_clients()
+
+    @pytest.mark.parametrize("purpose", ["scoring", "tailor", "cover"])
+    def test_stage_model_only_affects_that_stage(self, purpose):
+        env = {"GEMINI_API_KEY": "g-key", f"LLM_{purpose.upper()}_MODEL": "gemini-3.1-flash-lite"}
+        with patch.dict(os.environ, env, clear=False):
+            for k in self._ENV_DROP:
+                if k != f"LLM_{purpose.upper()}_MODEL":
+                    os.environ.pop(k, None)
+            assert get_client(purpose).model == "gemini-3.1-flash-lite"
+            for other in ("scoring", "tailor", "cover", "default"):
+                if other != purpose:
+                    assert get_client(other).model == "gemini-3.6-flash"
+            assert get_client("discovery").model == "gemini-3.1-flash-lite"
+
+    def test_stage_model_falls_back_to_llm_model(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "m-all"}, clear=False):
+            for k in self._ENV_DROP:
+                if k != "LLM_MODEL":
+                    os.environ.pop(k, None)
+            for purpose in ("scoring", "tailor", "cover", "discovery"):
+                assert get_client(purpose).model == "m-all"
+
+    def test_stage_model_applies_to_openai(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "o-key", "LLM_SCORING_MODEL": "gpt-x"}, clear=True):
+            assert get_client("scoring").model == "gpt-x"
+            assert get_client("tailor").model == "gpt-4o-mini"
+
+    def test_discovery_alias(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=True):
+            assert get_discovery_client() is get_client("discovery")
+
+    def test_same_model_shares_rpm_window(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "m", "LLM_RPM_LIMIT": "2"}, clear=True):
+            scoring, tailor = get_client("scoring"), get_client("tailor")
+            assert scoring is not tailor
+            assert scoring._request_timestamps is tailor._request_timestamps
+            scoring._record_request()
+            tailor._record_request()
+            # Third request on the same model (from either client) must wait.
+            with patch("applypilot.llm.time.sleep") as mock_sleep:
+                get_client("cover")._throttle_if_needed()
+            assert mock_sleep.call_count == 1
+
+    def test_different_models_have_separate_rpm_windows(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_SCORING_MODEL": "lite"}, clear=True):
+            assert get_client("scoring")._request_timestamps is not get_client("tailor")._request_timestamps
 
 
 # ---------------------------------------------------------------------------
@@ -387,10 +443,10 @@ class TestRPMLimiter:
             os.environ.pop("LLM_MODEL", None)
             os.environ.pop("OPENAI_API_KEY", None)
             import applypilot.llm as llm_mod
-            llm_mod._instance = None
+            llm_mod.reset_clients()
             try:
                 client = get_client()
                 assert client._rpm_limit == 20
                 assert client._rpm_window == 30.0
             finally:
-                llm_mod._instance = None
+                llm_mod.reset_clients()

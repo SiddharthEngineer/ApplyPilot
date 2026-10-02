@@ -19,6 +19,9 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+# Pipeline stages that can each pick their own model via LLM_{PURPOSE}_MODEL.
+PURPOSES = ("discovery", "scoring", "tailor", "cover")
+
 # ---------------------------------------------------------------------------
 # Provider detection
 # ---------------------------------------------------------------------------
@@ -29,18 +32,18 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
     Reads env at call time (not module import time) so that load_env() called
     in _bootstrap() is always visible here.
 
-    `purpose` selects a per-stage model override. When "discovery" and a
-    Gemini key is configured without an explicit model, the cheaper
-    `gemini-3.1-flash-lite` is used (sufficient for classification/judge and
-    ~15x cheaper on input than `gemini-3.6-flash`). `LLM_DISCOVERY_MODEL` can
-    override the discovery model; `LLM_SCORING_MODEL`/`LLM_TAILOR_MODEL` are
-    read by callers through `_detect_provider` with their own purpose.
+    `purpose` selects a per-stage model: for any purpose in `PURPOSES` the
+    model resolves as `LLM_{PURPOSE}_MODEL` -> `LLM_MODEL` -> provider default.
+    On Gemini the discovery default is the cheaper `gemini-3.1-flash-lite`
+    (enough for classification/judge, with a higher free-tier quota).
     """
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     openai_key = os.environ.get("OPENAI_API_KEY", "")
     opencode_key = os.environ.get("OPENCODE_API_KEY", "")
     local_url = os.environ.get("LLM_URL", "")
     model_override = os.environ.get("LLM_MODEL", "")
+    if purpose in PURPOSES:
+        model_override = os.environ.get(f"LLM_{purpose.upper()}_MODEL", "") or model_override
 
     # Explicit local endpoint (Ollama/llama.cpp) always wins when LLM_URL points
     # somewhere other than the OpenCode gateway. An OpenCode gateway URL is
@@ -66,17 +69,8 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
         return (local_url.rstrip("/"), model, api_key)
 
     if gemini_key and not local_url:
-        base_model = model_override or "gemini-3.6-flash"
-        if purpose == "discovery":
-            discovery_model = os.environ.get("LLM_DISCOVERY_MODEL", "")
-            if discovery_model:
-                model = discovery_model
-            elif model_override:
-                model = model_override
-            else:
-                model = "gemini-3.1-flash-lite"
-        else:
-            model = base_model
+        default = "gemini-3.1-flash-lite" if purpose == "discovery" else "gemini-3.6-flash"
+        model = model_override or default
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",
             model,
@@ -135,6 +129,7 @@ class LLMClient:
         api_key: str,
         rpm_limit: int = 0,
         rpm_window: float = 60.0,
+        request_timestamps: deque[float] | None = None,
     ) -> None:
         self.base_url = base_url
         self.model = model
@@ -146,7 +141,11 @@ class LLMClient:
         # Client-side RPM limiter
         self._rpm_limit: int = rpm_limit
         self._rpm_window: float = rpm_window
-        self._request_timestamps: deque[float] = deque()
+        # get_client() passes a deque shared by every client on the same model,
+        # so per-stage clients can't jointly exceed that model's RPM.
+        self._request_timestamps: deque[float] = (
+            request_timestamps if request_timestamps is not None else deque()
+        )
 
     # -- RPM limiter --------------------------------------------------------
 
@@ -376,38 +375,42 @@ class _GeminiCompatForbidden(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Singleton
+# Per-purpose clients
 # ---------------------------------------------------------------------------
 
-_instance: LLMClient | None = None
-_discovery_instance: LLMClient | None = None
+_clients: dict[str, LLMClient] = {}
+# One RPM window per model, shared by all purposes that use it.
+_rpm_timestamps: dict[str, deque[float]] = {}
 
 
-def get_client() -> LLMClient:
-    """Return (or create) the module-level LLMClient singleton."""
-    global _instance
-    if _instance is None:
-        base_url, model, api_key = _detect_provider()
+def get_client(purpose: str = "default") -> LLMClient:
+    """Return (or create) the LLMClient for a pipeline stage.
+
+    `purpose` is one of `PURPOSES` or "default" (plain `LLM_MODEL`). Each
+    purpose is memoized separately so stages can run different models in the
+    same process.
+    """
+    client = _clients.get(purpose)
+    if client is None:
+        base_url, model, api_key = _detect_provider(purpose)
         rpm_limit = int(os.environ.get("LLM_RPM_LIMIT", "0"))
         rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
-        log.info("LLM provider: %s  model: %s", base_url, model)
-        _instance = LLMClient(base_url, model, api_key, rpm_limit=rpm_limit, rpm_window=rpm_window)
-    return _instance
+        log.info("LLM provider (%s): %s  model: %s", purpose, base_url, model)
+        client = LLMClient(
+            base_url, model, api_key,
+            rpm_limit=rpm_limit, rpm_window=rpm_window,
+            request_timestamps=_rpm_timestamps.setdefault(model, deque()),
+        )
+        _clients[purpose] = client
+    return client
 
 
 def get_discovery_client() -> LLMClient:
-    """Return (or create) the discovery-stage LLMClient singleton.
+    """Alias for ``get_client("discovery")``."""
+    return get_client("discovery")
 
-    Mirrors :func:`get_client` but resolves the per-stage model with
-    ``purpose="discovery"`` (cheaper ``gemini-3.1-flash-lite`` default on
-    Gemini free tier). Independently memoized so discovery and tailoring
-    can use different models within the same process.
-    """
-    global _discovery_instance
-    if _discovery_instance is None:
-        base_url, model, api_key = _detect_provider("discovery")
-        rpm_limit = int(os.environ.get("LLM_RPM_LIMIT", "0"))
-        rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
-        log.info("LLM provider (discovery): %s  model: %s", base_url, model)
-        _discovery_instance = LLMClient(base_url, model, api_key, rpm_limit=rpm_limit, rpm_window=rpm_window)
-    return _discovery_instance
+
+def reset_clients() -> None:
+    """Drop memoized clients and RPM windows (tests, env changes)."""
+    _clients.clear()
+    _rpm_timestamps.clear()

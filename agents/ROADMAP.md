@@ -28,7 +28,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 0 | R0 | Test tiers + morning QC (hermetic unit tests, CI on PRs, committed recorded data, `scripts/qc.py`) | [test-tiers-and-qc](plans/test-tiers-and-qc.md) | 4/5 | 🟡 | none |
 | 1 | R2 | Repair job-board discovery (Indeed/LinkedIn reliable, blocked boards gated, add Greenhouse/Lever/Ashby, fix SmartExtract) | [job-board-discovery-repair](plans/job-board-discovery-repair.md) | 8/8 | ✅ | R0 |
 | 2 | R3 | Stop saving LLM errors as `fit_score = 0`; make them retryable | [scoring-error-recovery](plans/scoring-error-recovery.md) | 2/2 | ✅ | R0 |
-| 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 0/5 | ⏳ | R3 |
+| 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 1/5 | 🔄 | R3 |
 | 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 0/7 | ⏳ | R4 |
 
 ## Manual steps (you)
