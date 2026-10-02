@@ -15,7 +15,7 @@ import httpx
 
 from applypilot.config import RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
-from applypilot.llm import get_client
+from applypilot.llm import LLMQuotaExhausted, get_client
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +102,8 @@ def score_job(resume_text: str, job: dict) -> dict:
         if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10
             return _error_result(f"unparseable response: {response[:200]!r}")
         return parsed
+    except LLMQuotaExhausted:
+        raise  # run_scoring stops the stage; this job stays untouched
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         body = e.response.text[:300]
@@ -162,9 +164,16 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     errors = 0
     first_error_msg = ""
     results: list[dict] = []
+    stopped = ""
 
     for job in jobs:
-        result = score_job(resume_text, job)
+        try:
+            result = score_job(resume_text, job)
+        except LLMQuotaExhausted as e:
+            stopped = "daily_quota"
+            log.warning("Scoring stopped: %s. %d jobs left unscored for the next run.",
+                        e, len(jobs) - completed)
+            break
         result["url"] = job["url"]
         completed += 1
 
@@ -182,7 +191,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         )
 
     # If all jobs failed, check for systemic LLM config issue
-    if errors == len(jobs) and errors > 0 and ("404" in first_error_msg or "400" in first_error_msg):
+    if not stopped and errors == len(jobs) and errors > 0 and ("404" in first_error_msg or "400" in first_error_msg):
         log.error(
             "ALL %d jobs failed to score — likely a systemic LLM configuration issue.\n"
             "  Check GEMINI_API_KEY, LLM_MODEL (default gemini-3.6-flash), "
@@ -220,9 +229,12 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     """).fetchall()
     distribution = [(row[0], row[1]) for row in dist]
 
-    return {
+    stats = {
         "scored": len(results) - errors,
         "errors": errors,
         "elapsed": elapsed,
         "distribution": distribution,
     }
+    if stopped:
+        stats["stopped"] = stopped
+    return stats

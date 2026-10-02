@@ -53,7 +53,7 @@ stop the stage, and return stats with `"stopped": "daily_quota"` without recordi
 current job. This depends on scoring-error-recovery Task 1, so an aborted job stays NULL.
 **Acceptance:**
 - Success Criterion 2. Also a test that a per-minute 429 still retries with backoff (patch `time.sleep`).
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 3: Structured JSON output for Gemini
 **Runs:** cloud (code + unit tests); live parse-retry count: local
@@ -120,3 +120,4 @@ Task 4 (independent)
 ## Historical Record
 - 2026-10-01: Plan created, replacing `claude-llm-provider` (roadmap initiative R4) after the user chose the Gemini free tier. Verified compat + native 200 for gemini-3.6-flash and gemini-3.1-flash-lite.
 - 2026-10-02: Task 1 done. `get_client(purpose)` backed by `_clients` dict; `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → default for every provider; RPM window shared per model via `_rpm_timestamps`; `reset_clients()` replaces the `_instance`/`_discovery_instance` resets in tests. `enrichment/detail.py` and `scripts/capture_fixtures.py` stay on `get_client()` ("default").
+- 2026-10-02: Task 2 done. `LLMQuotaExhausted(model, scope)`; `_parse_quota_error` reads native `{"error":…}` and compat `[{"error":…}]` bodies; per-minute 429s wait `retryDelay`+1s (cap 90s). Scoring/tailor/cover break out of their loops with `"stopped": "daily_quota"` and record no attempt on the aborted job. SmartExtract re-raises through the judge/Phase 1/Phase 2/exec handlers and marks the site `fatal` (parallel mode cancels pending sites). Beyond the plan: `pipeline.py` shows `stopped: daily quota` (yellow, not an error) and streaming mode no longer re-runs a stopped stage, which would have spent one request per poll. Tests: `tests/test_llm.py::TestDailyQuota`, `tests/test_quota_stop.py`.

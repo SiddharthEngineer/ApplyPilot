@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from applypilot.config import COVER_LETTER_DIR, RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
-from applypilot.llm import get_client
+from applypilot.llm import LLMQuotaExhausted, get_client
 from applypilot.scoring.validator import (
     BANNED_WORDS,
     LLM_LEAK_PHRASES,
@@ -230,6 +230,7 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
     completed = 0
     results: list[dict] = []
     error_count = 0
+    stopped = ""
 
     for job in jobs:
         completed += 1
@@ -268,6 +269,11 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
                 "%d/%d [OK] | %.1f jobs/min | %s",
                 completed, len(jobs), rate * 60, result["title"][:40],
             )
+        except LLMQuotaExhausted as e:
+            # Don't count an attempt for this job; it and the rest wait for the next run.
+            stopped = "daily_quota"
+            log.warning("Cover letters stopped: %s. %d jobs left for the next run.", e, len(jobs) - completed + 1)
+            break
         except Exception as e:
             result = {
                 "url": job["url"], "title": job["title"], "site": job["site"],
@@ -298,8 +304,11 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
     elapsed = time.time() - t0
     log.info("Cover letters done in %.1fs: %d generated, %d errors", elapsed, saved, error_count)
 
-    return {
+    out = {
         "generated": saved,
         "errors": error_count,
         "elapsed": elapsed,
     }
+    if stopped:
+        out["stopped"] = stopped
+    return out
