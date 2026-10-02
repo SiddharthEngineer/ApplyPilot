@@ -419,7 +419,7 @@ def _run_one_search(
         if site == "linkedin":
             # Off by default: enrich fetches full descriptions, and the per-job
             # LinkedIn fetch is what triggers its throttling.
-            kwargs["linkedin_fetch_description"] = bool(defaults.get("linkedin_fetch_description", False))
+            kwargs["fetch_description"] = bool(defaults.get("linkedin_fetch_description", False))
         with _capture_jobspy_errors() as cap:
             try:
                 site_df = _scrape_with_retry(kwargs, max_retries=max_retries)
@@ -506,7 +506,7 @@ def search_jobs(
         kwargs["proxies"] = [proxy_config["jobspy"]]
 
     if "linkedin" in sites:
-        kwargs["linkedin_fetch_description"] = True
+        kwargs["fetch_description"] = True
 
     try:
         df = scrape_jobs(**kwargs)
