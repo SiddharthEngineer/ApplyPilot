@@ -143,11 +143,11 @@ def _stage_status(stats: dict | None) -> dict:
     return {"status": "ok"}
 
 
-def _run_score() -> dict:
+def _run_score(prefilter: bool = True) -> dict:
     """Stage: LLM scoring — assign fit scores 1-10."""
     try:
         from applypilot.scoring.scorer import run_scoring
-        return _stage_status(run_scoring())
+        return _stage_status(run_scoring(prefilter=prefilter))
     except Exception as e:
         log.error("Scoring failed: %s", e)
         return {"status": f"error: {e}"}
@@ -295,6 +295,7 @@ def _run_stage_streaming(
     validation_mode: str = "normal",
     source: str = "resume",
     no_cache: bool = False,
+    prefilter: bool = True,
 ) -> None:
     """Run a single stage in streaming mode: loop until upstream done + no work.
 
@@ -313,6 +314,8 @@ def _run_stage_streaming(
         kwargs["workers"] = workers
     if stage == "discover":
         kwargs["no_cache"] = no_cache
+    if stage == "score":
+        kwargs["prefilter"] = prefilter
 
     upstream = _UPSTREAM[stage]
 
@@ -368,7 +371,8 @@ def _run_stage_streaming(
 def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                     validation_mode: str = "normal",
                     source: str = "resume",
-                    no_cache: bool = False) -> dict:
+                    no_cache: bool = False,
+                    prefilter: bool = True) -> dict:
     """Execute stages one at a time (original behavior)."""
     results: list[dict] = []
     errors: dict[str, str] = {}
@@ -395,6 +399,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                 kwargs["workers"] = workers
             if name == "discover":
                 kwargs["no_cache"] = no_cache
+            if name == "score":
+                kwargs["prefilter"] = prefilter
             result = runner(**kwargs)
             elapsed = time.time() - t0
 
@@ -428,7 +434,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
 def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
                    validation_mode: str = "normal",
                    source: str = "resume",
-                   no_cache: bool = False) -> dict:
+                   no_cache: bool = False,
+                   prefilter: bool = True) -> dict:
     """Execute stages concurrently with DB as conveyor belt."""
     tracker = _StageTracker()
     stop_event = threading.Event()
@@ -450,7 +457,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         start_times[name] = time.time()
         t = threading.Thread(
             target=_run_stage_streaming,
-            args=(name, tracker, stop_event, min_score, workers, validation_mode, source, no_cache),
+            args=(name, tracker, stop_event, min_score, workers, validation_mode, source, no_cache, prefilter),
             name=f"stage-{name}",
             daemon=True,
         )
@@ -500,6 +507,7 @@ def run_pipeline(
     validation_mode: str = "normal",
     source: str = "resume",
     no_cache: bool = False,
+    prefilter: bool = True,
 ) -> dict:
     """Run pipeline stages.
 
@@ -511,6 +519,7 @@ def run_pipeline(
         workers: Number of parallel threads for discovery/enrichment stages.
         source: Resume source — "resume" (default) or "content-library".
         no_cache: If True, bypass per-domain strategy cache in smart-extract.
+        prefilter: If False, score every job with the LLM (skip the title pre-filter).
 
     Returns:
         Dict with keys: stages (list of result dicts), errors (dict), elapsed (float).
@@ -554,11 +563,11 @@ def run_pipeline(
     if stream:
         result = _run_streaming(ordered, min_score, workers=workers,
                                 validation_mode=validation_mode, source=source,
-                                no_cache=no_cache)
+                                no_cache=no_cache, prefilter=prefilter)
     else:
         result = _run_sequential(ordered, min_score, workers=workers,
                                  validation_mode=validation_mode, source=source,
-                                 no_cache=no_cache)
+                                 no_cache=no_cache, prefilter=prefilter)
 
     # Summary table
     console.print(f"\n{'=' * 70}")

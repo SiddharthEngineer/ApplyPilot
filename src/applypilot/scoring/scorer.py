@@ -9,11 +9,11 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import httpx
 
-from applypilot.config import RESUME_PATH, load_profile
+from applypilot.config import RESUME_PATH, load_profile, load_search_config
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import LLMQuotaExhausted, get_client
 
@@ -158,12 +158,64 @@ def _error_result(msg: str) -> dict:
     return {"score": None, "keywords": "", "reasoning": f"LLM error: {msg}", "error": msg}
 
 
-def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
+# ── Title pre-filter (no LLM call) ───────────────────────────────────────
+
+PREFILTER_REASONING = "prefilter: title not relevant"
+
+# Words that say nothing about the kind of role: articles, seniority, levels, work mode.
+_TITLE_STOPWORDS = frozenset({
+    "a", "an", "and", "the", "of", "for", "to", "in", "at", "on", "with", "or", "by", "from",
+    "senior", "sr", "junior", "jr", "lead", "staff", "principal", "mid", "entry", "level", "head", "chief",
+    "i", "ii", "iii", "iv", "v", "remote", "hybrid", "onsite", "contract", "temporary", "full", "part", "time",
+})
+
+
+def _title_tokens(text: str) -> set[str]:
+    """Significant lower-cased words of a title (keeps tech tokens like c++, c#, .net, ai)."""
+    words = re.findall(r"[a-z0-9][a-z0-9+#.]*", (text or "").lower())
+    return {w.rstrip(".") for w in words if w.rstrip(".") and w.rstrip(".") not in _TITLE_STOPWORDS}
+
+
+def load_target_tokens() -> set[str]:
+    """Words from searches.yaml queries and the profile's target role(s)."""
+    titles: list[str] = []
+    try:
+        titles += [q.get("query", "") for q in load_search_config().get("queries", []) if isinstance(q, dict)]
+    except Exception as e:  # noqa: BLE001 - a missing/broken config just disables the filter
+        log.debug("prefilter: no search queries (%s)", e)
+    try:
+        exp = load_profile().get("experience", {})
+        titles += re.split(r"[,;/|]", exp.get("target_role", "") or "")
+        titles += exp.get("target_titles", []) or []
+    except Exception as e:  # noqa: BLE001
+        log.debug("prefilter: no profile target role (%s)", e)
+    tokens: set[str] = set()
+    for t in titles:
+        tokens |= _title_tokens(t)
+    return tokens
+
+
+def prefilter_jobs(jobs: list[dict], target_tokens: set[str]) -> tuple[list[dict], list[dict]]:
+    """Split jobs into (to_score, skipped). A title passes if it shares a significant word with any target.
+
+    With no targets configured, nothing is skipped.
+    """
+    if not target_tokens:
+        return jobs, []
+    keep, skipped = [], []
+    for job in jobs:
+        (keep if _title_tokens(job.get("title", "")) & target_tokens else skipped).append(job)
+    return keep, skipped
+
+
+def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -> dict:
     """Score unscored jobs that have full descriptions.
 
     Args:
         limit: Maximum number of jobs to score in this run.
         rescore: If True, re-score all jobs (not just unscored ones).
+        prefilter: If True, jobs whose title shares no word with the search queries / target role
+            get fit_score 1 without an LLM call.
 
     Returns:
         {"scored": int, "errors": int, "elapsed": float, "distribution": list}
@@ -187,6 +239,23 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     if jobs and not isinstance(jobs[0], dict):
         columns = jobs[0].keys()
         jobs = [dict(zip(columns, row)) for row in jobs]
+
+    prefiltered = 0
+    if prefilter:
+        total = len(jobs)
+        jobs, skipped = prefilter_jobs(jobs, load_target_tokens())
+        prefiltered = len(skipped)
+        now = datetime.now(UTC).isoformat()
+        conn.executemany(
+            "UPDATE jobs SET fit_score = 1, score_reasoning = ?, scored_at = ? WHERE url = ?",
+            [(PREFILTER_REASONING, now, j["url"]) for j in skipped],
+        )
+        conn.commit()
+        log.info("prefilter skipped %d/%d jobs (title not relevant; --no-prefilter to score them)",
+                 prefiltered, total)
+        if not jobs:
+            return {"scored": 0, "errors": 0, "parse_errors": 0, "prefiltered": prefiltered,
+                    "elapsed": 0.0, "distribution": []}
 
     log.info("Scoring %d jobs sequentially...", len(jobs))
     t0 = time.time()
@@ -268,6 +337,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         "scored": len(results) - errors,
         "errors": errors,
         "parse_errors": parse_errors,
+        "prefiltered": prefiltered,
         "elapsed": elapsed,
         "distribution": distribution,
     }

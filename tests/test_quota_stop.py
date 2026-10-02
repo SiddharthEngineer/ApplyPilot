@@ -44,7 +44,7 @@ def test_scoring_stops_after_one_request(conn, resume):
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client):
-        stats = scorer.run_scoring()
+        stats = scorer.run_scoring(prefilter=False)
     assert client.chat.call_count == 1
     assert stats["stopped"] == "daily_quota"
     assert stats["scored"] == 0 and stats["errors"] == 0
@@ -58,7 +58,7 @@ def test_scoring_keeps_scores_before_the_stop(conn, resume):
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client):
-        stats = scorer.run_scoring()
+        stats = scorer.run_scoring(prefilter=False)
     assert client.chat.call_count == 2
     assert stats["scored"] == 1 and stats["stopped"] == "daily_quota"
     scores = sorted(r[0] for r in _rows(conn, "fit_score") if r[0] is not None)

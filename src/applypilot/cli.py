@@ -115,6 +115,12 @@ def run(
         "--no-cache",
         help="Bypass per-domain strategy cache in smart-extract (forces fresh LLM strategy for every site).",
     ),
+    no_prefilter: bool = typer.Option(
+        False,
+        "--no-prefilter",
+        help="Score every job with the LLM. By default, jobs whose title shares no word with your "
+             "search queries or target role get fit_score 1 without an LLM call.",
+    ),
     reset_errors: bool = typer.Option(
         False,
         "--reset-errors",
@@ -186,6 +192,7 @@ def run(
         validation_mode=validation,
         source=source,
         no_cache=no_cache,
+        prefilter=not no_prefilter,
     )
 
     if result.get("errors"):

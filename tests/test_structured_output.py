@@ -37,7 +37,7 @@ def test_unparseable_score_is_counted(tmp_path):
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client):
-        stats = scorer.run_scoring()
+        stats = scorer.run_scoring(prefilter=False)
     assert stats["parse_errors"] == 1
 
 
