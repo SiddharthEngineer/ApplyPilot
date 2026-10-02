@@ -153,9 +153,22 @@ def _run_score(prefilter: bool = True) -> dict:
         return {"status": f"error: {e}"}
 
 
-def _run_tailor(min_score: int = 7, validation_mode: str = "normal",
+def tailor_validation_mode(validation_mode: str | None, source: str) -> str:
+    """Validation for the tailor stage when --validation isn't given.
+
+    Content-library tailoring defaults to lenient (no LLM judge): its bullets are already
+    checked mechanically (project ids, number provenance, bullet ranges, fabricated skills),
+    and the judge mostly cost a request per attempt plus false rejections.
+    """
+    if validation_mode:
+        return validation_mode
+    return "lenient" if source == "content-library" else "normal"
+
+
+def _run_tailor(min_score: int = 7, validation_mode: str | None = "normal",
                 source: str = "resume", limit: int | None = None) -> dict:
     """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
+    validation_mode = tailor_validation_mode(validation_mode, source)
     try:
         from applypilot.scoring.tailor import run_tailoring
         extra = {"limit": limit} if limit else {}
@@ -166,8 +179,9 @@ def _run_tailor(min_score: int = 7, validation_mode: str = "normal",
         return {"status": f"error: {e}"}
 
 
-def _run_cover(min_score: int = 7, validation_mode: str = "normal", limit: int | None = None) -> dict:
+def _run_cover(min_score: int = 7, validation_mode: str | None = "normal", limit: int | None = None) -> dict:
     """Stage: Cover letter generation."""
+    validation_mode = validation_mode or "normal"
     try:
         from applypilot.scoring.cover_letter import run_cover_letters
         extra = {"limit": limit} if limit else {}
@@ -553,7 +567,10 @@ def run_pipeline(
     ))
     console.print(f"  Min score:  {min_score}")
     console.print(f"  Workers:    {workers}")
-    console.print(f"  Validation: {validation_mode}")
+    if validation_mode:
+        console.print(f"  Validation: {validation_mode}")
+    else:
+        console.print(f"  Validation: tailor {tailor_validation_mode(None, source)}, cover normal")
     console.print(f"  Source:     {source}")
     console.print(f"  Stages:     {' -> '.join(ordered)}")
 

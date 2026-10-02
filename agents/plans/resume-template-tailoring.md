@@ -1,6 +1,6 @@
 # Plan: Template-Driven Tailored Resumes from the Content Library
 **Started:** 2026-10-01
-**Status:** 🟡 All code done; waiting on the user's template sign-off (M4, Task 3)
+**Status:** ✅ Complete (2026-10-02)
 
 ## Goal
 The user maintains `~/.applypilot/content_library.md`, a bank of raw facts per project grouped under
@@ -89,7 +89,7 @@ the italic tagline, `•` bullets, and the section-rule style. Iterate until the
 transcribe EDUCATION into `resume_fixed.yaml` verbatim. Change any wording, including typos, only if the user confirms.
 **Acceptance:**
 - Success Criterion 1, with the user's sign-off noted in Historical Record.
-**Status:** 🟡 Cloud part done (2026-10-02), local steps pending (user sign-off, M4)
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 4: Tailor prompt + structured output against the model
 **Runs:** cloud; live check: local
@@ -178,3 +178,4 @@ Task 1 ──► Task 2 ──► Task 3
 - 2026-10-02: **Success Criterion 2 verified live** (`applypilot run tailor --source content-library --limit 3`): 3 approved, 3 one-page PDFs (`pages: 1`, no bullets dropped), each with a `.json` listing `project_ids` per bullet, 0 JSON parse retries, no invalid ids. Run on `LLM_TAILOR_MODEL=gemini-3.1-flash-lite`, because gemini-3.6-flash and 3.8-flash hit Google's per-day quota after ~5 successful calls each: their 503 "overloaded" retries appear to count against the 20 RPD. That also verifies Task 4's live check. Live findings fixed: (1) the content-library judge only allowed `skills_boundary` skills, so it rejected the user's own resume skills (Airflow, Vue.js…). It now also gets the base resume's skills. (2) The judge never saw the library, so it called real tools (SurrealDB, Databricks, Superset) fabrication, and it had no date ("Sep 2025 is in the future"). It now gets the facts of the cited projects and today's date. On flash-lite the judge is still noisy (passed on attempt 2).
 - 2026-10-02: Task 7 done. `run --source` defaults to `content-library` when `content_library.md` exists (help text says so; doctor says it's the default and suggests `template init` if the template is missing). `cover_letter.tailored_evidence(job)` reads the job's `<job>.json` sidecar and builds "SELECTED BULLETS" + "SOURCE PROJECT FACTS" for the cited slugs, which replace resume.txt in the cover-letter prompt (tools named there count as real). Live smoke test (flash-lite, no DB write): the letter cited AIM-HI, PatentsView and CAFE, the same projects as the resume. README: Tailor/Cover pipeline rows, config files, a "Resume template" section, and CLI lines.
 - 2026-10-02: Success criteria: 1 ⏳ (preview renders, 1 page; waiting on the user's sign-off), 2 ✅ (live, see above), 3 ✅ (`-k fixed_blocks`), 4 ✅ (`-k provenance`, 10 tests), 5 ✅ (`run --help`), 6 ✅ (`pytest tests/ -q` 569 passed, 20 skipped).
+- 2026-10-02: **User signed off the template preview ("The resume looks good"): Success Criterion 1 ✅, Task 3 ✅, plan complete.** At the user's request: fixed the "Mathenatics" typo in resume.txt (`~/.applypilot` + `personal/`), `resume_fixed.yaml` and the three Google Docs PDF copies (text patched in place, 11pt Times); the GitHub link in those PDFs now points to `github.com/SiddharthEngineer` (was `…23`); `profile.json` `full_name` is now "Siddharth Engineer". The preview and the 3 tailored resumes were re-rendered from their `.json` files (no LLM calls). Backups: `*.bak-2026-10-02b`.

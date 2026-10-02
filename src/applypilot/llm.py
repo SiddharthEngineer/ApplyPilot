@@ -115,6 +115,14 @@ _TIMEOUT = 120  # seconds
 _RATE_LIMIT_BASE_WAIT = 10
 
 
+# On a 503 ("model overloaded") from a Gemini model, the request goes straight to this model
+# instead of backing off and retrying: Google counts 503s against the free-tier daily quota,
+# so five retries on a 20-request/day flash model can burn most of a day's budget.
+# LLM_FALLBACK_MODEL overrides it; "none" (or empty) turns the failover off.
+_DEFAULT_FALLBACK_MODEL = "gemini-3.1-flash-lite"
+# After a 503, skip the primary model and use the fallback for this long (LLM_FALLBACK_COOLDOWN).
+_DEFAULT_FALLBACK_COOLDOWN = 300.0
+
 _GEMINI_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 _GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -275,6 +283,8 @@ class LLMClient:
         rpm_window: float = 60.0,
         request_timestamps: deque[float] | None = None,
         rpd_limit: int = 0,
+        fallback: "LLMClient | None" = None,
+        fallback_cooldown: float = _DEFAULT_FALLBACK_COOLDOWN,
     ) -> None:
         self.base_url = base_url
         self.model = model
@@ -293,6 +303,10 @@ class LLMClient:
         )
         # Client-side daily cap (LLM_RPD_LIMITS), counted in the shared DailyUsage file.
         self._rpd_limit: int = rpd_limit
+        # 503 failover (see _DEFAULT_FALLBACK_MODEL); None = retry with backoff as before.
+        self.fallback = fallback
+        self._fallback_cooldown: float = fallback_cooldown
+        self._overloaded_until: float = 0.0
 
     # -- RPM limiter --------------------------------------------------------
 
@@ -458,6 +472,9 @@ class LLMClient:
             if first.get("role") == "user" and not first["content"].startswith("/no_think"):
                 messages = [{"role": first["role"], "content": f"/no_think\n{first['content']}"}] + messages[1:]
 
+        if self.fallback is not None and time.monotonic() < self._overloaded_until:
+            return self.fallback.chat(messages, temperature, max_tokens, response_schema)
+
         for attempt in range(_MAX_RETRIES):
             self._check_daily_limit()
             try:
@@ -502,6 +519,16 @@ class LLMClient:
                 retry_delay = None
                 if resp.status_code == 429:
                     retry_delay = self._raise_if_daily_quota(resp)
+                if resp.status_code == 503 and self.fallback is not None:
+                    # Google counts the 503 toward the daily quota; keep the local tally in step.
+                    if self._rpd_limit > 0:
+                        daily_usage.increment(self.model)
+                    self._overloaded_until = time.monotonic() + self._fallback_cooldown
+                    log.warning(
+                        "LLM HTTP 503 (%s overloaded). Using %s for this request and the next %ds.",
+                        self.model, self.fallback.model, self._fallback_cooldown,
+                    )
+                    return self.fallback.chat(messages, temperature, max_tokens, response_schema)
                 if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
                     # Respect Retry-After header if provided (Gemini sends this).
                     retry_after = (
@@ -587,18 +614,46 @@ def get_client(purpose: str = "default") -> LLMClient:
     client = _clients.get(purpose)
     if client is None:
         base_url, model, api_key = _detect_provider(purpose)
-        rpm_limit, rpd_limit = model_limits(model)
-        rpm_window = float(os.environ.get("LLM_RPM_WINDOW", "60"))
-        log.info("LLM provider (%s): %s  model: %s  limits: %s RPM, %s RPD", purpose, base_url, model,
-                 rpm_limit or "no", rpd_limit or "no")
-        client = LLMClient(
-            base_url, model, api_key,
-            rpm_limit=rpm_limit, rpm_window=rpm_window,
-            request_timestamps=_rpm_timestamps.setdefault(model, deque()),
-            rpd_limit=rpd_limit,
-        )
+        fallback = _fallback_client(base_url, model, api_key)
+        client = _make_client(base_url, model, api_key, fallback=fallback)
+        log.info("LLM provider (%s): %s  model: %s  limits: %s RPM, %s RPD%s", purpose, base_url, model,
+                 client._rpm_limit or "no", client._rpd_limit or "no",
+                 f"  503 fallback: {fallback.model}" if fallback else "")
         _clients[purpose] = client
     return client
+
+
+def _make_client(base_url: str, model: str, api_key: str, fallback: LLMClient | None = None) -> LLMClient:
+    rpm_limit, rpd_limit = model_limits(model)
+    return LLMClient(
+        base_url, model, api_key,
+        rpm_limit=rpm_limit, rpm_window=float(os.environ.get("LLM_RPM_WINDOW", "60")),
+        request_timestamps=_rpm_timestamps.setdefault(model, deque()),
+        rpd_limit=rpd_limit,
+        fallback=fallback,
+        fallback_cooldown=float(os.environ.get("LLM_FALLBACK_COOLDOWN", _DEFAULT_FALLBACK_COOLDOWN)),
+    )
+
+
+def fallback_model(model: str, base_url: str) -> str | None:
+    """The 503 fallback for a model, or None (non-Gemini provider, disabled, or same model)."""
+    if not base_url.startswith(_GEMINI_COMPAT_BASE):
+        return None
+    name = os.environ.get("LLM_FALLBACK_MODEL", _DEFAULT_FALLBACK_MODEL).strip()
+    if not name or name.lower() == "none" or name == model:
+        return None
+    return name
+
+
+def _fallback_client(base_url: str, model: str, api_key: str) -> LLMClient | None:
+    """One shared client per fallback model (same RPM window and daily count as its stage clients)."""
+    name = fallback_model(model, base_url)
+    if name is None:
+        return None
+    key = f"fallback:{name}"
+    if key not in _clients:
+        _clients[key] = _make_client(base_url, name, api_key)
+    return _clients[key]
 
 
 def get_discovery_client() -> LLMClient:

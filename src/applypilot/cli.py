@@ -91,14 +91,15 @@ def run(
     workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for discovery/enrichment stages."),
     stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview stages without executing."),
-    validation: str = typer.Option(
-        "normal",
+    validation: str | None = typer.Option(
+        None,
         "--validation",
         help=(
             "Validation strictness for tailor/cover stages. "
             "strict: banned words = errors, judge must pass. "
-            "normal: banned words = warnings only (default, recommended for Gemini free tier). "
-            "lenient: banned words ignored, LLM judge skipped (fastest, fewest API calls)."
+            "normal: banned words = warnings only. "
+            "lenient: banned words ignored, LLM judge skipped (fewest API calls). "
+            "Default: lenient for content-library tailoring (bullets are checked mechanically), normal otherwise."
         ),
     ),
     source: str | None = typer.Option(
@@ -161,7 +162,7 @@ def run(
 
     # Validate the --validation flag value
     valid_modes = ("strict", "normal", "lenient")
-    if validation not in valid_modes:
+    if validation is not None and validation not in valid_modes:
         console.print(
             f"[red]Invalid --validation value:[/red] '{validation}'. "
             f"Choose from: {', '.join(valid_modes)}"
@@ -662,6 +663,11 @@ def doctor() -> None:
             rpd_text = f"{daily_usage.count(stage_model)}/{rpd} today" if rpd else "no RPD limit"
             rpm_text = f"{rpm} RPM" if rpm else "no RPM limit"
             results.append((f"{purpose.title()} model", ok_mark, f"{stage_model} ({rpm_text}, {rpd_text})"))
+        from applypilot.llm import fallback_model
+        base_url = _detect_provider("tailor")[0]
+        fb = {fallback_model(_detect_provider(p)[1], base_url) for p in PURPOSES} - {None}
+        if fb:
+            results.append(("503 fallback", ok_mark, f"{', '.join(sorted(fb))} (LLM_FALLBACK_MODEL; 'none' disables)"))
         if not (os.environ.get("LLM_RPM_LIMITS") or os.environ.get("LLM_RPM_LIMIT")):
             results.append(("RPM limit", warn_mark, "off: set LLM_RPM_LIMITS (per model) in .env"))
         results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))

@@ -664,3 +664,92 @@ class TestPerModelLimits:
         with patch.object(client._client, "post", return_value=ok):
             client.chat([{"role": "user", "content": "1"}])
         assert not (tmp_path / "usage.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 503 → fallback model (no backoff retries)
+# ---------------------------------------------------------------------------
+
+class TestOverloadFallback:
+    _BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    def _pair(self, cooldown: float = 300.0):
+        fb = LLMClient(base_url=self._BASE, model="gemini-3.1-flash-lite", api_key="k")
+        primary = LLMClient(base_url=self._BASE, model="gemini-3.6-flash", api_key="k",
+                            fallback=fb, fallback_cooldown=cooldown)
+        return primary, fb
+
+    @staticmethod
+    def _ok(text):
+        return _make_response(200, json_data={"choices": [{"message": {"content": text}}]})
+
+    def test_503_goes_straight_to_fallback(self):
+        primary, fb = self._pair()
+        with patch.object(primary._client, "post", return_value=_make_response(503)) as p_post, \
+                patch.object(fb._client, "post", return_value=self._ok("from lite")) as f_post, \
+                patch("applypilot.llm.time.sleep") as sleep:
+            assert primary.chat([{"role": "user", "content": "hi"}]) == "from lite"
+        assert p_post.call_count == 1 and f_post.call_count == 1
+        sleep.assert_not_called()
+
+    def test_cooldown_skips_primary(self):
+        primary, fb = self._pair()
+        with patch.object(primary._client, "post", return_value=_make_response(503)) as p_post, \
+                patch.object(fb._client, "post", return_value=self._ok("lite")) as f_post:
+            primary.chat([{"role": "user", "content": "a"}])
+            primary.chat([{"role": "user", "content": "b"}])
+        assert p_post.call_count == 1 and f_post.call_count == 2
+
+    def test_primary_used_again_after_cooldown(self):
+        primary, fb = self._pair(cooldown=0)
+        with patch.object(primary._client, "post", side_effect=[_make_response(503), self._ok("primary")]) as p_post, \
+                patch.object(fb._client, "post", return_value=self._ok("lite")):
+            assert primary.chat([{"role": "user", "content": "a"}]) == "lite"
+            assert primary.chat([{"role": "user", "content": "b"}]) == "primary"
+        assert p_post.call_count == 2
+
+    def test_503_counts_toward_daily_usage(self, tmp_path):
+        from applypilot.llm import DailyUsage
+        usage = DailyUsage(tmp_path / "usage.json")
+        primary, fb = self._pair()
+        primary._rpd_limit = 20
+        with patch("applypilot.llm.daily_usage", usage), \
+                patch.object(primary._client, "post", return_value=_make_response(503)), \
+                patch.object(fb._client, "post", return_value=self._ok("lite")):
+            primary.chat([{"role": "user", "content": "a"}])
+        assert usage.count("gemini-3.6-flash") == 1
+
+    def test_no_fallback_keeps_backoff_retries(self):
+        client = LLMClient(base_url=self._BASE, model="gemini-3.6-flash", api_key="k")
+        with patch.object(client._client, "post", side_effect=[_make_response(503), self._ok("ok")]) as post, \
+                patch("applypilot.llm.time.sleep") as sleep:
+            assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
+        assert post.call_count == 2 and sleep.call_count == 1
+
+    def test_get_client_wires_fallback(self, monkeypatch):
+        from applypilot.llm import reset_clients
+        monkeypatch.setenv("GEMINI_API_KEY", "k")
+        monkeypatch.setenv("LLM_TAILOR_MODEL", "gemini-3.6-flash")
+        monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
+        reset_clients()
+        try:
+            assert get_client("tailor").fallback.model == "gemini-3.1-flash-lite"
+            monkeypatch.setenv("LLM_FALLBACK_MODEL", "none")
+            reset_clients()
+            assert get_client("tailor").fallback is None
+            monkeypatch.setenv("LLM_FALLBACK_MODEL", "gemini-3.6-flash")  # same model -> no fallback
+            reset_clients()
+            assert get_client("tailor").fallback is None
+        finally:
+            reset_clients()
+
+    def test_lite_model_has_no_fallback_to_itself(self, monkeypatch):
+        from applypilot.llm import reset_clients
+        monkeypatch.setenv("GEMINI_API_KEY", "k")
+        monkeypatch.setenv("LLM_SCORING_MODEL", "gemini-3.1-flash-lite")
+        monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
+        reset_clients()
+        try:
+            assert get_client("scoring").fallback is None
+        finally:
+            reset_clients()

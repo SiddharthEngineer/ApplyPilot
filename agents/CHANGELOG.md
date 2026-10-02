@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **503 failover** (2026-10-02): when a Gemini model answers 503 ("overloaded"), the request goes straight to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`) instead of backing off and retrying up to 5 times. Google counts 503s against the free-tier daily quota, and today's retries used up gemini-3.6-flash's 20 requests after 5 successes. The fallback is used for the next `LLM_FALLBACK_COOLDOWN` seconds (300), and the 503 is added to the local daily count. `LLM_FALLBACK_MODEL=none` restores the old retries. `doctor` shows the fallback. Tests in `tests/test_llm.py::TestOverloadFallback`.
+- **Default validation** (2026-10-02): `applypilot run` without `--validation` tailors content-library resumes with `lenient` (no LLM judge, since the bullets are checked mechanically) and everything else with `normal`.
+
+### Changed
 - **Resume Template Tailoring — Task 7** (2026-10-02): `applypilot run` uses `--source content-library` by default when `~/.applypilot/content_library.md` exists. Cover letters for jobs tailored that way are written from that resume's bullets and the facts of the projects they cite, instead of `resume.txt`, so both documents cite the same work. README documents the template workflow.
 
 ### Changed

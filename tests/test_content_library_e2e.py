@@ -415,3 +415,39 @@ class TestCoverLetterEvidence:
         assert "CANDIDATE EVIDENCE:\nSELECTED BULLETS: x" in user
         assert "BASE RESUME TEXT" not in user
         assert "plus any tool named in the CANDIDATE EVIDENCE" in system
+
+
+class TestDefaultValidation:
+    """Content-library tailoring defaults to lenient validation; everything else to normal."""
+
+    def test_tailor_validation_resolution(self):
+        from applypilot.pipeline import tailor_validation_mode
+
+        assert tailor_validation_mode(None, "content-library") == "lenient"
+        assert tailor_validation_mode(None, "resume") == "normal"
+        assert tailor_validation_mode("strict", "content-library") == "strict"
+
+    def test_stages_resolve_default(self):
+        from applypilot import pipeline
+
+        with patch("applypilot.scoring.tailor.run_tailoring", return_value={}) as rt, \
+                patch("applypilot.scoring.cover_letter.run_cover_letters", return_value={}) as rc:
+            pipeline._run_tailor(validation_mode=None, source="content-library")
+            pipeline._run_cover(validation_mode=None)
+        assert rt.call_args.kwargs["validation_mode"] == "lenient"
+        assert rc.call_args.kwargs["validation_mode"] == "normal"
+
+    def test_cli_passes_none_when_flag_omitted(self):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        with (
+            patch("applypilot.config.check_tier"),
+            patch("applypilot.pipeline.run_pipeline", return_value={}) as rp,
+        ):
+            assert CliRunner().invoke(app, ["run", "tailor"]).exit_code == 0
+            assert CliRunner().invoke(app, ["run", "tailor", "--validation", "strict"]).exit_code == 0
+            assert CliRunner().invoke(app, ["run", "tailor", "--validation", "bogus"]).exit_code == 1
+        assert rp.call_args_list[0].kwargs["validation_mode"] is None
+        assert rp.call_args_list[1].kwargs["validation_mode"] == "strict"
