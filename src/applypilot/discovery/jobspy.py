@@ -350,75 +350,59 @@ def _run_one_search(
     if "tier" in s:
         label += f" [tier {s['tier']}]"
 
-    # Split sites: Glassdoor needs simplified location, others use original
+    # Glassdoor needs a simplified location; the other boards use the original.
     gd_location = glassdoor_map.get(s["location"], s["location"].split(",")[0])
-    has_glassdoor = "glassdoor" in sites
-    other_sites = [si for si in sites if si != "glassdoor"]
 
+    # One call per board, so a failure or block is attributed to the right board.
     all_dfs = []
-
-    # Run non-Glassdoor sites with original location
-    if other_sites:
+    counts: dict[str, int] = {}
+    blocked: dict[str, str] = {}
+    failed: list[str] = []
+    for site in sites:
         kwargs = {
-            "site_name": other_sites,
+            "site_name": [site],
             "search_term": s["query"],
-            "location": s["location"],
+            "location": gd_location if site == "glassdoor" else s["location"],
             "results_wanted": results_per_site,
             "hours_old": hours_old,
             "description_format": "markdown",
-            "country_indeed": _normalize_country(defaults.get("country_indeed")),
             "verbose": 0,
         }
+        if site != "glassdoor":
+            kwargs["country_indeed"] = _normalize_country(defaults.get("country_indeed"))
         if s.get("remote"):
             kwargs["is_remote"] = True
         if proxy_config:
             kwargs["proxies"] = [proxy_config["jobspy"]]
-        if "linkedin" in other_sites:
+        if site == "linkedin":
             kwargs["linkedin_fetch_description"] = True
-        try:
-            df = _scrape_with_retry(kwargs, max_retries=max_retries)
-            all_dfs.append(df)
-        except Exception as e:
-            log.error("[%s] (non-gd): %s", label, e)
+        with _capture_jobspy_errors() as cap:
+            try:
+                site_df = _scrape_with_retry(kwargs, max_retries=max_retries)
+            except Exception as e:
+                log.error("[%s] (%s): %s", label, site, e)
+                failed.append(site)
+                continue
+        counts[site] = _site_counts(site_df, [site])[site] if site_df is not None else 0
+        if counts[site] == 0 and cap.blocked:
+            blocked[site] = cap.blocked
+        if site_df is not None and len(site_df):
+            all_dfs.append(site_df)
 
-    # Run Glassdoor separately with simplified location
-    if has_glassdoor:
-        gd_kwargs = {
-            "site_name": ["glassdoor"],
-            "search_term": s["query"],
-            "location": gd_location,
-            "results_wanted": results_per_site,
-            "hours_old": hours_old,
-            "description_format": "markdown",
-            "verbose": 0,
-        }
-        if s.get("remote"):
-            gd_kwargs["is_remote"] = True
-        if proxy_config:
-            gd_kwargs["proxies"] = [proxy_config["jobspy"]]
-        try:
-            gd_df = _scrape_with_retry(gd_kwargs, max_retries=max_retries)
-            all_dfs.append(gd_df)
-        except Exception as e:
-            log.error("[%s] (glassdoor): %s", label, e)
+    base = {"label": label, "sites": {site: counts.get(site, 0) for site in sites},
+            "blocked": blocked, "failed": failed, "errors": len(failed)}
 
     if not all_dfs:
-        log.error("[%s]: all sites failed", label)
-        return {"new": 0, "existing": 0, "errors": 1, "filtered": 0, "total": 0, "label": label,
-                "sites": _site_counts(pd.DataFrame(), sites)}
+        if failed and len(failed) == len(sites):
+            log.error("[%s]: all sites failed", label)
+        else:
+            log.info("[%s] 0 results", label)
+        return {"new": 0, "existing": 0, "filtered": 0, "total": 0, **base}
 
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
         df = pd.concat(all_dfs, ignore_index=True) if len(all_dfs) > 1 else all_dfs[0]
-
-    if len(df) == 0:
-        log.info("[%s] 0 results", label)
-        return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label,
-                "sites": _site_counts(df, sites)}
-
-    # Count per-site results before location filtering
-    per_site = _site_counts(df, sites)
 
     # Filter by location before storing
     before = len(df)
@@ -436,8 +420,7 @@ def _run_one_search(
         msg += f", {filtered} filtered (location)"
     log.info(msg)
 
-    return {"new": new, "existing": existing, "errors": 0, "filtered": filtered, "total": before, "label": label,
-            "sites": per_site}
+    return {"new": new, "existing": existing, "filtered": filtered, "total": before, **base}
 
 
 # -- Single query search -----------------------------------------------------
@@ -581,20 +564,16 @@ def _full_crawl(
         total_existing += result["existing"]
         total_errors += result["errors"]
 
-        # Only feed non-error results to the tracker; hard errors
-        # (network failures, invalid config, etc.) should not penalize
-        # a board's consecutive-empty count.
-        if result["errors"] > 0:
-            log.debug("Skipping tracker note for %r — search had %d error(s)", s["query"], result["errors"])
-        else:
-            newly_disabled = tracker.note(active, result["sites"])
-            for site_name in newly_disabled:
-                log.warning(
-                    "%s returned 0 results on %d consecutive searches — likely blocked. "
-                    "Skipping for the rest of the crawl. Remove it from 'sites' in "
-                    "searches.yaml to permanently disable.",
-                    site_name, tracker.threshold,
-                )
+        # Boards whose call raised (network failure, bad config, ...) are left
+        # out of the tracker so hard errors don't count as empty searches.
+        noted = [site for site in active if site not in result["failed"]]
+        newly_disabled = tracker.note(noted, result["sites"], blocked=result["blocked"])
+        for site_name in newly_disabled:
+            log.warning(
+                "%s disabled for the rest of the crawl: %s. Remove it from 'sites' in "
+                "searches.yaml to stop requesting it.",
+                site_name, tracker.reasons[site_name],
+            )
 
         if completed % 5 == 0 or completed == len(searches):
             log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",
@@ -643,49 +622,56 @@ def _site_counts(df: pd.DataFrame, requested_sites: list[str]) -> dict[str, int]
 
 @dataclass
 class _SiteTracker:
-    """Tracks per-site results across a crawl and disables boards that keep returning 0 jobs."""
+    """Tracks per-site results across a crawl and disables boards that are blocked
+    or keep returning 0 jobs."""
 
     threshold: int = 3
     counts: dict[str, int] = field(default_factory=dict)
     requests: dict[str, int] = field(default_factory=dict)
     consecutive_empty: dict[str, int] = field(default_factory=dict)
     disabled: set[str] = field(default_factory=set)
+    reasons: dict[str, str] = field(default_factory=dict)
 
     def active_sites(self, sites: list[str]) -> list[str]:
         """Return ``sites`` with disabled boards removed, preserving order."""
         return [s for s in sites if s not in self.disabled]
 
-    def note(self, requested: list[str], counts: dict[str, int]) -> list[str]:
-        """Record results for one search; disable boards that reached ``threshold``
-        consecutive 0-result searches. Returns the list of boards newly disabled."""
+    def note(self, requested: list[str], counts: dict[str, int],
+             blocked: dict[str, str] | set[str] | None = None) -> list[str]:
+        """Record results for one search. A board in ``blocked`` (refused the request,
+        e.g. HTTP 403) is disabled immediately; a board with 0 results is disabled after
+        ``threshold`` consecutive empty searches. Returns the boards newly disabled."""
+        blocked = blocked or {}
         newly_disabled: list[str] = []
 
         for site in requested:
             self.requests[site] = self.requests.get(site, 0) + 1
-            prev_count = self.counts.get(site, 0)
-            self.counts[site] = prev_count + counts.get(site, 0)
+            n = counts.get(site, 0)
+            self.counts[site] = self.counts.get(site, 0) + n
+            self.consecutive_empty[site] = 0 if n else self.consecutive_empty.get(site, 0) + 1
 
-            if site in requested and counts.get(site, 0) == 0:
-                # Site got 0 results this search
-                prev_consec = self.consecutive_empty.get(site, 0)
-                self.consecutive_empty[site] = prev_consec + 1
+            if site in self.disabled:
+                continue
+            if site in blocked:
+                msg = blocked[site] if isinstance(blocked, dict) else ""
+                code = re.search(r"\b(4\d\d)\b", msg or "")
+                self.reasons[site] = f"blocked (HTTP {code.group(1)})" if code else "blocked"
+            elif self.consecutive_empty[site] >= self.threshold:
+                self.reasons[site] = f"0 results on {self.consecutive_empty[site]} consecutive searches"
             else:
-                # Site got ≥1 result → reset its counter
-                self.consecutive_empty[site] = 0
-
-            # Check if we've just hit the threshold
-            if self.consecutive_empty.get(site, 0) >= self.threshold and site not in self.disabled:
-                self.disabled.add(site)
-                newly_disabled.append(site)
+                continue
+            self.disabled.add(site)
+            newly_disabled.append(site)
 
         return newly_disabled
 
     def report(self) -> dict:
-        """Return ``{"counts": dict, "requests": dict, "disabled": list}`` for crawl stats."""
+        """Return ``{"counts", "requests", "disabled", "reasons"}`` for crawl stats."""
         return {
             "counts": dict(self.counts),
             "requests": dict(self.requests),
             "disabled": sorted(self.disabled),
+            "reasons": dict(self.reasons),
         }
 
 

@@ -42,6 +42,16 @@ class TestDiscoverDisabledSiteBanner:
         assert "disabled" in stats["jobspy"]
         assert "zip_recruiter" in stats["jobspy"]
 
+    def test_banner_shows_tracker_reason(self, capsys):
+        """The banner names why each board was skipped."""
+        mock_result = {"disabled_sites": ["zip_recruiter"],
+                       "site_stats": {"reasons": {"zip_recruiter": "blocked (HTTP 403)"}}}
+
+        with mock.patch(_PATCH_TARGET, return_value=mock_result):
+            _run_discover()
+
+        assert "zip_recruiter: blocked (HTTP 403)" in capsys.readouterr().out
+
     def test_no_banner_when_no_disabled_sites(self, capsys):
         """No banner is printed when disabled_sites is empty."""
         mock_result = {"disabled_sites": [], "site_stats": {}}

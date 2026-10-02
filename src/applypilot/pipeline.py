@@ -71,9 +71,10 @@ def _run_discover(workers: int = 1, no_cache: bool = False) -> dict:
         disabled = result.get("disabled_sites", [])
         if disabled:
             sites_str = ", ".join(disabled)
+            reasons = (result.get("site_stats") or {}).get("reasons", {})
+            detail = ", ".join(f"{s}: {reasons.get(s, '0 results across multiple searches')}" for s in disabled)
             console.print(
-                f"  [yellow]JobSpy skipped site(s): {sites_str} "
-                f"(0 results across multiple searches — likely blocked). "
+                f"  [yellow]JobSpy skipped site(s) — {detail}. "
                 f"Remove from 'sites' in searches.yaml to permanently disable.[/yellow]"
             )
             stats["jobspy"] = f"ok (disabled: {sites_str})"

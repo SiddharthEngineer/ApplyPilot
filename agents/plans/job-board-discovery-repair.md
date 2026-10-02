@@ -75,7 +75,7 @@ and include them in `report()`.
 **Acceptance:**
 - New tests: a blocked site is disabled after 1 search, an empty site only after `threshold` searches, and one site's exception doesn't zero the other sites' counts.
 - Existing `tests/test_jobspy.py` still passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 3: Safe defaults + migrate user config
 **Runs:** cloud (code + tests), then local (edit `~/.applypilot/searches.yaml`, live discover run)
@@ -176,3 +176,4 @@ Task 6 (independent)
 ## Historical Record
 - 2026-10-01: Plan created from live probe evidence (roadmap initiative R2).
 - 2026-10-02: Task 1 done (VPS session 2). `probe_boards()` + `applypilot discover --probe [--sites --query --location]`. JobSpy's per-board loggers are `JobSpy:<Board>` with `propagate=False`, so `_capture_jobspy_errors()` attaches a handler to each one directly (Task 2 reuses it). Live probe on the VPS ("Software Engineer", Remote, 3 rows, 4.2s total): indeed ok 3 (1.6s), linkedin ok 3 (0.7s), glassdoor blocked (`bad response status code: 403`), zip_recruiter blocked (`403 forbidden aa`, Cloudflare), google empty.
+- 2026-10-02: Task 2 done. `_run_one_search()` makes one `_scrape_with_retry` call per board inside `_capture_jobspy_errors()` and returns `blocked: dict[site, log line]` and `failed: list[site]` (`errors` = number of failed boards). `_SiteTracker.note(..., blocked=)` disables a blocked board at once with reason `blocked (HTTP 403)`. `reasons` is in `report()`, and the pipeline banner prints it. Boards whose call raised are left out of the tracker, so the other boards still count. Three existing tests in `TestFullCrawlTracker`/`TestSiteTracker` were updated for the per-board call shape and the new `reasons` key.
