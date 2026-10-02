@@ -124,6 +124,8 @@ def _scrape_with_retry(kwargs: dict, max_retries: int = 2, backoff: float = 5.0)
 
 # JobSpy logs per-board HTTP failures (e.g. Cloudflare 403s) to its own
 # non-propagating ``JobSpy:<Board>`` loggers instead of raising them.
+# Lines a board logs when it simply found nothing (not a failure).
+_NO_RESULTS_RE = re.compile(r"no job", re.IGNORECASE)
 _BLOCKED_RE = re.compile(r"status code:? ?(400|401|403|429)\b|\b429 Response|Blocked by", re.IGNORECASE)
 
 
@@ -214,8 +216,8 @@ def probe_boards(
             status, detail = "ok", cap.blocked or ""
         elif cap.blocked:
             status, detail = "blocked", cap.blocked
-        elif cap.messages:
-            status, detail = "error", cap.messages[0]
+        elif errors := [m for m in cap.messages if not _NO_RESULTS_RE.search(m)]:
+            status, detail = "error", errors[0]
         else:
             status, detail = "empty", ""
         results.append(BoardHealth(site, status, rows, latency, detail[:200]))

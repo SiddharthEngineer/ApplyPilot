@@ -25,7 +25,7 @@ ApplyPilot is a 6-stage autonomous job application pipeline. It discovers jobs a
 ## Quick Start
 
 ```bash
-uv pip install applypilot python-jobspy --no-deps
+uv pip install applypilot "python-jobspy>=1.2.0"
 applypilot init          # one-time setup: resume, profile, preferences, API keys
 applypilot doctor        # verify your setup
 applypilot run           # discover > enrich > score > tailor > cover letters
@@ -37,14 +37,14 @@ applypilot apply         # autonomous browser-driven submission
 ```bash
 git clone https://github.com/Pickle-Pixel/ApplyPilot.git
 cd ApplyPilot
-uv pip install -e ".[dev]" python-jobspy --no-deps
+uv pip install -e ".[dev]" "python-jobspy>=1.2.0"
 playwright install chromium
 applypilot --version
 pytest tests/ -v
 ruff check src/
 ```
 
-> **Why `--no-deps`?** `python-jobspy` pins an exact numpy version (`1.26.3`) in its metadata that conflicts with pip's resolver. The `--no-deps` flag bypasses this; uv installs the latest compatible numpy and jobspy's other dependencies automatically.
+> **Older installs:** `python-jobspy` releases before 1.2.0 pinned `numpy==1.26.3` and had to be installed with `--no-deps`. 1.2.0 resolves normally.
 
 ---
 

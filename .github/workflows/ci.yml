@@ -23,12 +23,9 @@ jobs:
           activate-environment: true
 
       - name: Install dependencies
-        # python-jobspy pins numpy==1.26.3, so install it without deps and add its runtime deps explicitly
-        # (same as scripts/cloud_setup.sh).
+        # Same as scripts/cloud_setup.sh. python-jobspy 1.2.0 no longer needs --no-deps.
         run: |
-          uv pip install -e ".[dev]"
-          uv pip install "python-jobspy==1.1.82" --no-deps
-          uv pip install markdownify pydantic regex requests tls-client numpy
+          uv pip install -e ".[dev]" "python-jobspy==1.2.0"
 
       - name: Lint (errors only)
         # The default ruff rule set reports ~150 pre-existing style findings; CI gates on real errors only.

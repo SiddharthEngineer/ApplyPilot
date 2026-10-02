@@ -5,12 +5,8 @@
 set -euo pipefail
 
 python -m pip install --quiet -e ".[dev]"
-# python-jobspy pins numpy==1.26.3, which conflicts; install it without deps,
-# then add its runtime deps explicitly (see `pip show python-jobspy` -> Requires).
-# pip will warn that jobspy wants older numpy/pandas/regex; the local dev .venv runs the same
-# newer versions and the suite passes, so the warnings are expected.
-# Pinned to the version the local dev .venv uses; evaluating newer releases is R2 Task 0.
-python -m pip install --quiet "python-jobspy==1.1.82" --no-deps
-python -m pip install --quiet markdownify pydantic regex requests tls-client numpy
+# python-jobspy 1.2.0 dropped the numpy==1.26.3 pin that used to need --no-deps,
+# and adds curl_cffi (browser TLS impersonation). Adopted in R2 Task 0.
+python -m pip install --quiet "python-jobspy==1.2.0"
 
 python -c "import applypilot, jobspy; print('applypilot', applypilot.__version__ if hasattr(applypilot, '__version__') else 'ok', '| jobspy ok')"
