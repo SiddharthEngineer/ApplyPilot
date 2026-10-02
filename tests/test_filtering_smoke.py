@@ -14,10 +14,15 @@ import pytest
 # ---------------------------------------------------------------------------
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+DATA_DIR = Path(__file__).parent / "data"  # committed, scrubbed samples (scripts/capture_fixtures.py --out)
 
 
 def _load_enriched_jobs() -> list[dict]:
-    """Load enriched jobs from fixture, or return synthetic fallback."""
+    """Load committed JobSpy samples, else a local fixture, else a synthetic fallback."""
+    recorded = [job for path in sorted(DATA_DIR.glob("jobspy_*.json"))
+                for job in json.loads(path.read_text(encoding="utf-8"))]
+    if recorded:
+        return recorded
     path = FIXTURES_DIR / "jobs_enriched.json"
     if path.exists():
         with open(path) as f:

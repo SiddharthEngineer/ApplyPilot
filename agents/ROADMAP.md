@@ -25,7 +25,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 
 | Order | ID | Initiative | Plan | Tasks | Status | Depends on |
 |---|---|---|---|---|---|---|
-| 0 | R0 | Test tiers + morning QC (hermetic unit tests, CI on PRs, committed recorded data, `scripts/qc.py`) | [test-tiers-and-qc](plans/test-tiers-and-qc.md) | 2/5 | 🔄 | none |
+| 0 | R0 | Test tiers + morning QC (hermetic unit tests, CI on PRs, committed recorded data, `scripts/qc.py`) | [test-tiers-and-qc](plans/test-tiers-and-qc.md) | 4/5 | 🟡 | none |
 | 1 | R2 | Repair job-board discovery (Indeed/LinkedIn reliable, blocked boards gated, add Greenhouse/Lever/Ashby, fix SmartExtract) | [job-board-discovery-repair](plans/job-board-discovery-repair.md) | 0/8 | ⏳ | R0 |
 | 2 | R3 | Stop saving LLM errors as `fit_score = 0`; make them retryable | [scoring-error-recovery](plans/scoring-error-recovery.md) | 0/2 | ⏳ | R0 |
 | 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 0/5 | ⏳ | R3 |
@@ -40,7 +40,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | M3 | After R3 + R4 land, run `applypilot run score --reset-errors`, then `applypilot run score` to re-score the 326 jobs stuck at 0. With a free-tier daily quota this may take more than one day; the stage stops cleanly and resumes. | After R4 | ☐ |
 | M4 | Review `template_preview.pdf` side by side with your resume and sign off (R5 Task 3). Confirm any wording or typo fixes in the education block. | During R5 | ☐ |
 | M5 | `applypilot apply`: keep a human in the loop long-term (agent fills forms, you submit, no automated CAPTCHA solving). Needs its own plan later; see Backlog. | Later | ☐ |
-| M6 | Capture and commit scrubbed recorded-response data (R0 Task 4). | During R0 | ☐ |
+| M6 | Capture and commit scrubbed recorded-response data (R0 Task 4): `python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin`, check with `grep -ri "<your email or name>" tests/data`, commit. | During R0 | ☐ |
 | M7 | Connect GitHub to your Claude account at https://claude.ai/connect-github (grant access to `SiddharthEngineer/ApplyPilot`), then create the routine "ApplyPilot nightly build" (daily 2:07 AM CT, Default environment, model `claude-opus-5-5`, no connectors). | Before the first nightly run | ☑ 2026-10-02: routine `trig_01LsAQHDWu531mcmvkqSspVB`, cron `7 7 * * *` UTC |
 
 ## Decisions log
@@ -48,6 +48,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 - 2026-10-01: Pipeline LLM calls (discovery judge, scoring, tailoring, cover letters) stay on the **Gemini free tier**. The Claude subscription is not used for them (`claude-llm-provider` plan dropped, replaced by `gemini-free-tier-llm`).
 - 2026-10-01: Plans are implemented by a nightly **Claude Code cloud routine**, reviewed each morning. `scripts/plan_worker.py` and `agents/plan_queue.json` were retired (completion history moved to **Done** below). The never-started `claude-code-plan-worker` plan (R1) was dropped.
 - 2026-10-02: The nightly routine keeps completing tasks until nothing is runnable or its usage limit ends the session (was: one task per night), with stacked per-plan branches and PRs.
+- 2026-10-02: Plans now run in **VPS mode** (`agents/BUILD_AGENT.md` §0): sessions on the user's VPS, one plan at a time, rebase-merged to `trunk` by the agent, summarized in `agents/MORNING.md`. The cloud routine is disabled. CI lint gates on real errors only (`--select E9,F63,F7,F82`).
 - 2026-10-01: `applypilot apply` will keep the user in the loop long-term. Deferred behind R0–R5.
 
 ## Findings behind this roadmap (2026-10-01 audit)

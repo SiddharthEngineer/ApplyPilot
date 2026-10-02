@@ -1,18 +1,16 @@
 # Current State
 
-**Last updated:** 2026-10-02 (R0 Task 2 done by nightly routine on `claude/plan-test-tiers-and-qc`)
+**Last updated:** 2026-10-02 (VPS session 1)
 
 ## Active Plan
 
-`agents/plans/test-tiers-and-qc.md` (R0), next in `agents/ROADMAP.md`. Work is done one task per night by the
-Claude Code cloud routine "ApplyPilot nightly build" (see `agents/BUILD_AGENT.md`).
-Branch: `claude/plan-test-tiers-and-qc` (Task 1 merged via PR #1; Task 2 on a new draft PR to `trunk`).
-Done: Task 1 (2026-10-02) — Workday/SmartExtract stubbed in `tests/test_pipeline.py`.
-Done: Task 2 (2026-10-02) — hermetic guard in `tests/conftest.py` (isolated `APPLYPILOT_DIR`, `NetworkAccessBlocked` for non-localhost sockets), `tests/test_hermetic.py`.
-Next step: routine runs R0 Task 3 (CI on pull requests in `.github/workflows/ci.yml`).
+Sessions now run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
+R0 `test-tiers-and-qc`: Tasks 1–3, 5 ✅; Task 4 code ✅, capture pending the user (M6). Merged via PR #3.
+Next step: R3 `scoring-error-recovery` (session 1), then R2 (session 2).
 
-Test gate now needs no exclusions. Cloud check 2026-10-02: `pytest tests/ -q` → 367 passed, 26 skipped in 13.1s.
-Blockers: none. Note: in the cloud image, pip installs into the user site under `$HOME/.local`, so an empty-HOME run needs `PYTHONUSERBASE=/root/.local`.
+Gate on the VPS: `. .venv/bin/activate && pytest tests/ -q` → 386 passed, 20 skipped in ~21s. CI green on PR #3.
+Blockers: this session's auto-mode permission classifier denied live network/LLM capture (`scripts/capture_fixtures.py`);
+live checks need the user to allow them or run them.
 
 ### Previous plans
 ### Progress — Cap Live Test Scope
