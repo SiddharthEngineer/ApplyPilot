@@ -67,7 +67,7 @@ Tailoring passes the resume JSON schema (resume-template-tailoring Task 4 will r
 **Acceptance:**
 - Unit test: a Gemini client with a schema sends `responseSchema` to the native URL.
 - Success Criterion 3 verified live and recorded in Historical Record.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 4: Pre-filter jobs before scoring
 **Runs:** cloud
@@ -121,3 +121,4 @@ Task 4 (independent)
 - 2026-10-01: Plan created, replacing `claude-llm-provider` (roadmap initiative R4) after the user chose the Gemini free tier. Verified compat + native 200 for gemini-3.6-flash and gemini-3.1-flash-lite.
 - 2026-10-02: Task 1 done. `get_client(purpose)` backed by `_clients` dict; `LLM_{PURPOSE}_MODEL` → `LLM_MODEL` → default for every provider; RPM window shared per model via `_rpm_timestamps`; `reset_clients()` replaces the `_instance`/`_discovery_instance` resets in tests. `enrichment/detail.py` and `scripts/capture_fixtures.py` stay on `get_client()` ("default").
 - 2026-10-02: Task 2 done. `LLMQuotaExhausted(model, scope)`; `_parse_quota_error` reads native `{"error":…}` and compat `[{"error":…}]` bodies; per-minute 429s wait `retryDelay`+1s (cap 90s). Scoring/tailor/cover break out of their loops with `"stopped": "daily_quota"` and record no attempt on the aborted job. SmartExtract re-raises through the judge/Phase 1/Phase 2/exec handlers and marks the site `fatal` (parallel mode cancels pending sites). Beyond the plan: `pipeline.py` shows `stopped: daily quota` (yellow, not an error) and streaming mode no longer re-runs a stopped stage, which would have spent one request per poll. Tests: `tests/test_llm.py::TestDailyQuota`, `tests/test_quota_stop.py`.
+- 2026-10-02: Task 3 done. `chat(response_schema=…)` sends `responseMimeType`/`responseSchema` on the native API for Gemini (compat stays the default without a schema); other providers ignore it. `SCORE_SCHEMA` in `scorer.py`, `RESUME_SCHEMA` in `tailor.py` (the 5 skill categories the prompts already name are fixed properties, since `responseSchema` has no free-form keys). Logs `JSON parse retries (scoring|tailoring): N`. **Live (Success Criterion 3):** both schemas accepted by `gemini-3.1-flash-lite`; `run_scoring(limit=20)` with `LLM_SCORING_MODEL=gemini-3.1-flash-lite` on the real DB → 20 scored, 0 errors, **0 JSON parse retries**, 87s (scores 3–8).

@@ -43,15 +43,43 @@ KEYWORDS: [comma-separated ATS keywords from the job description that match or c
 REASONING: [2-3 sentences explaining the score]"""
 
 
+# Gemini structured output (responseSchema format). Other providers get the
+# text format from SCORE_PROMPT; _parse_score_response accepts both.
+SCORE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "score": {"type": "INTEGER", "description": "Fit score from 1 to 10"},
+        "keywords": {"type": "STRING", "description": "Comma-separated matching ATS keywords"},
+        "reasoning": {"type": "STRING", "description": "2-3 sentences explaining the score"},
+    },
+    "required": ["score", "keywords", "reasoning"],
+    "propertyOrdering": ["score", "keywords", "reasoning"],
+}
+
+
+def _parse_score_json(response: str) -> dict | None:
+    """Parse a structured-output reply; None if it isn't the expected JSON object."""
+    try:
+        data = json.loads(response)
+        score = max(1, min(10, int(data["score"])))
+    except (ValueError, TypeError, KeyError):
+        return None
+    return {"score": score, "keywords": str(data.get("keywords", "")), "reasoning": str(data.get("reasoning", ""))}
+
+
 def _parse_score_response(response: str) -> dict:
     """Parse the LLM's score response into structured data.
 
     Args:
-        response: Raw LLM response text.
+        response: Raw LLM response text (structured JSON or the SCORE/KEYWORDS/REASONING format).
 
     Returns:
-        {"score": int, "keywords": str, "reasoning": str}
+        {"score": int, "keywords": str, "reasoning": str}; score 0 means unparseable.
     """
+    parsed = _parse_score_json(response.strip())
+    if parsed is not None:
+        return parsed
+
     score = 0
     keywords = ""
     reasoning = response
@@ -97,10 +125,12 @@ def score_job(resume_text: str, job: dict) -> dict:
 
     try:
         client = get_client("scoring")
-        response = client.chat(messages, max_tokens=512, temperature=0.2)
+        response = client.chat(messages, max_tokens=512, temperature=0.2, response_schema=SCORE_SCHEMA)
         parsed = _parse_score_response(response)
         if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10
-            return _error_result(f"unparseable response: {response[:200]!r}")
+            result = _error_result(f"unparseable response: {response[:200]!r}")
+            result["parse_error"] = True
+            return result
         return parsed
     except LLMQuotaExhausted:
         raise  # run_scoring stops the stage; this job stays untouched
@@ -163,6 +193,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     completed = 0
     errors = 0
     first_error_msg = ""
+    parse_errors = 0
     results: list[dict] = []
     stopped = ""
 
@@ -177,6 +208,8 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         result["url"] = job["url"]
         completed += 1
 
+        if result.get("parse_error"):
+            parse_errors += 1
         if result["score"] is None:
             errors += 1
             if not first_error_msg:
@@ -220,6 +253,8 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     elapsed = time.time() - t0
     log.info("Done: %d scored, %d errors in %.1fs (%.1f jobs/sec)", len(results) - errors, errors, elapsed,
              len(results) / elapsed if elapsed > 0 else 0)
+    # Each unparseable reply costs a retry on a later run (another quota request).
+    log.info("JSON parse retries (scoring): %d", parse_errors)
 
     # Score distribution
     dist = conn.execute("""
@@ -232,6 +267,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     stats = {
         "scored": len(results) - errors,
         "errors": errors,
+        "parse_errors": parse_errors,
         "elapsed": elapsed,
         "distribution": distribution,
     }
