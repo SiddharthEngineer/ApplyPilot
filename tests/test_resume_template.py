@@ -71,8 +71,8 @@ def _llm_json() -> dict:
 
 class TestSlugs:
     def test_slugify(self):
-        assert slugify("PatentsView Data Quality Lead — earlier phase") == "patentsview-data-quality-lead-earlier-phase"
-        assert slugify("Data Analytics Intern, CapConnect+") == "data-analytics-intern-capconnect"
+        assert slugify("Orders Data Quality Lead — earlier phase") == "orders-data-quality-lead-earlier-phase"
+        assert slugify("Data Analyst Intern, Globex+") == "data-analyst-intern-globex"
 
     def test_role_keys_and_project_slugs(self, library):
         assert [r.key for r in library.roles] == ["data-engineer-acme", "data-analyst-intern-globex"]
