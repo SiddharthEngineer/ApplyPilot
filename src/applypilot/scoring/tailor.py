@@ -20,11 +20,14 @@ from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, l
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import LLMQuotaExhausted, get_client
 from applypilot.scoring.content_library import ContentLibrary, parse_content_library
+from applypilot.scoring.resume_model import TailoredResume
+from applypilot.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
 from applypilot.scoring.validator import (
     BANNED_WORDS,
     FABRICATION_WATCHLIST,
     sanitize_text,
     validate_json_fields,
+    validate_resume_model,
     validate_tailored_resume,
 )
 
@@ -47,8 +50,8 @@ _SECTION_SCHEMA = {
 }
 _SKILL_CATEGORIES = ["Languages", "Frameworks", "DevOps & Infra", "Databases", "Tools"]
 
-# Gemini structured output (responseSchema format) for the JSON shape both tailor prompts ask for.
-# resume-template-tailoring Task 4 replaces this with the TailoredResume schema.
+# Gemini structured output (responseSchema format) for the legacy --source resume JSON shape.
+# The content-library path uses tailored_resume_schema(library) instead.
 RESUME_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -152,117 +155,167 @@ BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, De
 {{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
 
 
-def _build_content_library_tailor_prompt(profile: dict, content_library: ContentLibrary) -> str:
-    """Build the resume tailoring system prompt for content-library-based tailoring.
+def _role_slots(
+    library: ContentLibrary, base: TailoredResume | None = None,
+) -> dict[str, tuple[int, int]]:
+    """Bullet range per content-library role, shaped like the base resume.
 
-    Instead of rewriting an existing resume, the LLM selects projects from the
-    content library and writes fresh bullets from raw facts.
+    The max is the role's bullet count in the base resume; the min is two fewer (at least one
+    for the most recent role). A role the base resume doesn't show gets 0-2. Without a base
+    resume: most recent role 2-5, others 0-3.
+    """
+    counts = {r.role_key: len(r.bullets) for r in base.roles} if base else {}
+    slots: dict[str, tuple[int, int]] = {}
+    for i, role in enumerate(library.roles):
+        if not counts:
+            slots[role.key] = (2, 5) if i == 0 else (0, 3)
+        elif role.key in counts:
+            hi = max(counts[role.key], 1)
+            slots[role.key] = (max(1 if i == 0 else 0, hi - 2), hi)
+        else:
+            slots[role.key] = (0, 2)
+    return slots
+
+
+def tailored_resume_schema(library: ContentLibrary) -> dict:
+    """Gemini responseSchema for TailoredResume, with role keys and project slugs as enums."""
+    role_keys = [r.key for r in library.roles] or [""]
+    slugs = [p.slug for r in library.roles for p in r.projects] or [""]
+    bullet = {
+        "type": "OBJECT",
+        "properties": {
+            "text": {"type": "STRING"},
+            "project_ids": {"type": "ARRAY", "items": {"type": "STRING", "enum": slugs}},
+        },
+        "required": ["text", "project_ids"],
+        "propertyOrdering": ["text", "project_ids"],
+    }
+    return {
+        "type": "OBJECT",
+        "properties": {
+            "roles": {"type": "ARRAY", "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "role_key": {"type": "STRING", "enum": role_keys},
+                    "bullets": {"type": "ARRAY", "items": bullet},
+                },
+                "required": ["role_key", "bullets"],
+                "propertyOrdering": ["role_key", "bullets"],
+            }},
+            "skills": {"type": "ARRAY", "items": {
+                "type": "OBJECT",
+                "properties": {"category": {"type": "STRING"}, "items": {"type": "STRING"}},
+                "required": ["category", "items"],
+                "propertyOrdering": ["category", "items"],
+            }},
+            "dropped_roles": {"type": "ARRAY", "items": {"type": "STRING", "enum": role_keys}},
+        },
+        "required": ["roles", "skills", "dropped_roles"],
+        "propertyOrdering": ["roles", "skills", "dropped_roles"],
+    }
+
+
+def _build_content_library_tailor_prompt(
+    profile: dict,
+    content_library: ContentLibrary,
+    base: TailoredResume | None = None,
+    fixed_roles: dict[str, dict] | None = None,
+) -> str:
+    """System prompt for template-mode tailoring from the content library.
+
+    Everything here is the same for every job (library first, then rules), so the prompt
+    prefix stays identical across jobs and is eligible for Gemini implicit caching. The job
+    description and any retry notes go in the user message.
 
     Args:
         profile: User profile dict from load_profile().
-        content_library: Parsed ContentLibrary with all roles and projects.
+        content_library: Parsed ContentLibrary.
+        base: The base resume parsed into a TailoredResume (slot ranges, skill categories).
+        fixed_roles: role_key -> {title, company, dates, tagline} shown to the model for context.
     """
-    boundary = profile.get("skills_boundary", {})
-    resume_facts = profile.get("resume_facts", {})
-
-    # Format skills boundary
-    skills_lines = []
-    for category, items in boundary.items():
-        if isinstance(items, list) and items:
-            label = category.replace("_", " ").title()
-            skills_lines.append(f"{label}: {', '.join(items)}")
-    skills_block = "\n".join(skills_lines)
-
-    school = resume_facts.get("preserved_school", "")
-    education = profile.get("experience", {})
-    education_level = education.get("education_level", "")
-
+    content_library.ensure_keys()
+    fixed_roles = {**(fixed_roles_from_resume(base) if base else {}), **(fixed_roles or {})}
+    slots = _role_slots(content_library, base)
     banned_str = ", ".join(BANNED_WORDS)
-
-    # Format all available angle tags
     angles_str = ", ".join(sorted(content_library.all_angles))
 
-    # Format all projects grouped by role
-    projects_block_parts: list[str] = []
+    boundary = profile.get("skills_boundary", {})
+    boundary_items = [i for items in boundary.values() if isinstance(items, list) for i in items]
+
+    library_parts: list[str] = []
     for role in content_library.roles:
-        projects_block_parts.append(f"### {role.title} ({role.dates})")
+        library_parts.append(f"### ROLE {role.key}: {role.title} ({role.dates})")
         for proj in role.projects:
-            facts = []
+            library_parts.append(f"#### PROJECT {proj.slug}: {proj.name} ({proj.dates})")
             if proj.context:
-                facts.append(f"  Context: {proj.context}")
+                library_parts.append(f"  Context: {proj.context}")
             if proj.scope_scale:
-                facts.append(f"  Scope/Scale: {proj.scope_scale}")
+                library_parts.append(f"  Scope/Scale: {proj.scope_scale}")
             if proj.tools_actions:
-                facts.append(f"  Tools & Actions: {proj.tools_actions}")
+                library_parts.append(f"  Tools & Actions: {proj.tools_actions}")
             if proj.outcome_metrics:
-                facts.append(f"  Outcome/Metrics: {proj.outcome_metrics}")
-            facts.append(f"  Angles: {', '.join(proj.angles)}")
-            projects_block_parts.append(f"#### {proj.name} ({proj.dates})")
-            projects_block_parts.extend(facts)
-            projects_block_parts.append("")
-    projects_block = "\n".join(projects_block_parts)
+                library_parts.append(f"  Outcome/Metrics: {proj.outcome_metrics}")
+            library_parts.append(f"  Angles: {', '.join(proj.angles)}")
+        library_parts.append("")
+    library_block = "\n".join(library_parts)
 
-    return f"""You are a senior technical recruiter building a resume from a project library.
+    role_lines: list[str] = []
+    for role in content_library.roles:
+        lo, hi = slots[role.key]
+        info = fixed_roles.get(role.key, {})
+        head = f"{info['title']} at {info['company']}" if info.get("title") and info.get("company") else role.title
+        need = "required" if lo > 0 else "optional, may be dropped"
+        slugs = ", ".join(p.slug for p in role.projects) or "(no projects)"
+        role_lines.append(f"- {role.key}: {head} ({info.get('dates') or role.dates}); "
+                          f"{lo}-{hi} bullets, {need}; projects: {slugs}")
+    roles_block = "\n".join(role_lines)
 
-You have a library of raw project facts. Your job: select the most relevant projects for the target job and write ONE bullet per project from the raw facts. Return the tailored resume as a JSON object.
+    if base and base.skills:
+        skills_block = "\n".join(f"{cat}: {items}" for cat, items in base.skills.items())
+    else:
+        skills_block = "\n".join(
+            f"{cat.replace('_', ' ').title()}: {', '.join(items)}"
+            for cat, items in boundary.items() if isinstance(items, list) and items
+        )
 
-## CONTENT LIBRARY (all available projects):
+    return f"""You are a senior technical recruiter writing the variable parts of a one-page resume from a library of raw project facts.
 
-{projects_block}
+## CONTENT LIBRARY (every role and project; ids in CAPS-prefixed headers)
 
-## AVAILABLE ANGLE TAGS:
-{angles_str}
+{library_block}
+## RESUME LAYOUT (fixed by code; you only write bullets and order skills)
 
-## RECRUITER SCAN (6 seconds):
-1. Title -- matches what they're hiring?
-2. Summary -- 2 sentences proving you've done this work
-3. First 3 bullets of most recent role -- verbs and outcomes match?
-4. Skills -- must-haves visible immediately?
+The header, education, role titles, companies, dates and taglines are filled in by code. Roles always print in this order:
+{roles_block}
 
-## SKILLS BOUNDARY (real skills only):
+## YOUR JOB
+
+1. Read the job description (user message). Identify its top 3-5 priorities and map them to Angle tags ({angles_str}).
+2. For each role, choose the projects from THAT role whose facts best match those priorities, and write bullets for them. A bullet may combine two projects of the same role.
+3. Respect each role's bullet range. Order bullets within a role by relevance to the job. Put an optional role in "dropped_roles" instead of "roles" when nothing in it is relevant.
+4. Order the skills: keep these categories (you may reorder categories), and inside each put the job's must-haves first:
 {skills_block}
+   You may add up to 2 items from the candidate's skills boundary ({", ".join(boundary_items) or "none"}) when the job asks for them. Never add anything else.
 
-You MAY add 2-3 closely related tools (Kubernetes if Docker, Terraform if AWS, Redis if PostgreSQL). No unrelated languages/frameworks.
+## BULLETS
 
-## SELECTION PROCESS:
+- Strong verb + what was built or done + tools + outcome. Write fresh from the raw facts; don't copy library phrasing.
+- One or two printed lines: at most 230 characters.
+- Every number (counts, percentages, metrics like 0.899 -> 0.428) must appear in the facts of the projects the bullet cites. Never invent or round numbers.
+- Cite every project a bullet draws on in "project_ids" (slugs from this library, from the bullet's own role). Never leave project_ids empty.
+- Mirror the job's terminology where it accurately describes the work (ATS keywords).
+- Vary verbs (Built, Designed, Led, Automated, Deployed, Operated, Reduced, Migrated).
 
-1. Read the job description. Identify the JD's top 3-5 priorities.
-2. Map each priority to one or more Angle tags from: {angles_str}
-3. Select 5-7 projects whose Angle tags best match the JD priorities. Prioritize depth over breadth -- it's better to have 5 strong matches than 7 weak ones.
-4. For each selected project, write ONE new resume bullet from its raw facts (Context / Scope / Tools & Actions / Outcome). Do NOT reuse pre-written phrasing -- write a fresh bullet from the raw data.
-5. Note which internship (if any) is worth keeping as a single line for this role, and which can be dropped entirely.
+## VOICE
 
-## TAILORING RULES:
-
-TITLE: Match the target role. Keep seniority (Senior/Lead/Staff). Drop company suffixes and team names.
-
-SUMMARY: Write from scratch. Lead with the 1-2 skills that matter most for THIS role. Sound like someone who's done this job.
-
-SKILLS: Reorder each category so the job's must-haves appear first.
-
-EXPERIENCE: Group selected projects under their role header. Use the role title as the experience header (e.g., "Data Science Associate at AIR"). Use role dates as the subtitle. Include 2-4 bullets per role, ordered by relevance to the JD.
-
-PROJECTS: Include standalone projects that don't fit under a role header, or projects worth highlighting separately. Drop irrelevant projects entirely.
-
-BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, Designed, Implemented, Reduced, Automated, Deployed, Operated, Optimized). Most relevant first. Max 4 per section. Keep to one line (~20-28 words).
-
-## VOICE:
 - Write like a real engineer. Short, direct.
-- GOOD: "Automated financial reporting with Python + API integrations, cut processing time from 10 hours to 2"
-- BAD: "Leveraged cutting-edge AI technologies to drive transformative operational efficiencies"
-- BANNED WORDS (using ANY of these = validation failure -- do not use them even once):
-  {banned_str}
+- BANNED WORDS (any of these = validation failure): {banned_str}
 - No em dashes. Use commas, periods, or hyphens.
 
-## HARD RULES:
-- Every number, tool, or outcome in a bullet MUST trace to a fact in the content library above. Do NOT invent metrics.
-- Mirror the JD's own terminology where it accurately describes the work (for ATS keyword matching).
-- Preserved school: {school}
-- Must fit 1 page.
+## OUTPUT
 
-## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
-
-{{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
+Return ONLY a JSON object, no markdown fences, no commentary:
+{{"roles":[{{"role_key":"<role id>","bullets":[{{"text":"...","project_ids":["<project id>"]}}]}}],"skills":[{{"category":"...","items":"..."}}],"dropped_roles":["<role id>"]}}"""
 
 
 def _build_judge_prompt(profile: dict) -> str:
@@ -504,23 +557,34 @@ Be strict about major lies. Be lenient about minor stretches and learnable skill
 def tailor_from_content_library(
     content_library: ContentLibrary, job: dict, profile: dict,
     max_retries: int = 3, validation_mode: str = "normal",
-) -> tuple[str, dict]:
-    """Generate a tailored resume from the content library via LLM.
+    base: TailoredResume | None = None, fixed: dict | None = None,
+) -> tuple[TailoredResume | None, dict]:
+    """Generate a TailoredResume from the content library via LLM.
 
-    Mirrors tailor_resume() structure (retry loop, validation, judge) but uses
-    the content library as input instead of an existing resume. The LLM selects
-    projects and writes fresh bullets from raw facts.
+    Same retry/validation/judge loop as tailor_resume(), but the model only writes bullets
+    (citing library project slugs) and skill order. Unknown role keys or project ids, bullet
+    counts outside each role's range, and Layer-1 validation errors are fed back as notes for
+    a fresh retry.
 
     Args:
-        content_library: Parsed ContentLibrary with all roles and projects.
+        content_library: Parsed ContentLibrary.
         job:             Job dict with title, site, location, full_description.
         profile:         User profile dict.
         max_retries:     Maximum retry attempts.
         validation_mode: "strict", "normal", or "lenient".
+        base:            Base resume as a TailoredResume (slot ranges, skill categories, role facts).
+        fixed:           Fixed blocks from template.load_fixed() (role facts override base's).
 
     Returns:
-        (tailored_text, report) where report contains validation details.
+        (resume, report). resume is None if no attempt produced a parseable TailoredResume.
     """
+    content_library.ensure_keys()
+    fixed = fixed or {"education": [], "roles": {}, "header": None}
+    fixed_roles = {**(fixed_roles_from_resume(base) if base else {}), **(fixed.get("roles") or {})}
+    slots = _role_slots(content_library, base)
+    known_text = " ".join(base.skills.values()) if base else ""
+    known_text += " " + " ".join(p.facts() for r in content_library.roles for p in r.projects)
+
     job_text = (
         f"TITLE: {job['title']}\n"
         f"COMPANY: {job['site']}\n"
@@ -534,28 +598,27 @@ def tailor_from_content_library(
         "source": "content-library",
     }
     avoid_notes: list[str] = []
-    tailored = ""
+    resume: TailoredResume | None = None
     client = get_client("tailor")
-    tailor_prompt_base = _build_content_library_tailor_prompt(profile, content_library)
+    system_prompt = _build_content_library_tailor_prompt(profile, content_library, base, fixed_roles)
+    schema = tailored_resume_schema(content_library)
+    order = {r.key: i for i, r in enumerate(content_library.roles)}
 
     for attempt in range(max_retries + 1):
         report["attempts"] = attempt + 1
 
-        # Fresh conversation every attempt
-        prompt = tailor_prompt_base
+        user = f"TARGET JOB:\n{job_text}\n\nWrite the bullets and skills as JSON:"
         if avoid_notes:
-            prompt += "\n\n## AVOID THESE ISSUES (from previous attempt):\n" + "\n".join(
+            user += "\n\n## AVOID THESE ISSUES (from previous attempt):\n" + "\n".join(
                 f"- {n}" for n in avoid_notes[-5:]
             )
-
         messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"TARGET JOB:\n{job_text}\n\nSelect projects from the content library and return the JSON:"},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user},
         ]
 
-        raw = client.chat(messages, max_tokens=2048, temperature=0.4, response_schema=RESUME_SCHEMA)
+        raw = client.chat(messages, max_tokens=4096, temperature=0.4, response_schema=schema)
 
-        # Parse JSON from response
         try:
             data = extract_json(raw)
         except ValueError:
@@ -563,44 +626,52 @@ def tailor_from_content_library(
             avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
             continue
 
-        # Layer 1: Validate JSON fields (with relaxed company check for content-library mode)
-        validation = validate_json_fields(data, profile, mode=validation_mode, source="content-library")
-        report["validator"] = validation
+        try:
+            candidate = TailoredResume.from_llm_json(data, content_library, fixed_roles=fixed_roles)
+        except ValueError as e:
+            avoid_notes.append(f"Invalid ids: {e}")
+            continue
 
+        for role in candidate.roles:
+            for b in role.bullets:
+                b.text = sanitize_text(b.text)
+        candidate.roles.sort(key=lambda r: order.get(r.role_key, len(order)))
+        resume = candidate
+
+        # Layer 1: structure, slot ranges, fabricated skills, banned words
+        validation = validate_resume_model(
+            resume, profile, mode=validation_mode, slots=slots, known_text=known_text,
+        )
+        report["validator"] = validation
         if not validation["passed"]:
             avoid_notes.extend(validation["errors"])
             if attempt < max_retries:
                 continue
-            tailored = assemble_resume_text(data, profile)
             report["status"] = "failed_validation"
-            return tailored, report
-
-        # Assemble text (header injected by code)
-        tailored = assemble_resume_text(data, profile)
+            return resume, report
 
         # Layer 2: LLM judge — skipped in lenient mode
         if validation_mode == "lenient":
             report["judge"] = {"verdict": "SKIPPED", "passed": True, "issues": "none"}
             report["status"] = "approved"
-            return tailored, report
+            return resume, report
 
         judge = judge_content_library_resume(
-            tailored, job.get("title", ""), profile,
+            resume_to_text(resume, profile, fixed), job.get("title", ""), profile,
         )
         report["judge"] = judge
-
         if not judge["passed"]:
             avoid_notes.append(f"Judge rejected: {judge['issues']}")
-            if attempt < max_retries and validation_mode != "lenient":
+            if attempt < max_retries:
                 continue
             report["status"] = "approved_with_judge_warning"
-            return tailored, report
+            return resume, report
 
         report["status"] = "approved"
-        return tailored, report
+        return resume, report
 
     report["status"] = "exhausted_retries"
-    return tailored, report
+    return resume, report
 
 
 def judge_content_library_resume(
@@ -834,6 +905,9 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         content_library = parse_content_library(CONTENT_LIBRARY_PATH)
         log.info("Loaded content library: %d roles, %d angle tags",
                  len(content_library.roles), len(content_library.all_angles))
+        base = (parse_base_resume(RESUME_PATH.read_text(encoding="utf-8"), content_library)
+                if RESUME_PATH.exists() else None)
+        fixed = load_fixed()
     else:
         if not RESUME_PATH.exists():
             log.error("Resume not found at %s", RESUME_PATH)
@@ -859,10 +933,11 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         completed += 1
         try:
             if source == "content-library":
-                tailored, report = tailor_from_content_library(
+                model, report = tailor_from_content_library(
                     content_library, job, profile,
-                    validation_mode=validation_mode,
+                    validation_mode=validation_mode, base=base, fixed=fixed,
                 )
+                tailored = resume_to_text(model, profile, fixed) if model else ""
             else:
                 tailored, report = tailor_resume(resume_text, job, profile,
                                                  validation_mode=validation_mode)

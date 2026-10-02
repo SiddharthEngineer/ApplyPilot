@@ -322,3 +322,26 @@ def preview_template(
     html_path = out.with_suffix(".html")
     html_path.write_text(html, encoding="utf-8")
     return {"path": out, "html_path": html_path, **render_pdf(html, str(out))}
+
+
+def resume_to_text(resume: TailoredResume, profile: dict, fixed: dict | None = None) -> str:
+    """Plain-text export in the base resume's layout (for the apply agent, ATS text fields, the judge)."""
+    fixed = fixed if fixed is not None else load_fixed()
+    header = fixed.get("header") or {}
+    name = header.get("name") or profile.get("personal", {}).get("full_name", "")
+    contact = header.get("contact") or build_contact(profile)
+    lines = [name, " ▫ ".join(c["text"] for c in contact), "", "WORK EXPERIENCE", ""]
+    for role in resume.roles:
+        head = f"{role.title} at {role.company}" if role.company else role.title
+        lines.append(f"{head} {role.dates}".strip())
+        if role.tagline:
+            lines.append(role.tagline)
+        lines.extend(f"• {b.text}" for b in role.bullets)
+        lines.append("")
+    lines += ["EDUCATION", ""]
+    for e in fixed.get("education", []):
+        lines.append(f"{e['heading']} {e['dates']}".strip())
+        lines.extend(f"• {b}" for b in e["bullets"])
+    lines += ["", "SKILLS", ""]
+    lines.extend(f"{cat}: {items}" for cat, items in resume.skills.items())
+    return "\n".join(lines).strip() + "\n"

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Resume Template Tailoring — Task 4** (2026-10-02): Content-library tailoring asks Gemini only for bullets (each citing project slugs) and skill order, with role keys and slugs as schema enums. It no longer asks for a title, summary, projects or education. Bullet ranges per role come from your base resume (e.g. 4–6 for the current role, 0–1 for internships). Unknown ids, out-of-range bullet counts and validation errors trigger a fresh retry. The system prompt (library first) is identical for every job, which makes it eligible for Gemini implicit caching. Retry notes now go in the user message.
+
 ### Added
 - **Resume Template Tailoring — Task 3** (2026-10-02): `applypilot template init` writes `~/.applypilot/resume_fixed.yaml` (header, education and per-role title/company/dates/tagline, copied verbatim from resume.txt) and a starter `resume_template.html`. `applypilot template preview` renders your base resume through the template to `template_preview.pdf` so you can compare it with your resume. `render_pdf()` now detects one-page overflow from the PDF's page count, which is exact whatever margins the template uses, and returns `pages`.
 - **Resume Template Tailoring — Task 2** (2026-10-02): `scoring/template.py` `render_resume(resume, profile)` renders a `TailoredResume` through `~/.applypilot/resume_template.html` (Jinja2, autoescaped), or the packaged `config/resume_template.default.html` if you don't have one. Name and contact come from `profile.json`, and education from `~/.applypilot/resume_fixed.yaml` (falling back to resume.txt's EDUCATION section), so they're never LLM-generated. New dependency: `jinja2>=3.1`.
