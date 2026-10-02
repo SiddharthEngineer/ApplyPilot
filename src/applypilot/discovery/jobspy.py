@@ -8,8 +8,10 @@ search configuration YAML (searches.yaml) rather than being hardcoded.
 """
 
 import logging
+import re
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -20,6 +22,9 @@ from applypilot import config
 from applypilot.database import get_connection, init_db, store_jobs
 
 log = logging.getLogger(__name__)
+
+# Boards crawled when searches.yaml has no ``sites`` list.
+DEFAULT_SITES = ("indeed", "linkedin", "zip_recruiter")
 
 # JobSpy supported country codes for Indeed
 _SUPPORTED_COUNTRIES = frozenset({
@@ -113,6 +118,108 @@ def _scrape_with_retry(kwargs: dict, max_retries: int = 2, backoff: float = 5.0)
                 time.sleep(wait)
             else:
                 raise
+
+
+# -- JobSpy error capture ----------------------------------------------------
+
+# JobSpy logs per-board HTTP failures (e.g. Cloudflare 403s) to its own
+# non-propagating ``JobSpy:<Board>`` loggers instead of raising them.
+_BLOCKED_RE = re.compile(r"status code:? ?(400|401|403|429)\b|\b429 Response|Blocked by", re.IGNORECASE)
+
+
+class _JobSpyErrorCapture(logging.Handler):
+    """Collects WARNING+ messages emitted by JobSpy's per-board loggers."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+    @property
+    def blocked(self) -> str | None:
+        """First captured message that indicates the board refused the request."""
+        return next((m for m in self.messages if _BLOCKED_RE.search(m)), None)
+
+
+@contextmanager
+def _capture_jobspy_errors():
+    """Attach a :class:`_JobSpyErrorCapture` to every ``JobSpy:*`` logger for the block."""
+    handler = _JobSpyErrorCapture()
+    names = [n for n in logging.root.manager.loggerDict if n.startswith("JobSpy")]
+    loggers = [logging.getLogger(n) for n in names]
+    for lg in loggers:
+        lg.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        for lg in loggers:
+            lg.removeHandler(handler)
+
+
+# -- Board health probe ------------------------------------------------------
+
+@dataclass
+class BoardHealth:
+    """Result of probing one job board with a tiny search."""
+
+    site: str
+    status: str  # ok | empty | blocked | error
+    rows: int
+    latency_s: float
+    detail: str = ""
+
+
+def probe_boards(
+    sites: list[str],
+    query: str = "Software Engineer",
+    location: str = "Remote",
+    proxy: str | None = None,
+    country_indeed: str = "usa",
+) -> list[BoardHealth]:
+    """Run a 3-result search against each board separately and classify it.
+
+    No DB writes. A board that logs an HTTP 400/401/403/429 is ``blocked``,
+    an exception is ``error``, and 0 rows with nothing logged is ``empty``.
+    """
+    proxy_config = parse_proxy(proxy) if proxy else None
+    results: list[BoardHealth] = []
+    for site in sites:
+        kwargs = {
+            "site_name": [site],
+            "search_term": query,
+            "location": location,
+            "results_wanted": 3,
+            "description_format": "markdown",
+            "country_indeed": _normalize_country(country_indeed),
+            "verbose": 0,
+        }
+        if location.strip().lower() == "remote":
+            kwargs["is_remote"] = True
+        if proxy_config:
+            kwargs["proxies"] = [proxy_config["jobspy"]]
+
+        start = time.monotonic()
+        with _capture_jobspy_errors() as cap:
+            try:
+                df = scrape_jobs(**kwargs)
+            except Exception as e:  # noqa: BLE001 - any failure is reported, not raised
+                results.append(BoardHealth(site, "error", 0, time.monotonic() - start, str(e)[:200]))
+                continue
+        latency = time.monotonic() - start
+        rows = 0 if df is None else len(df)
+
+        if rows:
+            status, detail = "ok", cap.blocked or ""
+        elif cap.blocked:
+            status, detail = "blocked", cap.blocked
+        elif cap.messages:
+            status, detail = "error", cap.messages[0]
+        else:
+            status, detail = "empty", ""
+        results.append(BoardHealth(site, status, rows, latency, detail[:200]))
+    return results
 
 
 # -- Location filtering ------------------------------------------------------
@@ -416,7 +523,7 @@ def _full_crawl(
 ) -> dict:
     """Run all search queries from search config across all locations."""
     if sites is None:
-        sites = ["indeed", "linkedin", "zip_recruiter"]
+        sites = list(DEFAULT_SITES)
 
     # Build search combinations from config
     queries = search_cfg.get("queries", [])

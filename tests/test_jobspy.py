@@ -359,3 +359,116 @@ class TestNormalizeCountry:
 
     def test_strip_whitespace(self):
         assert _normalize_country("  uk  ") == "uk"
+
+
+# ---------------------------------------------------------------------------
+# probe_boards
+# ---------------------------------------------------------------------------
+
+# JobSpy's own per-board logger names (created when jobspy is imported).
+_JOBSPY_LOGGERS = {"indeed": "Indeed", "linkedin": "LinkedIn", "glassdoor": "Glassdoor",
+                   "zip_recruiter": "ZipRecruiter", "google": "Google"}
+
+
+class TestProbeBoards:
+    """probe_boards calls scrape_jobs once per site and classifies each board."""
+
+    def _fake_scrape(self, behaviour):
+        """behaviour: site -> int (rows), str (JobSpy error log line), or Exception."""
+        import logging
+
+        def fake(**kwargs):
+            (site,) = kwargs["site_name"]
+            b = behaviour[site]
+            if isinstance(b, Exception):
+                raise b
+            if isinstance(b, str):
+                logging.getLogger(f"JobSpy:{_JOBSPY_LOGGERS[site]}").error(b)
+                return pd.DataFrame()
+            return _make_df({site: b})
+        return fake
+
+    def _probe(self, behaviour, **kw):
+        from unittest import mock
+
+        import applypilot.discovery.jobspy as mod
+
+        fake = mock.MagicMock(side_effect=self._fake_scrape(behaviour))
+        with mock.patch.object(mod, "scrape_jobs", fake):
+            out = mod.probe_boards(list(behaviour), **kw)
+        return out, fake
+
+    def test_probe_one_call_per_site(self):
+        out, fake = self._probe({"indeed": 3, "linkedin": 2})
+        assert [c.kwargs["site_name"] for c in fake.call_args_list] == [["indeed"], ["linkedin"]]
+        assert all(c.kwargs["results_wanted"] == 3 for c in fake.call_args_list)
+        assert [(r.site, r.status, r.rows) for r in out] == [("indeed", "ok", 3), ("linkedin", "ok", 2)]
+
+    def test_probe_403_log_is_blocked(self):
+        out, _ = self._probe({
+            "zip_recruiter": "ZipRecruiter response status code 403 with response: forbidden aa",
+        })
+        (r,) = out
+        assert r.status == "blocked"
+        assert r.rows == 0
+        assert "403" in r.detail
+
+    def test_probe_429_log_is_blocked(self):
+        out, _ = self._probe({"glassdoor": "429 Response - Blocked by Glassdoor for too many requests"})
+        assert out[0].status == "blocked"
+
+    def test_probe_zero_rows_no_log_is_empty(self):
+        out, _ = self._probe({"google": 0})
+        assert (out[0].status, out[0].detail) == ("empty", "")
+
+    def test_probe_other_log_line_is_error(self):
+        out, _ = self._probe({"glassdoor": "Glassdoor: location not parsed"})
+        assert out[0].status == "error"
+        assert "location not parsed" in out[0].detail
+
+    def test_probe_exception_is_error_and_other_sites_continue(self):
+        out, _ = self._probe({"indeed": RuntimeError("boom"), "linkedin": 1})
+        assert [(r.site, r.status) for r in out] == [("indeed", "error"), ("linkedin", "ok")]
+        assert "boom" in out[0].detail
+
+    def test_probe_handler_removed_after_run(self):
+        import logging
+        self._probe({"zip_recruiter": "status code 403"})
+        assert not any(type(h).__name__ == "_JobSpyErrorCapture"
+                       for h in logging.getLogger("JobSpy:ZipRecruiter").handlers)
+
+    def test_probe_remote_location_sets_is_remote(self):
+        _, fake = self._probe({"indeed": 1})
+        assert fake.call_args.kwargs.get("is_remote") is True
+        _, fake = self._probe({"indeed": 1}, location="Austin, TX")
+        assert "is_remote" not in fake.call_args.kwargs
+
+
+class TestDiscoverProbeCli:
+    """`applypilot discover --probe` prints one row per configured board."""
+
+    def test_cli_probe_uses_config_sites(self):
+        from unittest import mock
+
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+        from applypilot.discovery.jobspy import BoardHealth
+
+        health = [BoardHealth("indeed", "ok", 3, 0.9), BoardHealth("zip_recruiter", "blocked", 0, 0.4, "status code 403")]
+        with mock.patch("applypilot.config.load_env"), \
+                mock.patch("applypilot.config.load_search_config",
+                           return_value={"sites": ["indeed", "zip_recruiter"]}), \
+                mock.patch("applypilot.discovery.jobspy.probe_boards", return_value=health) as probe:
+            result = CliRunner().invoke(app, ["discover", "--probe"])
+        assert result.exit_code == 0, result.output
+        assert probe.call_args.args[0] == ["indeed", "zip_recruiter"]
+        assert "indeed" in result.output and "blocked" in result.output
+
+    def test_cli_discover_without_probe_exits_nonzero(self):
+        from typer.testing import CliRunner
+
+        from applypilot.cli import app
+
+        result = CliRunner().invoke(app, ["discover"])
+        assert result.exit_code == 1
