@@ -46,7 +46,7 @@ Record the probe table in Historical Record either way. If Glassdoor/Zip now wor
 **Acceptance:**
 - Probe results for 1.2.0 recorded in Historical Record with the date.
 - If adopted: `pytest tests/ -q` passes on 1.2.0 locally.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02): adopted
 
 ### Task 1: Board probe command
 **Runs:** cloud (code + unit tests); live `--probe` check: local
@@ -177,3 +177,14 @@ Task 6 (independent)
 - 2026-10-01: Plan created from live probe evidence (roadmap initiative R2).
 - 2026-10-02: Task 1 done (VPS session 2). `probe_boards()` + `applypilot discover --probe [--sites --query --location]`. JobSpy's per-board loggers are `JobSpy:<Board>` with `propagate=False`, so `_capture_jobspy_errors()` attaches a handler to each one directly (Task 2 reuses it). Live probe on the VPS ("Software Engineer", Remote, 3 rows, 4.2s total): indeed ok 3 (1.6s), linkedin ok 3 (0.7s), glassdoor blocked (`bad response status code: 403`), zip_recruiter blocked (`403 forbidden aa`, Cloudflare), google empty.
 - 2026-10-02: Task 2 done. `_run_one_search()` makes one `_scrape_with_retry` call per board inside `_capture_jobspy_errors()` and returns `blocked: dict[site, log line]` and `failed: list[site]` (`errors` = number of failed boards). `_SiteTracker.note(..., blocked=)` disables a blocked board at once with reason `blocked (HTTP 403)`. `reasons` is in `report()`, and the pipeline banner prints it. Boards whose call raised are left out of the tracker, so the other boards still count. Three existing tests in `TestFullCrawlTracker`/`TestSiteTracker` were updated for the per-board call shape and the new `reasons` key.
+- 2026-10-02: Task 0 done, **1.2.0 adopted**. Probe in a scratch venv ("Data Scientist", Remote, 3 results):
+
+  | Board | 1.1.82 (2026-10-01) | 1.2.0 (2026-10-02) |
+  |---|---|---|
+  | Indeed | ✅ 3 rows, 0.9s | ✅ 3 rows, 1.6s |
+  | LinkedIn | ✅ 3 rows, 0.6s | ✅ 3 rows, 0.6s |
+  | Glassdoor | ❌ 403 | ❌ `Glassdoor response status code 403` |
+  | ZipRecruiter | ❌ 403 | ❌ `ZipRecruiter response status code 403` |
+  | Google | ❌ 0 rows | ❌ 0 rows (`Google returned no job data`, even with `google_search_term`) |
+
+  `curl_cffi` doesn't get past Cloudflare from this VPS IP, so Task 3 keeps Glassdoor/Zip proxy-gated (default off). 1.2.0 also drops the `numpy==1.26.3` pin, so `--no-deps` and the hand-listed deps (`tls-client`, `regex`, …) are gone from `scripts/cloud_setup.sh`, CI, README and the `doctor` hint. A clean venv (`uv pip install -e ".[dev]" "python-jobspy==1.2.0"`, empty HOME) passes `pytest tests/ -q` (409 passed). The probe now reports Google's "no job data" line as `empty`.

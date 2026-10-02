@@ -483,6 +483,10 @@ class TestProbeBoards:
         out, _ = self._probe({"google": 0})
         assert (out[0].status, out[0].detail) == ("empty", "")
 
+    def test_probe_no_job_data_log_is_empty(self):
+        out, _ = self._probe({"google": "Google returned no job data"})
+        assert out[0].status == "empty"
+
     def test_probe_other_log_line_is_error(self):
         out, _ = self._probe({"glassdoor": "Glassdoor: location not parsed"})
         assert out[0].status == "error"
