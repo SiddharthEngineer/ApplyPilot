@@ -13,7 +13,43 @@ Session plan (remaining):
 1. ~~Session 1: setup, R0, R3~~ ✅ 2026-10-02
 2. ~~Session 2: R2 `job-board-discovery-repair`~~ ✅ 2026-10-02
 3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
-4. **Session 4:** R5 `resume-template-tailoring` (stops at your M4 sign-off) ← next
+4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (6/7; Task 3 waits on your M4 sign-off)
+5. **Session 5:** nothing is queued in ROADMAP. Pick one and I'll plan it (PLAN_AGENT) and build it:
+   - `apply` human-in-the-loop mode (M5 / Backlog), then `applypilot apply --dry-run` on the 3 tailored jobs
+   - Location filter whole-word matching (open since session 2)
+   - Save scores per job during `run score` (open since session 3)
+   - LLM 503 handling that doesn't burn the daily quota (new, see below)
+
+## Session 4 (2026-10-02): R5 tailored resumes from your template
+
+**Landed on trunk:** R5 `resume-template-tailoring` ([PR #8](https://github.com/SiddharthEngineer/ApplyPilot/pull/8), 6/7; Task 3 needs your sign-off)
+- **Your resume is the template.** I hand-built `~/.applypilot/resume_template.html` from resume.pdf's measurements: Times 11pt, 13.5pt line pitch, 0.5in margins, small-caps name, `▫` separators, gray rules above sections. Rendering your own resume through it breaks every line at the same word as your PDF except one ("co-built"), with ≤3pt vertical drift, on one page. Side by side: `~/.applypilot/template_side_by_side.png`.
+- **Fixed blocks:** `applypilot template init` copied your header, education and each role's title/company/dates/tagline verbatim from resume.txt into `~/.applypilot/resume_fixed.yaml`. The LLM never writes those.
+- **Tailoring** (now the default `--source` because you have a content library): the LLM writes only bullets and skill order. Each bullet cites library project slugs, which Gemini must pick from an enum. Bullet ranges come from your resume: 4–6 for the current role, 2–4 for the previous one, 0–1 for each internship. Every number in a bullet must appear in the facts of the projects it cites. If the PDF runs past one page, bullets are dropped and it's re-rendered.
+- **Outputs per job:** `<job>.pdf` (this is what `apply` uploads), `<job>.json` (bullets with their `project_ids`) and `<job>.txt`.
+- **Cover letters** are written from that resume's bullets plus the cited project facts.
+- **`applypilot run --limit N`** caps the tailor and cover stages.
+- **Live:** your 3 Snowflake jobs scored 8 were tailored and approved, each to a one-page PDF with a `.json`. They're in `~/.applypilot/tailored_resumes/`, and the DB now marks them tailored. That's "Ready to apply: 3" in `status`.
+
+**Changes on the VPS outside the repo**
+- `~/.applypilot/`: new `resume_template.html`, `resume_fixed.yaml`, `template_preview.pdf/.html`, `template_side_by_side.png`, plus the 3 tailored resumes (DB rows updated).
+- `apt install fonts-liberation`: a Times New Roman–compatible font for Chromium (there was none). The install printed a "pending kernel upgrade" notice: the VPS runs 6.8.0-138, and 6.8.0-142 is installed and needs a reboot when convenient.
+
+**Verify (≈3 min)**
+```bash
+cd /srv/ApplyPilot && git pull && . .venv/bin/activate && uv pip install "jinja2>=3.1"
+python scripts/qc.py resume-template-tailoring --skip-live --skip-llm
+applypilot template preview        # then open ~/.applypilot/template_preview.pdf next to resume.pdf
+ls ~/.applypilot/tailored_resumes/  # 3 × .pdf/.json/.txt
+```
+
+**Waiting on you**
+- **M4: sign off the template.** Compare `template_preview.pdf` (or the side-by-side PNG) with your resume. If anything's off, tell me what, or edit `resume_template.html` yourself. On your laptop, copy `resume_template.html` and `resume_fixed.yaml` over, or run `applypilot template init` there.
+- **Typo in your education block:** resume.txt and resume.pdf both say "Minor in Mathenatics". I copied it verbatim. Fix it in `resume_fixed.yaml` (and in your resume) if you want.
+- **`profile.json` doesn't match your resume:** `full_name` is just "Siddharth", the state is "Illinois", the phone has no formatting, and `github_url` is `github.com/SiddharthEngineer` while your resume links `SiddharthEngineer23`. Tailored resumes now take the header from `resume_fixed.yaml` (which has the resume's GitHub link), but the apply agent fills forms from `profile.json`. Want me to update it?
+- **Gemini quota:** today `gemini-3.6-flash` and `gemini-3.8-flash` both hit Google's per-day limit after only about 5 successful calls each. About 15 503 "model overloaded" retries per model seem to count toward the 20/day. So the live check ran on `gemini-3.1-flash-lite` (500/day). Two options: (a) make 503s fail over to a lite model instead of retrying 5×, or (b) set `LLM_TAILOR_MODEL=gemini-3.1-flash-lite` for now. Which do you prefer?
+- **The judge is noisy on flash-lite.** Even with the cited facts, it still flagged real tools (e.g. Databricks) once per job before passing. Every number is now checked mechanically and every bullet must cite real project ids, so `--validation lenient` (no judge) halves the calls with little risk. Your call.
+- **Still open:** location-filter substring matching, M2 proxy, M6 fixtures, rotating the Gemini key.
 
 ## Session 3 (2026-10-02): R4 Gemini free tier
 
