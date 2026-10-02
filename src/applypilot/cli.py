@@ -458,6 +458,58 @@ def status() -> None:
     console.print()
 
 
+template_app = typer.Typer(help="Your resume template: create the fixed blocks and preview the layout.", no_args_is_help=True)
+app.add_typer(template_app, name="template")
+
+
+def _template_inputs():
+    from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, load_env, load_profile
+    from applypilot.scoring.content_library import parse_content_library
+
+    load_env()
+    if not RESUME_PATH.exists():
+        console.print(f"[red]No base resume at {RESUME_PATH}.[/red] Run `applypilot init` first.")
+        raise typer.Exit(code=1)
+    library = parse_content_library(CONTENT_LIBRARY_PATH) if CONTENT_LIBRARY_PATH.exists() else None
+    return load_profile(), RESUME_PATH.read_text(encoding="utf-8"), library
+
+
+@template_app.command("init")
+def template_init(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing resume_fixed.yaml / resume_template.html."),
+) -> None:
+    """Write resume_fixed.yaml (education + role facts from resume.txt) and a starter resume_template.html."""
+    from applypilot.config import RESUME_FIXED_PATH, RESUME_TEMPLATE_PATH
+    from applypilot.scoring.template import DEFAULT_TEMPLATE_PATH, write_fixed_yaml
+
+    profile, resume_text, library = _template_inputs()
+    if RESUME_FIXED_PATH.exists() and not force:
+        console.print(f"[yellow]Kept existing {RESUME_FIXED_PATH}[/yellow] (use --force to regenerate)")
+    else:
+        console.print(f"[green]Wrote {write_fixed_yaml(resume_text, library, profile)}[/green]")
+    if RESUME_TEMPLATE_PATH.exists() and not force:
+        console.print(f"[yellow]Kept existing {RESUME_TEMPLATE_PATH}[/yellow]")
+    else:
+        shutil.copyfile(DEFAULT_TEMPLATE_PATH, RESUME_TEMPLATE_PATH)
+        console.print(f"[green]Wrote {RESUME_TEMPLATE_PATH}[/green] (the default layout; edit it to match your resume)")
+
+
+@template_app.command("preview")
+def template_preview() -> None:
+    """Render your base resume through the template to template_preview.pdf for a side-by-side check."""
+    from applypilot.scoring.template import preview_template
+
+    profile, resume_text, library = _template_inputs()
+    info = preview_template(profile, resume_text, library)
+    console.print(f"[green]Preview:[/green] {info['path']}  (HTML: {info['html_path']})")
+    if info["overflow"]:
+        console.print(
+            f"[yellow]Overflows one page[/yellow] ({info['content_height_pt']}pt of {info['usable_height_pt']:.0f}pt)."
+        )
+    else:
+        console.print(f"One page ({info['content_height_pt']}pt of {info['usable_height_pt']:.0f}pt).")
+
+
 @app.command()
 def dashboard() -> None:
     """Generate and open the HTML dashboard in your browser."""

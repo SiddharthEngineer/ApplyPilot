@@ -15,9 +15,13 @@ from applypilot.scoring.template import (
     DEFAULT_TEMPLATE_PATH,
     build_contact,
     education_from_resume_text,
+    header_from_resume_text,
     load_fixed,
+    parse_base_resume,
+    preview_template,
     render_resume,
     split_trailing_dates,
+    write_fixed_yaml,
 )
 
 SAMPLE_LIBRARY = Path(__file__).resolve().parent / "fixtures" / "content_library_sample.md"
@@ -239,7 +243,7 @@ class TestFixedBlocks:
         y.write_text("education:\n  - heading: X Univ\n    dates: 2020\n    bullets: [a]\n"
                      "roles:\n  k:\n    company: Foo\n", encoding="utf-8")
         assert load_fixed(y) == {"education": [{"heading": "X Univ", "dates": "2020", "bullets": ["a"]}],
-                                 "roles": {"k": {"company": "Foo"}}}
+                                 "roles": {"k": {"company": "Foo"}}, "header": None}
 
     def test_load_fixed_falls_back_to_resume_txt(self, tmp_path):
         txt = tmp_path / "resume.txt"
@@ -247,3 +251,98 @@ class TestFixedBlocks:
         fixed = load_fixed(tmp_path / "missing.yaml", resume_text_path=txt)
         assert fixed["education"][0]["dates"] == "May 2021"
         assert fixed["roles"] == {}
+
+
+# ── Task 3: base resume → preview ─────────────────────────────────────────
+
+BASE_RESUME = """ALEX Q. TESTER
+
+Springfield, IL ▫ alex@example.com ▫ (555) 010-0000 ▫ LinkedIn ▫ GitHub
+
+WORK EXPERIENCE
+
+Data Engineer at Acme Corp Jan 2024 – present
+Retail company selling
+widgets.
+• Led the orders pipeline (Airflow, Spark), cutting runtime from 6 hours
+to 45 minutes.
+• Built a quality dashboard.
+
+Data Analyst Intern at Globex June 2022 – August 2022
+• Built a churn model.
+
+EDUCATION
+
+State University, B.S. Statistics May 2021
+• Minor in Mathematics
+
+SKILLS
+
+Data Engineering: Airflow, Spark,
+dbt
+Languages: Python, SQL
+"""
+
+
+class TestBaseResume:
+    def test_parse_roles(self, library):
+        r = parse_base_resume(BASE_RESUME, library)
+        assert [x.role_key for x in r.roles] == ["data-engineer-acme", "data-analyst-intern-globex"]
+        acme = r.roles[0]
+        assert (acme.title, acme.company, acme.dates) == ("Data Engineer", "Acme Corp", "Jan 2024 – present")
+        assert acme.tagline == "Retail company selling widgets."
+        assert [b.text for b in acme.bullets] == [
+            "Led the orders pipeline (Airflow, Spark), cutting runtime from 6 hours to 45 minutes.",
+            "Built a quality dashboard.",
+        ]
+        assert all(b.project_ids == [] for b in acme.bullets)
+        assert r.roles[1].tagline is None
+
+    def test_parse_skills(self):
+        assert parse_base_resume(BASE_RESUME).skills == {
+            "Data Engineering": "Airflow, Spark, dbt", "Languages": "Python, SQL"}
+
+    def test_role_key_without_library(self):
+        assert parse_base_resume(BASE_RESUME).roles[0].role_key == "data-engineer"
+
+    def test_header(self):
+        h = header_from_resume_text(BASE_RESUME, PROFILE)
+        assert h["name"] == "ALEX Q. TESTER"
+        assert [c["text"] for c in h["contact"]] == ["Springfield, IL", "alex@example.com", "(555) 010-0000",
+                                                    "LinkedIn", "GitHub"]
+        assert h["contact"][1]["href"] == "mailto:alex@example.com"
+        assert h["contact"][4]["href"] == "https://github.com/alex"
+
+    def test_write_fixed_yaml_round_trip(self, library, tmp_path):
+        path = write_fixed_yaml(BASE_RESUME, library, PROFILE, tmp_path / "resume_fixed.yaml")
+        fixed = load_fixed(path)
+        assert fixed["header"]["name"] == "ALEX Q. TESTER"
+        assert fixed["education"] == [{"heading": "State University, B.S. Statistics", "dates": "May 2021",
+                                       "bullets": ["Minor in Mathematics"]}]
+        assert fixed["roles"]["data-engineer-acme"]["company"] == "Acme Corp"
+
+    def test_header_override_renders(self, library, tmp_path):
+        path = write_fixed_yaml(BASE_RESUME, library, {"personal": {"full_name": "Alex"}}, tmp_path / "f.yaml")
+        html = render_resume(parse_base_resume(BASE_RESUME, library), {"personal": {"full_name": "Alex"}},
+                             template_path=DEFAULT_TEMPLATE_PATH, fixed=load_fixed(path))
+        assert "ALEX Q. TESTER" in html and "(555) 010-0000" in html
+
+    def test_preview_template(self, library, tmp_path, monkeypatch):
+        from applypilot.scoring import pdf
+        calls = []
+        monkeypatch.setattr(pdf, "render_pdf", lambda html, out: calls.append((html, out)) or
+                            {"overflow": False, "content_height_pt": 500.0, "usable_height_pt": 741.6, "pages": 1})
+        monkeypatch.setattr("applypilot.scoring.template.load_fixed", lambda: FIXED)
+        info = preview_template(PROFILE, BASE_RESUME, library, out=tmp_path / "p.pdf",
+                                template_path=DEFAULT_TEMPLATE_PATH)
+        assert info["overflow"] is False and info["path"] == tmp_path / "p.pdf"
+        assert "Led the orders pipeline" in calls[0][0]
+        assert (tmp_path / "p.html").read_text(encoding="utf-8") == calls[0][0]
+
+
+class TestPdfPageCount:
+    def test_count_from_page_tree(self):
+        from applypilot.scoring.pdf import _count_pdf_pages
+        assert _count_pdf_pages(b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>") == 2
+        assert _count_pdf_pages(b"garbage") is None
+        assert _count_pdf_pages(None) is None
