@@ -17,11 +17,16 @@ Used when a session runs on the user's VPS (`/srv/ApplyPilot`) instead of the cl
   `gh pr merge <n> --repo SiddharthEngineer/ApplyPilot --rebase --delete-branch` and `git switch trunk && git pull`.
 - **No PRs (user, 2026-10-03; applies to R7–R11 and later unless the user says otherwise):** work on `trunk` directly, with one commit per
   task, and push after each task (`git push origin trunk`).
-- **engineerfamily (cross-repo tasks):** work in `/srv/engineerfamily` on branch `main`. If
-  `git -C /srv/engineerfamily branch --show-current` isn't `main`, block the task and leave switching it to the user. Use
-  `git -c safe.directory=/srv/engineerfamily …`, commit, then `git push https://github.com/SiddharthEngineer/engineerfamily.git main`.
-  Deploy with `make up` in that directory. No tags, no `make tag-prod`, never commit to `prod`. Afterwards, check that
-  `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net` return 200. If they don't, revert, `make up` again, and note it in MORNING.md.
+- **engineerfamily (cross-repo tasks; user, 2026-10-03):** commit on `main` in the working clone `/home/dev/src/engineerfamily`
+  (`git clone https://github.com/SiddharthEngineer/engineerfamily.git` if it's missing; `git pull` first), then `git push origin main`.
+  Never commit directly on `prod`. To deploy (pre-approved, including for testing): in the live checkout `/srv/engineerfamily` (branch `prod`),
+  `git -c safe.directory=/srv/engineerfamily fetch origin && git … merge --ff-only origin/main`, then
+  `git … push https://github.com/SiddharthEngineer/engineerfamily.git prod`, then `chown -R deploy:deploy /srv/engineerfamily` and `make up`.
+  Untracked server files (`.env`, `services/nginx/ssl/`, `.htpasswd*`) live only in `/srv/engineerfamily`: edit them there, never commit them.
+  No tags, no `make tag-prod`. Afterwards, check that `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net`
+  return 200. If they don't, revert on `main`, redeploy the same way, and note it in MORNING.md.
+- **Unattended runs:** the `dev` user's cron runs `scripts/agent_tick.sh` at 01:07, 07:07, 13:07 and 19:07 UTC. Each run completes one plan (`agents/TICK_PROMPT.md`), with tools
+  from `scripts/agent/settings.json` and a headless Playwright browser (`scripts/agent/mcp.json`). Logs are in `/var/log/applypilot-agent/`.
 - End of session: prepend a dated section to `agents/MORNING.md` (what landed + PR links, how to verify,
   blocked/waiting on user) and update its **Next session** block. Commit it to trunk via the plan PR.
 

@@ -33,7 +33,7 @@ go into the image: everything arrives through mounts at runtime (Task 2).
 **Status:** ❌ Not started
 
 ### Task 2: Compose service in engineerfamily
-**Runs:** local (VPS; cross-repo: `/srv/engineerfamily` on `main`, see `BUILD_AGENT.md` §0)
+**Runs:** local (VPS; cross-repo: engineerfamily, see `BUILD_AGENT.md` §0)
 **Files:** `docker-compose.prod.yml` (modify), `Makefile` (modify: `applypilot-up`, `applypilot-logs`), `README.md` (modify: services
 table, architecture diagram, ingress list)
 **What:** Add this service:
@@ -45,7 +45,7 @@ table, architecture diagram, ingress list)
     environment:
       - APPLYPILOT_DATABASE_URL=postgresql://applypilot:${APPLYPILOT_DB_PASSWORD}@analytics-db:5432/applypilot
     volumes:
-      - /root/.applypilot:/root/.applypilot          # profile, resume template, content library, Drive token, llm_usage.json
+      - /home/dev/.applypilot:/root/.applypilot      # host CLI runs as dev; profile, resume template, content library, Drive token, llm_usage.json
       - ../ApplyPilot/.env:/app/.env:ro              # Gemini key + LLM limits; load_env falls back to CWD .env
     depends_on:
       analytics-db: { condition: service_healthy }
@@ -61,7 +61,7 @@ docker-compose.base.yml -f docker-compose.prod.yml up -d --build applypilot`. Do
 **Status:** ❌ Not started
 
 ### Task 3: nginx route with basic auth
-**Runs:** local (VPS; cross-repo: `/srv/engineerfamily` on `main`)
+**Runs:** local (VPS; cross-repo: engineerfamily, see `BUILD_AGENT.md` §0)
 **Files:** `services/nginx/nginx.prod.conf` (modify), `docker-compose.prod.yml` (modify: mount `./services/nginx/.htpasswd-applypilot:/etc/nginx/.htpasswd-applypilot:ro`),
 `.gitignore` (modify: `services/nginx/.htpasswd*`)
 **What:** In the `applypilot.engineerfamily.net` server block, add:
@@ -82,7 +82,7 @@ location /app/ {
 This uses the `set $upstream` pattern the file already uses, so nginx starts even when the container is down. Create the credentials on the VPS (they're
 untracked): user `applypilot`, a random password from `openssl rand -base64 18`, and
 `docker run --rm httpd:alpine htpasswd -nbB applypilot "$PW" > /srv/engineerfamily/services/nginx/.htpasswd-applypilot`. Then
-save the plain password to `/root/applypilot-dashboard-credentials.txt` (mode 600). Tell the user where it is in MORNING.md, but never put the password itself there.
+save the plain password to `/home/dev/applypilot-dashboard-credentials.txt` (mode 600). Tell the user where it is in MORNING.md, but never put the password itself there.
 **Acceptance:** `docker exec engineerfamily-nginx-1 nginx -t` passes after `make up`, and success criteria 1–3 pass.
 **Status:** ❌ Not started
 
@@ -90,7 +90,7 @@ save the plain password to `/root/applypilot-dashboard-credentials.txt` (mode 60
 **Runs:** local (VPS)
 **Files:** `agents/MORNING.md`, this plan
 **What:** Make sure `/srv/ApplyPilot` is on `trunk` with the dashboard code and the built `web/static`. Create the `.htpasswd-applypilot` file
-before deploying, because the nginx mount needs it to exist. In `/srv/engineerfamily` on `main`: commit, push and `make up`. Then run success criteria 1–5, including one
+before deploying, because the nginx mount needs it to exist. Commit engineerfamily on `main`, push, and deploy (BUILD_AGENT §0: fast-forward `prod`, `make up`). Then run success criteria 1–5, including one
 real generation from the browser UI (or with `curl` and the header), and record the results.
 **Acceptance:** Success criteria 1–5 are recorded in the Historical Record, and MORNING.md has the URL, where the credentials file is, and how to redeploy (`make applypilot-up`).
 **Status:** ❌ Not started
@@ -106,7 +106,7 @@ T1 image ─→ T2 compose ─→ T3 nginx ─→ T4 deploy + verify
 2. The image builds from the sibling checkout `../ApplyPilot` rather than a registry, which avoids publishing an image that runs the user's pipeline; the VPS already has both repos side by side.
 3. The dashboard lives under `/app/` on the existing subdomain instead of a new subdomain like `dashboard.applypilot.engineerfamily.net`, which Cloudflare's free universal certificate doesn't cover and which would need DNS work.
 4. Access control is nginx basic auth for now. A good follow-up is Cloudflare Access (Zero Trust, free tier) in front of `/app/*`, which adds SSO and makes the password unnecessary.
-5. The container shares `/root/.applypilot` with the host CLI, so the free-tier usage tally (`llm_usage.json`), Drive token and resume assets stay a single source of truth.
+5. The container mounts `/home/dev/.applypilot` (the host CLI runs as `dev`), so the free-tier usage tally (`llm_usage.json`), Drive token and resume assets stay a single source of truth.
 
 ## Historical Record
 - 2026-10-03: Plan created.

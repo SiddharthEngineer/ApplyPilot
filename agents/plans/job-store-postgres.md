@@ -23,7 +23,7 @@ public fork's default and the hermetic test suite keep working unchanged.
 
 ### Task 1: Provision the `applypilot` database on the engineerfamily Postgres server
 **Runs:** local (VPS; cross-repo: engineerfamily)
-**Files:** in `/srv/engineerfamily` on branch `main` (commit, push and deploy steps are in `BUILD_AGENT.md` §0):
+**Files:** engineerfamily, committed on `main` and deployed by fast-forwarding `prod` plus `make up` (exact steps in `BUILD_AGENT.md` §0):
 - `docker-compose.prod.yml` (modify): `analytics-db` gets `ports: ["127.0.0.1:5432:5432"]`, so the host CLI can connect.
 - `scripts/init-applypilot-db.sh` (new): idempotent. Runs `psql` in the `analytics-db` container as the superuser
   `umami` to create role `applypilot` (LOGIN, password from `APPLYPILOT_DB_PASSWORD`), database `applypilot` and
@@ -33,7 +33,7 @@ public fork's default and the hermetic test suite keep working unchanged.
 - `README.md` (modify): add a row to the subdomain/services section noting that `analytics-db` also hosts the `applypilot` DB.
 **What:** Generate the password with `openssl rand -hex 24` (hex, so there are no URL-escaping problems). Append it as
 `APPLYPILOT_DB_PASSWORD` to `/srv/engineerfamily/.env` (untracked, owned by `deploy`; keep the owner and mode). Commit
-on `main`, push, then deploy with `make up`. Then run `scripts/init-applypilot-db.sh` against the prod container.
+on `main`, push, then deploy (BUILD_AGENT §0). Then run `scripts/init-applypilot-db.sh` against the prod container.
 **Acceptance:**
 - `make ps` shows every container healthy.
 - `docker exec engineerfamily-analytics-db-1 psql -U applypilot -d applypilot -c 'select 1'` returns 1.
@@ -148,7 +148,7 @@ T2 adapter → T3 dispatch → T4 portable SQL → T5 pg tests → T6 migrate �
 3. SQLite stays the default backend: the fork is public, and the 600+ hermetic tests rely on temp SQLite files.
 4. Timestamps stay `TEXT` ISO-8601, because the code compares them as strings everywhere. Converting to `timestamptz` is a separate change if it's ever needed.
 5. Port 5432 is published only on `127.0.0.1`: the host CLI and cron need it, and the internet must not reach it.
-6. engineerfamily changes are committed on `main` in `/srv/engineerfamily` and deployed with `make up` (user, 2026-10-03). The `prod` branch and release tags are left alone.
+6. engineerfamily changes are committed on `main`, then `prod` is fast-forwarded to `main` and deployed with `make up` (user, 2026-10-03). Release tags aren't used.
 
 ## Historical Record
 - 2026-10-03: Plan created. engineerfamily was assumed to run MySQL; it runs Postgres 16 (Umami's `analytics-db`), so the target is a new `applypilot` DB there.
