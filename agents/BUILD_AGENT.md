@@ -16,10 +16,12 @@ Used when a session runs on the user's VPS (`/srv/ApplyPilot`) instead of the cl
   When the plan's runnable tasks are done and the gate passes, open a PR (not draft), then
   `gh pr merge <n> --repo SiddharthEngineer/ApplyPilot --rebase --delete-branch` and `git switch trunk && git pull`.
 - **No PRs (user, 2026-10-03; applies to R7–R11 and later unless the user says otherwise):** work on `trunk` directly, with one commit per
-  task, and push after each task (`git push origin trunk`). For cross-repo work in engineerfamily, use a clone at `/root/src/engineerfamily`
-  on `main` (never the live `/srv/engineerfamily` checkout, which is the `prod` branch the deploy workflow resets). Push to `main` and deploy with
-  `make tag-prod v=<next semver>`. Deploying to prod is pre-approved. If a deploy breaks a site, roll back with `make tag-prod` on the last good
-  tag, and record it in MORNING.md.
+  task, and push after each task (`git push origin trunk`).
+- **engineerfamily (cross-repo tasks):** work in `/srv/engineerfamily` on branch `main`. If
+  `git -C /srv/engineerfamily branch --show-current` isn't `main`, block the task and leave switching it to the user. Use
+  `git -c safe.directory=/srv/engineerfamily …`, commit, then `git push https://github.com/SiddharthEngineer/engineerfamily.git main`.
+  Deploy with `make up` in that directory. No tags, no `make tag-prod`, never commit to `prod`. Afterwards, check that
+  `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net` return 200. If they don't, revert, `make up` again, and note it in MORNING.md.
 - End of session: prepend a dated section to `agents/MORNING.md` (what landed + PR links, how to verify,
   blocked/waiting on user) and update its **Next session** block. Commit it to trunk via the plan PR.
 

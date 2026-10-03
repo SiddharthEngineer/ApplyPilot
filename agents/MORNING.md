@@ -18,7 +18,7 @@ Session plan (remaining):
 6. **Session 6:** R8 `job-posting-extraction` (finish), plus a live QC of 20 jobs, then start the backfill (it runs across several days of quota).
 7. **Session 7:** R9 `dashboard-api`.
 8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
-   For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily to prod via `main` and `make tag-prod`. See `BUILD_AGENT.md` §0.
+   For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily via `main` and `make up`. See `BUILD_AGENT.md` §0.
    Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching, save scores per job during `run score`.
 
 ## Session 4 follow-up (2026-10-02): your answers

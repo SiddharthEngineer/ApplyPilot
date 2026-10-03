@@ -33,7 +33,7 @@ go into the image: everything arrives through mounts at runtime (Task 2).
 **Status:** ❌ Not started
 
 ### Task 2: Compose service in engineerfamily
-**Runs:** local (VPS; cross-repo: engineerfamily clone at `/root/src/engineerfamily` on `main`, never the live `/srv/engineerfamily` checkout)
+**Runs:** local (VPS; cross-repo: `/srv/engineerfamily` on `main`, see `BUILD_AGENT.md` §0)
 **Files:** `docker-compose.prod.yml` (modify), `Makefile` (modify: `applypilot-up`, `applypilot-logs`), `README.md` (modify: services
 table, architecture diagram, ingress list)
 **What:** Add this service:
@@ -61,7 +61,7 @@ docker-compose.base.yml -f docker-compose.prod.yml up -d --build applypilot`. Do
 **Status:** ❌ Not started
 
 ### Task 3: nginx route with basic auth
-**Runs:** local (VPS; engineerfamily clone)
+**Runs:** local (VPS; cross-repo: `/srv/engineerfamily` on `main`)
 **Files:** `services/nginx/nginx.prod.conf` (modify), `docker-compose.prod.yml` (modify: mount `./services/nginx/.htpasswd-applypilot:/etc/nginx/.htpasswd-applypilot:ro`),
 `.gitignore` (modify: `services/nginx/.htpasswd*`)
 **What:** In the `applypilot.engineerfamily.net` server block, add:
@@ -83,15 +83,14 @@ This uses the `set $upstream` pattern the file already uses, so nginx starts eve
 untracked): user `applypilot`, a random password from `openssl rand -base64 18`, and
 `docker run --rm httpd:alpine htpasswd -nbB applypilot "$PW" > /srv/engineerfamily/services/nginx/.htpasswd-applypilot`. Then
 save the plain password to `/root/applypilot-dashboard-credentials.txt` (mode 600). Tell the user where it is in MORNING.md, but never put the password itself there.
-**Acceptance:** `docker exec engineerfamily-nginx-1 nginx -t` passes after the deploy, and success criteria 1–3 pass.
+**Acceptance:** `docker exec engineerfamily-nginx-1 nginx -t` passes after `make up`, and success criteria 1–3 pass.
 **Status:** ❌ Not started
 
 ### Task 4: Deploy to prod and verify
 **Runs:** local (VPS)
 **Files:** `agents/MORNING.md`, this plan
 **What:** Make sure `/srv/ApplyPilot` is on `trunk` with the dashboard code and the built `web/static`. Create the `.htpasswd-applypilot` file
-before deploying, because the nginx mount needs it to exist. From the engineerfamily clone on `main`: commit, push, and run `make tag-prod v=1.1.0`
-(a new minor version, since it adds a service). Watch `gh run watch --repo SiddharthEngineer/engineerfamily`. Then run success criteria 1–5, including one
+before deploying, because the nginx mount needs it to exist. In `/srv/engineerfamily` on `main`: commit, push and `make up`. Then run success criteria 1–5, including one
 real generation from the browser UI (or with `curl` and the header), and record the results.
 **Acceptance:** Success criteria 1–5 are recorded in the Historical Record, and MORNING.md has the URL, where the credentials file is, and how to redeploy (`make applypilot-up`).
 **Status:** ❌ Not started

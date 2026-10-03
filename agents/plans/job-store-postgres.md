@@ -23,9 +23,7 @@ public fork's default and the hermetic test suite keep working unchanged.
 
 ### Task 1: Provision the `applypilot` database on the engineerfamily Postgres server
 **Runs:** local (VPS; cross-repo: engineerfamily)
-**Files:** `/srv/engineerfamily` work happens in a separate clone, never in the live `/srv/engineerfamily` checkout
-(it's on the `prod` branch and is the deploy target). Clone `git@github.com:SiddharthEngineer/engineerfamily.git` to
-`/root/src/engineerfamily` (or `git pull` if it exists) and work on `main`.
+**Files:** in `/srv/engineerfamily` on branch `main` (commit, push and deploy steps are in `BUILD_AGENT.md` §0):
 - `docker-compose.prod.yml` (modify): `analytics-db` gets `ports: ["127.0.0.1:5432:5432"]`, so the host CLI can connect.
 - `scripts/init-applypilot-db.sh` (new): idempotent. Runs `psql` in the `analytics-db` container as the superuser
   `umami` to create role `applypilot` (LOGIN, password from `APPLYPILOT_DB_PASSWORD`), database `applypilot` and
@@ -35,10 +33,9 @@ public fork's default and the hermetic test suite keep working unchanged.
 - `README.md` (modify): add a row to the subdomain/services section noting that `analytics-db` also hosts the `applypilot` DB.
 **What:** Generate the password with `openssl rand -hex 24` (hex, so there are no URL-escaping problems). Append it as
 `APPLYPILOT_DB_PASSWORD` to `/srv/engineerfamily/.env` (untracked, owned by `deploy`; keep the owner and mode). Commit
-on `main`, push, then deploy with `make tag-prod v=1.0.3` from the clone (the user approved deploying straight to prod).
-After the GitHub workflow finishes, run `scripts/init-applypilot-db.sh` against the prod container.
+on `main`, push, then deploy with `make up`. Then run `scripts/init-applypilot-db.sh` against the prod container.
 **Acceptance:**
-- `gh run list --repo SiddharthEngineer/engineerfamily --workflow deploy.yml -L 1` shows success.
+- `make ps` shows every container healthy.
 - `docker exec engineerfamily-analytics-db-1 psql -U applypilot -d applypilot -c 'select 1'` returns 1.
 - `ss -ltn | grep 5432` shows only `127.0.0.1:5432`.
 - `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net` still return 200 (Umami is unaffected).
@@ -151,7 +148,7 @@ T2 adapter → T3 dispatch → T4 portable SQL → T5 pg tests → T6 migrate �
 3. SQLite stays the default backend: the fork is public, and the 600+ hermetic tests rely on temp SQLite files.
 4. Timestamps stay `TEXT` ISO-8601, because the code compares them as strings everywhere. Converting to `timestamptz` is a separate change if it's ever needed.
 5. Port 5432 is published only on `127.0.0.1`: the host CLI and cron need it, and the internet must not reach it.
-6. engineerfamily changes are made in a separate clone on `main` and deployed with `make tag-prod`, because `/srv/engineerfamily` is the live `prod` checkout that the deploy workflow resets.
+6. engineerfamily changes are committed on `main` in `/srv/engineerfamily` and deployed with `make up` (user, 2026-10-03). The `prod` branch and release tags are left alone.
 
 ## Historical Record
 - 2026-10-03: Plan created. engineerfamily was assumed to run MySQL; it runs Postgres 16 (Umami's `analytics-db`), so the target is a new `applypilot` DB there.
