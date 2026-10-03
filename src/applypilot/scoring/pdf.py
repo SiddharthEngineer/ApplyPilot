@@ -478,11 +478,18 @@ def batch_convert(limit: int = 50) -> int:
         if not f.name.endswith("_JOB.txt")
     ]
 
+    # PDFs moved to Google Drive are missing locally on purpose; don't rebuild them.
+    try:
+        from applypilot.storage.sync import moved_pdf_paths
+        moved = moved_pdf_paths()
+    except Exception:  # noqa: BLE001 -- no DB or an old schema: nothing has been moved
+        moved = set()
+
     # Filter to those without a corresponding PDF
     to_convert: list[Path] = []
     for f in candidates:
         pdf_path = f.with_suffix(".pdf")
-        if not pdf_path.exists():
+        if not pdf_path.exists() and pdf_path.resolve() not in moved:
             to_convert.append(f)
         if len(to_convert) >= limit:
             break

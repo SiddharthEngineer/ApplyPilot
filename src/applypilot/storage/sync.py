@@ -104,6 +104,18 @@ def run_drive_sync(conn: sqlite3.Connection | None = None, client: DriveClient |
     return totals
 
 
+def moved_pdf_paths(conn: sqlite3.Connection | None = None) -> set[Path]:
+    """Local PDF paths whose files now live in Drive, so the pdf stage must not rebuild them."""
+    conn = conn or get_connection()
+    moved: set[Path] = set()
+    for kind in KINDS:
+        rows = conn.execute(
+            f"SELECT {_PATH_COLUMN[kind]} FROM jobs WHERE {kind}_drive_id IS NOT NULL AND {_PATH_COLUMN[kind]} != ''"
+        ).fetchall()
+        moved.update(Path(r[0]).with_suffix(".pdf").resolve() for r in rows if r[0])
+    return moved
+
+
 def ensure_local_pdf(job: dict, kind: str, client: DriveClient | None = None) -> Path | None:
     """The job's PDF on disk, downloading it from Drive first if it was moved. None if unavailable."""
     pdf = local_pdf(job, kind)

@@ -165,6 +165,19 @@ def tailor_validation_mode(validation_mode: str | None, source: str) -> str:
     return "lenient" if source == "content-library" else "normal"
 
 
+def _drive_sync_after(stage: str) -> None:
+    """Move new PDFs to Google Drive when DRIVE_SYNC is on. Never fails the stage."""
+    from applypilot.config import drive_sync_enabled
+    if not drive_sync_enabled():
+        return
+    try:
+        from applypilot.storage.sync import run_drive_sync
+        result = run_drive_sync()
+        log.info("Drive sync after %s: %s", stage, result)
+    except Exception as e:  # noqa: BLE001 -- Drive problems are retried by the next sync
+        log.warning("Drive sync after %s failed (run `applypilot drive sync` later): %s", stage, e)
+
+
 def _run_tailor(min_score: int = 7, validation_mode: str | None = "normal",
                 source: str = "resume", limit: int | None = None) -> dict:
     """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
@@ -172,11 +185,13 @@ def _run_tailor(min_score: int = 7, validation_mode: str | None = "normal",
     try:
         from applypilot.scoring.tailor import run_tailoring
         extra = {"limit": limit} if limit else {}
-        return _stage_status(run_tailoring(min_score=min_score, validation_mode=validation_mode, source=source,
-                                           **extra))
+        result = _stage_status(run_tailoring(min_score=min_score, validation_mode=validation_mode, source=source,
+                                             **extra))
     except Exception as e:
         log.error("Tailoring failed: %s", e)
         return {"status": f"error: {e}"}
+    _drive_sync_after("tailor")
+    return result
 
 
 def _run_cover(min_score: int = 7, validation_mode: str | None = "normal", limit: int | None = None) -> dict:
@@ -185,10 +200,12 @@ def _run_cover(min_score: int = 7, validation_mode: str | None = "normal", limit
     try:
         from applypilot.scoring.cover_letter import run_cover_letters
         extra = {"limit": limit} if limit else {}
-        return _stage_status(run_cover_letters(min_score=min_score, validation_mode=validation_mode, **extra))
+        result = _stage_status(run_cover_letters(min_score=min_score, validation_mode=validation_mode, **extra))
     except Exception as e:
         log.error("Cover letter generation failed: %s", e)
         return {"status": f"error: {e}"}
+    _drive_sync_after("cover")
+    return result
 
 
 def _run_pdf() -> dict:

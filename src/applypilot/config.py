@@ -139,6 +139,12 @@ def set_restricted_permissions(path: Path) -> None:
         pass
 
 
+def drive_sync_enabled() -> bool:
+    """Move PDFs to Google Drive after the tailor and cover stages (DRIVE_SYNC=1 and a saved token)."""
+    flag = os.environ.get("DRIVE_SYNC", "").strip().lower() in ("1", "true", "yes", "on")
+    return flag and GOOGLE_TOKEN_PATH.exists()
+
+
 def load_profile() -> dict:
     """Load user profile from ~/.applypilot/profile.json.
 
