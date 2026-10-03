@@ -104,7 +104,7 @@ run continues. The DB keeps `tailored_resume_path`/`cover_letter_path`, so later
 - After a sync, the local PDF is gone and the row has its Drive id and url. A second run makes no `create` calls.
 - A checksum mismatch keeps the local file and counts it as an error. `keep_local=True` keeps the file.
 - A re-tailored PDF (new content) synced again calls `update` on the same file ID.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 5: Download moved PDFs when applying
 **Runs:** cloud
@@ -196,3 +196,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 1 done. `company` column, `job_company()`, inserts from JobSpy/Workday/ATS, backfill for employer rows.
 - 2026-10-02: Task 2 done. `storage/drive_layout.py`: company/role/date folders, file names, job key.
 - 2026-10-02: Task 3 done. `storage/drive.py` (OAuth token, find-or-create folders, upsert by job key, download), `tests/fake_drive.py`, `[drive]` extra.
+- 2026-10-02: Task 4 done. `storage/sync.py`: `run_drive_sync` moves PDFs (deletes local copies after the MD5 matches), Drive id/url columns.

@@ -179,6 +179,12 @@ _ALL_COLUMNS: dict[str, str] = {
     "cover_letter_path": "TEXT",
     "cover_letter_at": "TEXT",
     "cover_attempts": "INTEGER DEFAULT 0",
+    # Google Drive (the PDFs are moved there; see applypilot.storage)
+    "resume_drive_id": "TEXT",
+    "resume_drive_url": "TEXT",
+    "cover_letter_drive_id": "TEXT",
+    "cover_letter_drive_url": "TEXT",
+    "drive_synced_at": "TEXT",
     # Application
     "applied_at": "TEXT",
     "apply_status": "TEXT",
