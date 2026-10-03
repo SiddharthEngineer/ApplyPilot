@@ -1,11 +1,16 @@
 """Tests for the Google Drive folder layout (google-drive-file-library Task 2)."""
 
-from datetime import date
+from datetime import datetime
 
 import pytest
 
 from applypilot.storage.drive_layout import (
-    clean_name, drive_target, file_name, folder_path, job_date, job_key,
+    clean_name,
+    drive_target,
+    file_name,
+    folder_path,
+    job_date,
+    job_key,
 )
 
 JOB = {
@@ -54,8 +59,8 @@ def test_job_date_fallbacks():
     assert job_date({"tailored_at": "2026-09-30T12:00:00", "cover_letter_at": "2026-10-01T12:00:00"},
                     "cover_letter") == "2026-10-01"
     assert job_date({"tailored_at": "2026-09-30T12:00:00"}, "cover_letter") == "2026-09-30"
-    assert job_date({"tailored_at": "garbage"}, "resume") == date.today().isoformat()
-    assert job_date({}, "resume") == date.today().isoformat()
+    assert job_date({"tailored_at": "garbage"}, "resume") == datetime.now().astimezone().date().isoformat()
+    assert job_date({}, "resume") == datetime.now().astimezone().date().isoformat()
 
 
 def test_file_name():

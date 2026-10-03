@@ -9,7 +9,7 @@ import hashlib
 import os
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 from applypilot.database import job_company
 
@@ -36,7 +36,7 @@ def _local_date(value: str | None) -> str | None:
     if not value:
         return None
     try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value)
     except ValueError:
         return None
     if dt.tzinfo is not None:
@@ -49,7 +49,7 @@ def job_date(job: dict, kind: str) -> str:
     return (
         _local_date(job.get(_KIND_DATE_COLUMN[kind]))
         or _local_date(job.get("tailored_at"))
-        or date.today().isoformat()
+        or datetime.now().astimezone().date().isoformat()
     )
 
 
@@ -79,7 +79,7 @@ class DriveTarget:
 
     def collision_name(self) -> str:
         """Name used when a different job's file already has `name` in the same folder."""
-        stem = self.name[: -len(".pdf")] if self.name.endswith(".pdf") else self.name
+        stem = self.name.removesuffix(".pdf")
         return f"{stem} ({self.job_key[:6]}).pdf"
 
 
