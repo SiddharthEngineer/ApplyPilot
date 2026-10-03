@@ -55,16 +55,13 @@ def sync_job(conn: sqlite3.Connection, client: DriveClient, job: dict, keep_loca
 
 
 def _jobs_with_files(conn: sqlite3.Connection) -> list[dict]:
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            "SELECT * FROM jobs WHERE tailored_resume_path IS NOT NULL "
-            "OR (cover_letter_path IS NOT NULL AND cover_letter_path != '') "
-            "ORDER BY tailored_at"
-        ).fetchall()
-    finally:
-        conn.row_factory = None
-    return [dict(r) for r in rows]
+    cur = conn.execute(
+        "SELECT * FROM jobs WHERE tailored_resume_path IS NOT NULL "
+        "OR (cover_letter_path IS NOT NULL AND cover_letter_path != '') "
+        "ORDER BY tailored_at"
+    )
+    names = [d[0] for d in cur.description]
+    return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
 def run_drive_sync(conn: sqlite3.Connection | None = None, client: DriveClient | None = None,

@@ -215,3 +215,12 @@ class DriveClient:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         return dest
+
+
+def drive_status() -> tuple[str, str]:
+    """("not_installed" | "not_authorized" | "authorized", detail) without touching the network."""
+    if not drive_libraries_installed():
+        return "not_installed", INSTALL_HINT
+    if not config.GOOGLE_TOKEN_PATH.exists():
+        return "not_authorized", "Run `applypilot drive auth` (see README: Google Drive)"
+    return "authorized", str(config.GOOGLE_TOKEN_PATH)

@@ -182,3 +182,11 @@ def test_build_prompt_downloads_moved_pdfs(conn, client, tmp_path, monkeypatch):
     assert any(n.endswith("_Cover_Letter.pdf") for n in uploads)
     resume_upload = next(p for p in (workers / "current").iterdir() if p.name.endswith("_Resume.pdf"))
     assert resume_upload.read_bytes() == resume_bytes
+
+
+def test_sync_leaves_row_factory_alone(conn, client, tmp_path):
+    import sqlite3
+    conn.row_factory = sqlite3.Row
+    _add_job(conn, tmp_path)
+    run_drive_sync(conn, client)
+    assert conn.row_factory is sqlite3.Row

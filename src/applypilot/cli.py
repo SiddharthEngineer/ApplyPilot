@@ -521,6 +521,111 @@ def template_preview() -> None:
         console.print(f"One page ({info['content_height_pt']}pt of {info['usable_height_pt']:.0f}pt).")
 
 
+drive_app = typer.Typer(help="Google Drive: move tailored resumes and cover letters there and list their links.",
+                        no_args_is_help=True)
+app.add_typer(drive_app, name="drive")
+
+
+@drive_app.command("auth")
+def drive_auth(
+    client_secret: Optional[str] = typer.Option(
+        None, "--client-secret", help="OAuth client JSON (default: ~/.applypilot/google_client_secret.json)."),
+    port: int = typer.Option(8765, "--port", help="Local port Google redirects back to."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Print the sign-in URL instead (headless VPS)."),
+) -> None:
+    """Sign in to Google and allow ApplyPilot to manage the files it creates in your Drive."""
+    from pathlib import Path
+
+    from applypilot.config import GOOGLE_CLIENT_SECRET_PATH, ensure_dirs, load_env
+    from applypilot.storage.drive import DriveNotConfigured, authorize
+
+    load_env()
+    ensure_dirs()
+    secret = Path(client_secret).expanduser() if client_secret else GOOGLE_CLIENT_SECRET_PATH
+    if no_browser:
+        console.print(
+            f"On a headless machine, first open a tunnel from your laptop:\n"
+            f"  [bold]ssh -N -L {port}:localhost:{port} <user>@<this-server>[/bold]\n"
+            f"then open the URL below in your laptop's browser.\n"
+        )
+    try:
+        token = authorize(secret, port=port, open_browser=not no_browser)
+    except DriveNotConfigured as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Google Drive authorized.[/green] Token saved to {token}")
+
+
+@drive_app.command("sync")
+def drive_sync(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Only move files for this many jobs."),
+    keep_local: bool = typer.Option(False, "--keep-local", help="Upload but keep the local PDFs."),
+) -> None:
+    """Move tailored resume and cover letter PDFs to Drive and save their links."""
+    _bootstrap()
+    from applypilot.storage.drive import DriveNotConfigured
+    from applypilot.storage.sync import run_drive_sync
+
+    try:
+        result = run_drive_sync(limit=limit, keep_local=keep_local)
+    except DriveNotConfigured as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    table = Table(title="Drive sync")
+    for col in ("New files", "Updated", "Local copies removed", "Missing locally", "Errors"):
+        table.add_column(col, justify="right")
+    table.add_row(*(str(result[k]) for k in ("uploaded", "updated", "moved", "missing", "errors")))
+    console.print(table)
+    if result["errors"]:
+        raise typer.Exit(code=1)
+
+
+@drive_app.command("links")
+def drive_links(
+    company: Optional[str] = typer.Option(None, "--company", help="Only jobs whose company contains this text."),
+    csv_path: Optional[str] = typer.Option(None, "--csv", help="Also write the links to this CSV file."),
+) -> None:
+    """List the Drive links saved for each job."""
+    _bootstrap()
+    import csv
+
+    from applypilot.database import get_connection, job_company
+    from applypilot.storage.drive_layout import job_date
+
+    conn = get_connection()
+    cur = conn.execute(
+        "SELECT url, title, site, company, tailored_at, cover_letter_at, resume_drive_url, cover_letter_drive_url "
+        "FROM jobs WHERE resume_drive_url IS NOT NULL OR cover_letter_drive_url IS NOT NULL ORDER BY tailored_at"
+    )
+    names = [d[0] for d in cur.description]
+    rows = []
+    for values in cur.fetchall():
+        job = dict(zip(names, values))
+        name = job_company(job)
+        if company and company.lower() not in name.lower():
+            continue
+        rows.append({
+            "company": name, "role": job["title"] or "", "date": job_date(job, "resume"), "site": job["site"] or "",
+            "resume_url": job["resume_drive_url"] or "", "cover_letter_url": job["cover_letter_drive_url"] or "",
+            "job_url": job["url"],
+        })
+    if not rows:
+        console.print("No Drive links yet. Run `applypilot drive sync`.")
+        return
+    table = Table(title=f"Drive links ({len(rows)} jobs)")
+    for col in ("Company", "Role", "Date", "Site", "Resume", "Cover letter"):
+        table.add_column(col, overflow="fold")
+    for r in rows:
+        table.add_row(r["company"], r["role"], r["date"], r["site"], r["resume_url"], r["cover_letter_url"])
+    console.print(table)
+    if csv_path:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        console.print(f"[green]Wrote {csv_path}[/green]")
+
+
 @app.command()
 def dashboard() -> None:
     """Generate and open the HTML dashboard in your browser."""
@@ -599,6 +704,14 @@ def doctor() -> None:
     except ImportError:
         results.append(("python-jobspy", warn_mark,
                         'pip install "python-jobspy>=1.2.0"'))
+
+    # Google Drive (optional)
+    from applypilot.storage.drive import drive_status
+    drive_state, drive_detail = drive_status()
+    results.append(("Google Drive", ok_mark if drive_state == "authorized" else warn_mark,
+                    {"authorized": f"Authorized ({drive_detail})",
+                     "not_authorized": f"Not authorized: {drive_detail}",
+                     "not_installed": f"Optional: {drive_detail}"}[drive_state]))
 
     # --- Tier 2 checks ---
     import os
