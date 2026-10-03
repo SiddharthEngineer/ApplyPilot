@@ -131,7 +131,7 @@ returns None. `build_prompt` calls it for the resume and the cover letter before
 - `pytest tests/test_cli_drive.py -q` passes using `CliRunner` and a fake client: the `sync` summary counts, the
   `links --csv` columns, and the `doctor`-style status when the token is missing.
 - `applypilot drive --help` lists `auth`, `sync` and `links`.
-**Status:** ❌ Not started
+**Status:** 🟡 Cloud part done (2026-10-02), local steps pending
 
 ### Task 7: Move files automatically after the tailor and cover stages
 **Runs:** cloud
@@ -198,3 +198,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 3 done. `storage/drive.py` (OAuth token, find-or-create folders, upsert by job key, download), `tests/fake_drive.py`, `[drive]` extra.
 - 2026-10-02: Task 4 done. `storage/sync.py`: `run_drive_sync` moves PDFs (deletes local copies after the MD5 matches), Drive id/url columns.
 - 2026-10-02: Task 5 done. `ensure_local_pdf`; `build_prompt` downloads moved resume and cover letter PDFs; launcher selects the Drive ids.
+- 2026-10-02: Task 6 done. `applypilot drive auth|sync|links`, doctor row. Fixed `_jobs_with_files` resetting the shared connection's row_factory. Live check is Task 8.
