@@ -111,7 +111,7 @@ def _jobs_db() -> sqlite3.Connection:
     conn.execute(
         "CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, salary TEXT, description TEXT, location TEXT, "
         "site TEXT, strategy TEXT, discovered_at TEXT, full_description TEXT, application_url TEXT, "
-        "detail_scraped_at TEXT)"
+        "detail_scraped_at TEXT, company TEXT)"
     )
     return conn
 
@@ -220,6 +220,7 @@ class TestRunAtsDiscovery:
         assert stats["new"] == len(rows)
         assert stats["errors"] == 0
         assert stats["per_board"]["greenhouse:acme"]["jobs"] == 3
+        assert conn.execute("SELECT COUNT(*) FROM jobs WHERE company IS NULL OR company != site").fetchone()[0] == 0
 
     def test_second_run_counts_dupes(self):
         payloads = {"greenhouse.io": GREENHOUSE, "lever.co": LEVER, "ashbyhq.com": ASHBY}

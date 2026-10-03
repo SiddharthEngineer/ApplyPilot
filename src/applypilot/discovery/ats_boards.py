@@ -170,11 +170,11 @@ def store_ats_jobs(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[int, int
         try:
             conn.execute(
                 "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, "
-                "full_description, application_url, detail_scraped_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "full_description, application_url, detail_scraped_at, company) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (j["url"], j["title"], j.get("salary"), j.get("description"), j.get("location"),
                  j["site"], j["strategy"], now, j.get("full_description"), j.get("application_url"),
-                 now if j.get("full_description") else None),
+                 now if j.get("full_description") else None, j["site"]),
             )
             new += 1
         except sqlite3.IntegrityError:
