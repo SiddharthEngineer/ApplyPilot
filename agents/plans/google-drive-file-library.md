@@ -86,7 +86,7 @@ filters used above and counts calls.
   a stale or trashed `known_id` falls back to the `appProperties` lookup; a name collision gets the suffix; `download`
   round-trips the bytes.
 - `python -c "import applypilot.storage.drive"` works without the `drive` extra installed.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 4: Move job files to Drive and save the links
 **Runs:** cloud
@@ -195,3 +195,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
   both run ApplyPilot), and asked for the work to be implemented in this session.
 - 2026-10-02: Task 1 done. `company` column, `job_company()`, inserts from JobSpy/Workday/ATS, backfill for employer rows.
 - 2026-10-02: Task 2 done. `storage/drive_layout.py`: company/role/date folders, file names, job key.
+- 2026-10-02: Task 3 done. `storage/drive.py` (OAuth token, find-or-create folders, upsert by job key, download), `tests/fake_drive.py`, `[drive]` extra.
