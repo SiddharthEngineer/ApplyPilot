@@ -151,3 +151,34 @@ def test_ensure_local_pdf_without_drive(tmp_path):
     job = {"tailored_resume_path": str(tmp_path / "x.pdf")}
     assert ensure_local_pdf(job, "resume") is None
     assert ensure_local_pdf({"tailored_resume_path": None}, "resume") is None
+
+
+def test_build_prompt_downloads_moved_pdfs(conn, client, tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    from test_prompt import _minimal_profile
+
+    from applypilot.apply.prompt import build_prompt
+    from applypilot.storage.drive import DriveClient as RealClient
+
+    stem = _add_job(conn, tmp_path)
+    resume_bytes = stem.with_suffix(".pdf").read_bytes()
+    run_drive_sync(conn, client)
+    job = dict(_row(conn), application_url="https://example.com/apply", fit_score=8)
+    assert not stem.with_suffix(".pdf").exists()
+
+    monkeypatch.setattr(RealClient, "from_credentials", classmethod(lambda cls: client))
+    workers = tmp_path / "workers"
+    with (
+        patch("applypilot.apply.prompt.config.load_profile", return_value=_minimal_profile()),
+        patch("applypilot.apply.prompt.config.load_search_config", return_value={"location": {}}),
+        patch("applypilot.apply.prompt.config.APPLY_WORKER_DIR", workers),
+        patch("applypilot.config.load_blocked_sso", return_value=[]),
+    ):
+        build_prompt(job, "resume text", cdp_port=9222)
+
+    uploads = sorted(p.name for p in (workers / "current").iterdir())
+    assert any(n.endswith("_Resume.pdf") for n in uploads)
+    assert any(n.endswith("_Cover_Letter.pdf") for n in uploads)
+    resume_upload = next(p for p in (workers / "current").iterdir() if p.name.endswith("_Resume.pdf"))
+    assert resume_upload.read_bytes() == resume_bytes
