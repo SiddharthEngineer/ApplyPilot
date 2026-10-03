@@ -50,3 +50,8 @@ tests/fixtures/*.json
 personal/
 plan_worker.log
 opencode.json
+
+# Google OAuth secrets (belong in ~/.applypilot, never in the repo)
+google_client_secret.json
+google_token.json
+client_secret*.json

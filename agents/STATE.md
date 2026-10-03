@@ -1,8 +1,14 @@
 # Current State
 
-**Last updated:** 2026-10-02 (VPS session 4 complete)
+**Last updated:** 2026-10-02 (R6 Drive library built; Google setup pending)
 
 ## Active Plan
+
+**R6 `google-drive-file-library`** (2026-10-02, local session on the laptop, branch `claude/plan-google-drive-file-library`):
+Tasks 1–5 and 7 ✅, Task 6 🟡 (live check pending), Task 8 = the user's Google Cloud setup (M8). New modules: `storage/drive_layout.py`,
+`storage/drive.py` (OAuth `drive.file`, find-or-create folders, upsert by `appProperties` job key), `storage/sync.py`
+(`run_drive_sync`, `ensure_local_pdf`, `moved_pdf_paths`). `tests/fake_drive.py` is the in-memory Drive fake.
+Gate on the laptop: `pytest tests/ -q` → 633 passed, 20 skipped. Next step: the user does M8 on the laptop and the VPS, then the live checks in Task 8.
 
 Sessions run on the VPS in VPS mode (`agents/BUILD_AGENT.md` §0); session plan and morning summary in `agents/MORNING.md`.
 Session 1 done: R0 `test-tiers-and-qc` (4/5, Task 4 capture = M6) and R3 `scoring-error-recovery` (2/2 ✅).

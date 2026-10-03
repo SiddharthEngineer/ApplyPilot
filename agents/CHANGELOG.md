@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Google Drive file library** (2026-10-02, R6 Tasks 1–7): tailored resume and cover letter PDFs can be moved to Google Drive, filed as `ApplyPilot/<Company>/<Role>/<YYYY-MM-DD>/`. Use `applypilot drive auth`, `drive sync [--keep-local] [--limit N]` and `drive links [--company X] [--csv FILE]`, or set `DRIVE_SYNC=1` to move files after the tailor and cover stages. A local PDF is deleted only after Drive's MD5 matches. Each file carries a per-job key, so re-syncs from any machine update the same file. Two jobs with the same company, role and date get separate files. Links are saved in new `resume_drive_*`/`cover_letter_drive_*` columns. `apply` downloads moved PDFs, and the `pdf` stage no longer rebuilds them. Jobs now store `company` (JobSpy's company; Workday/ATS employer, backfilled). The Google libraries are an optional extra: `pip install -e ".[drive]"`. `doctor` shows the Drive status.
+
 ### Changed
 - **503 failover** (2026-10-02): when a Gemini model answers 503 ("overloaded"), the request goes straight to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`) instead of backing off and retrying up to 5 times. Google counts 503s against the free-tier daily quota, and today's retries used up gemini-3.6-flash's 20 requests after 5 successes. The fallback is used for the next `LLM_FALLBACK_COOLDOWN` seconds (300), and the 503 is added to the local daily count. `LLM_FALLBACK_MODEL=none` restores the old retries. `doctor` shows the fallback. Tests in `tests/test_llm.py::TestOverloadFallback`.
 - **Default validation** (2026-10-02): `applypilot run` without `--validation` tailors content-library resumes with `lenient` (no LLM judge, since the bullets are checked mechanically) and everything else with `normal`.
