@@ -142,7 +142,7 @@ never fail the stage.
 **Acceptance:**
 - With `DRIVE_SYNC=1` and a fake client, the sync runs after tailoring. If the fake raises an error, the stage still succeeds.
 - With `DRIVE_SYNC` unset, `run_drive_sync` is never called.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 8: Google setup, first move of existing files, live check
 **Runs:** local
@@ -199,3 +199,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 4 done. `storage/sync.py`: `run_drive_sync` moves PDFs (deletes local copies after the MD5 matches), Drive id/url columns.
 - 2026-10-02: Task 5 done. `ensure_local_pdf`; `build_prompt` downloads moved resume and cover letter PDFs; launcher selects the Drive ids.
 - 2026-10-02: Task 6 done. `applypilot drive auth|sync|links`, doctor row. Fixed `_jobs_with_files` resetting the shared connection's row_factory. Live check is Task 8.
+- 2026-10-02: Task 7 done. `DRIVE_SYNC=1` moves PDFs after the tailor and cover stages (errors only logged). The pdf stage no longer rebuilds PDFs that were moved.

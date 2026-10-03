@@ -190,3 +190,81 @@ def test_sync_leaves_row_factory_alone(conn, client, tmp_path):
     _add_job(conn, tmp_path)
     run_drive_sync(conn, client)
     assert conn.row_factory is sqlite3.Row
+
+
+@pytest.fixture
+def token(tmp_path, monkeypatch):
+    from applypilot import config
+    path = tmp_path / "google_token.json"
+    monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", path)
+    return path
+
+
+def test_drive_sync_enabled(token, monkeypatch):
+    from applypilot.config import drive_sync_enabled
+    monkeypatch.delenv("DRIVE_SYNC", raising=False)
+    token.write_text("{}")
+    assert not drive_sync_enabled()
+    monkeypatch.setenv("DRIVE_SYNC", "1")
+    assert drive_sync_enabled()
+    token.unlink()
+    assert not drive_sync_enabled()
+
+
+def _patch_tailoring(monkeypatch):
+    from applypilot.scoring import tailor
+    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
+
+
+def test_pipeline_syncs_after_tailor(token, monkeypatch):
+    from applypilot import pipeline
+    from applypilot.storage import sync
+    token.write_text("{}")
+    monkeypatch.setenv("DRIVE_SYNC", "1")
+    calls = []
+    monkeypatch.setattr(sync, "run_drive_sync", lambda: calls.append(1) or {})
+    _patch_tailoring(monkeypatch)
+    pipeline._run_tailor(min_score=7)
+    assert calls == [1]
+
+
+def test_pipeline_drive_errors_do_not_fail_stage(token, monkeypatch):
+    from applypilot import pipeline
+    from applypilot.storage import sync
+    token.write_text("{}")
+    monkeypatch.setenv("DRIVE_SYNC", "1")
+
+    def boom():
+        raise RuntimeError("Drive is down")
+
+    monkeypatch.setattr(sync, "run_drive_sync", boom)
+    _patch_tailoring(monkeypatch)
+    assert not pipeline._run_tailor(min_score=7)["status"].startswith("error")
+
+
+def test_pipeline_skips_sync_when_disabled(token, monkeypatch):
+    from applypilot import pipeline
+    from applypilot.storage import sync
+    monkeypatch.delenv("DRIVE_SYNC", raising=False)
+
+    def fail():
+        raise AssertionError("sync should not run")
+
+    monkeypatch.setattr(sync, "run_drive_sync", fail)
+    _patch_tailoring(monkeypatch)
+    pipeline._run_tailor(min_score=7)
+
+
+def test_pdf_stage_does_not_rebuild_moved_pdfs(conn, client, tmp_path, monkeypatch):
+    import applypilot.scoring.pdf as pdf_mod
+    from applypilot.storage import sync
+    stem = _add_job(conn, tmp_path, cover=False)
+    stem.with_suffix(".txt").write_text("resume text")
+    (tmp_path / "other.txt").write_text("unsynced resume")
+    run_drive_sync(conn, client)
+    converted = []
+    monkeypatch.setattr(pdf_mod, "TAILORED_DIR", tmp_path)
+    monkeypatch.setattr(pdf_mod, "convert_to_pdf", lambda f: converted.append(f.name))
+    monkeypatch.setattr(sync, "get_connection", lambda: conn)
+    pdf_mod.batch_convert()
+    assert "1.txt" not in converted and "other.txt" in converted
