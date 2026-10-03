@@ -166,10 +166,14 @@ One-time Google setup (about 5 minutes, free):
 2. Open **Google Auth Platform** (called **OAuth consent screen** in older consoles) and click **Get started**. Use any
    app name, your email as the support and contact email, and **External** as the audience.
 3. Publishing needs a homepage and privacy policy on a domain you own. This repo's `docs/` folder has both: enable
-   GitHub Pages for your fork (**Settings → Pages**, branch `trunk`, folder `/docs`), verify
-   `<you>.github.io` in [Google Search Console](https://search.google.com/search-console) (HTML-tag method; paste the
-   tag into `docs/index.html`), then under **Branding** enter `https://<you>.github.io/ApplyPilot/` as the homepage,
-   `https://<you>.github.io/ApplyPilot/privacy.html` as the privacy policy and `<you>.github.io` as the authorized domain.
+   GitHub Pages for your fork (**Settings → Pages**, branch `trunk`, folder `/docs`). To prove you own
+   `<you>.github.io`, create a public repo named `<you>.github.io` whose `index.html` contains the
+   `<meta name="google-site-verification" ...>` tag from [Google Search Console](https://search.google.com/search-console)
+   (add a **URL prefix** property `https://<you>.github.io/`, choose **HTML tag**), then click **Verify**. A tag inside
+   `docs/index.html` isn't enough, because that page lives under `/ApplyPilot/`, not at the domain root. Then under
+   **Branding** enter `https://<you>.github.io/ApplyPilot/` as the homepage,
+   `https://<you>.github.io/ApplyPilot/privacy.html` as the privacy policy and `<you>.github.io` as the authorized domain
+   (leave the logo empty: uploading one triggers a multi-day brand review).
    Under **Audience**, click **Publish app** and confirm. Without this, Google treats the app as "Testing" and your
    sign-in expires every 7 days. `drive.file` isn't a sensitive permission, so no Google review is needed. You'll see an
    "unverified app" warning when you sign in; click **Advanced → Go to ApplyPilot**.
