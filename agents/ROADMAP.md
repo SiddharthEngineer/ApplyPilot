@@ -1,6 +1,6 @@
 # ApplyPilot Roadmap: single source of truth for planned work
 
-**Last updated:** 2026-10-02 (session 4; R6 planned)
+**Last updated:** 2026-10-03 (job dashboard planned: R7–R11)
 
 This is the one place to see every planned change, its order, and its status. Each initiative links to a
 plan in `agents/plans/` with task-level detail. Every task is tagged `Runs: cloud` (done by the nightly
@@ -31,6 +31,11 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 5/5 | ✅ | R3 |
 | 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 7/7 | ✅ | R4 |
 | 5 | R6 | Google Drive file library: tailored resumes and cover letters moved to Drive as company/role/date, links saved in the DB | [google-drive-file-library](plans/google-drive-file-library.md) | 7/8 | 🔄 | R5 |
+| 6 | R7 | Job store on Postgres: new `applypilot` DB on engineerfamily's Postgres server, `?`→`%s` adapter, `applypilot db migrate/verify`, VPS cutover | [job-store-postgres](plans/job-store-postgres.md) | 0/7 | ⏳ | R0 |
+| 7 | R8 | Structured job-posting extraction: Gemini parses each posting into JSON (qualifications, salary, deadline, role category, work mode…), batched `extract` stage + heuristic fallback, backfill | [job-posting-extraction](plans/job-posting-extraction.md) | 0/6 | ⏳ | R7 |
+| 8 | R9 | Dashboard API (FastAPI, `applypilot serve`): filters/sort, job detail, status tracking (Active/Inactive/In progress/Submitted/Rejected/Heard back), background resume/cover generation | [dashboard-api](plans/dashboard-api.md) | 0/6 | ⏳ | R7, R8 Task 3 |
+| 9 | R10 | Dashboard UI (React + Vite at `/app/`): jobs table, filter bar, detail page with action buttons | [dashboard-ui](plans/dashboard-ui.md) | 0/4 | ⏳ | R9 |
+| 10 | R11 | Serve the dashboard from engineerfamily: Docker image, compose service, nginx `/app/` + basic auth, prod deploy | [dashboard-deploy](plans/dashboard-deploy.md) | 0/4 | ⏳ | R10 |
 
 ## Manual steps (you)
 
@@ -44,9 +49,13 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | M6 | Capture and commit scrubbed recorded-response data (R0 Task 4): `python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin`, check with `grep -ri "<your email or name>" tests/data`, commit. | During R0 | ☐ |
 | M7 | Connect GitHub to your Claude account at https://claude.ai/connect-github (grant access to `SiddharthEngineer/ApplyPilot`), then create the routine "ApplyPilot nightly build" (daily 2:07 AM CT, Default environment, model `claude-opus-5-5`, no connectors). | Before the first nightly run | ☑ 2026-10-02: routine `trig_01LsAQHDWu531mcmvkqSspVB`, cron `7 7 * * *` UTC |
 | M8 | Google Drive setup (R6 Task 8): create a Google Cloud OAuth "Desktop app" client with the Drive API enabled, save the client secret to `~/.applypilot/google_client_secret.json`, run `applypilot drive auth --no-browser` over an SSH tunnel, then `applypilot drive sync`. | After R6 Tasks 1–7 | ☐ |
+| M9 | Optional: tell the agent if you want MySQL instead of Postgres for R7. engineerfamily runs no MySQL today, so R7 targets a new `applypilot` DB on the existing Postgres 16 (`analytics-db`). | Before R7 starts | ☐ |
+| M10 | After R11: log in at `https://applypilot.engineerfamily.net/app/` with the credentials in `/root/applypilot-dashboard-credentials.txt`. Optionally put Cloudflare Access in front of `/app/*`. | After R11 | ☐ |
+| M11 | During R8 Task 6 → done: rerun `applypilot run extract` daily until the backfill count reaches 0 (until a cron plan exists). | After R8 | ☐ |
 
 ## Decisions log
 
+- 2026-10-03 (user): Job dashboard (R7–R11). Data moves to a new `applypilot` DB on the engineerfamily DB server. The user said MySQL, but that server is Postgres 16, so it's Postgres (M9 to override). Dashboard: FastAPI in ApplyPilot plus a React/Vite UI, served by the engineerfamily stack at `applypilot.engineerfamily.net/app/` behind basic auth. For these plans the agent commits straight to `trunk` (no PRs), commits engineerfamily changes on `main` (never the `prod` branch), and deploys to prod itself (`make tag-prod`). The user fixes breakage in the morning.
 - 2026-10-01: Pipeline LLM calls (discovery judge, scoring, tailoring, cover letters) stay on the **Gemini free tier**. The Claude subscription is not used for them (`claude-llm-provider` plan dropped, replaced by `gemini-free-tier-llm`).
 - 2026-10-01: Plans are implemented by a nightly **Claude Code cloud routine**, reviewed each morning. `scripts/plan_worker.py` and `agents/plan_queue.json` were retired (completion history moved to **Done** below). The never-started `claude-code-plan-worker` plan (R1) was dropped.
 - 2026-10-02: The nightly routine keeps completing tasks until nothing is runnable or its usage limit ends the session (was: one task per night), with stacked per-plan branches and PRs.
@@ -67,6 +76,9 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 
 ## Backlog (not yet planned)
 
+- Cron: scheduled `discover → enrich → extract → score` on the VPS (after R8; the user plans this).
+- "Posting closed" liveness check, so jobs without a stated deadline can turn Inactive.
+- Nightly `pg_dump` of the `applypilot` DB to `/srv/backups` (after R7).
 - `apply` human-in-the-loop mode: fill forms, pause for the user to review and submit, disable CapSolver by default (M5).
 - Run apply-stage dry runs (`applypilot apply --dry-run`) end to end once R5 produces resumes.
 - Re-evaluate the OpenCode Zen LLM provider and `--backend opencode` for removal.

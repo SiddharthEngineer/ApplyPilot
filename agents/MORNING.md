@@ -14,10 +14,12 @@ Session plan (remaining):
 2. ~~Session 2: R2 `job-board-discovery-repair`~~ ✅ 2026-10-02
 3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
 4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (signed off)
-5. **Session 5:** nothing is queued in ROADMAP. Pick one and I'll plan it (PLAN_AGENT) and build it:
-   - `apply` human-in-the-loop mode (M5 / Backlog), then `applypilot apply --dry-run` on the 3 tailored jobs
-   - Location filter whole-word matching (open since session 2)
-   - Save scores per job during `run score` (open since session 3)
+5. **Session 5:** R7 `job-store-postgres` (provision the DB in engineerfamily, adapter, migrate, cut over). If any time is left, start R8 Tasks 1, 3 and 4.
+6. **Session 6:** R8 `job-posting-extraction` (finish), plus a live QC of 20 jobs, then start the backfill (it runs across several days of quota).
+7. **Session 7:** R9 `dashboard-api`.
+8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
+   For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily to prod via `main` and `make tag-prod`. See `BUILD_AGENT.md` §0.
+   Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching, save scores per job during `run score`.
 
 ## Session 4 follow-up (2026-10-02): your answers
 
