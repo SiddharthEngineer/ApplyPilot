@@ -160,6 +160,7 @@ _ALL_COLUMNS: dict[str, str] = {
     "site": "TEXT",
     "strategy": "TEXT",
     "discovered_at": "TEXT",
+    "company": "TEXT",
     # Enrichment
     "full_description": "TEXT",
     "application_url": "TEXT",
@@ -221,10 +222,32 @@ def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dtype}")
             added.append(col)
 
+    if "company" in added:
+        # Workday and ATS-board rows already carry the employer in `site`.
+        conn.execute(
+            "UPDATE jobs SET company = site WHERE company IS NULL "
+            "AND (strategy = 'workday_api' OR strategy LIKE 'ats_%')"
+        )
+
     if added:
         conn.commit()
 
     return added
+
+
+# Values of `site` that name a job board rather than an employer.
+JOB_BOARD_SITES = {"indeed", "linkedin", "glassdoor", "zip_recruiter", "ziprecruiter", "google"}
+
+
+def job_company(job: dict) -> str:
+    """The employer for a job row: `company`, else `site` unless it is a job-board name."""
+    company = (job.get("company") or "").strip()
+    if company:
+        return company
+    site = (job.get("site") or "").strip()
+    if site and site.lower() not in JOB_BOARD_SITES:
+        return site
+    return "Unknown company"
 
 
 def get_stats(conn: sqlite3.Connection | None = None) -> dict:
