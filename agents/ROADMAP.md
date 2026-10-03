@@ -1,6 +1,6 @@
 # ApplyPilot Roadmap: single source of truth for planned work
 
-**Last updated:** 2026-10-02 (session 4)
+**Last updated:** 2026-10-02 (session 4; R6 planned)
 
 This is the one place to see every planned change, its order, and its status. Each initiative links to a
 plan in `agents/plans/` with task-level detail. Every task is tagged `Runs: cloud` (done by the nightly
@@ -30,6 +30,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 2 | R3 | Stop saving LLM errors as `fit_score = 0`; make them retryable | [scoring-error-recovery](plans/scoring-error-recovery.md) | 2/2 | ✅ | R0 |
 | 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 5/5 | ✅ | R3 |
 | 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 7/7 | ✅ | R4 |
+| 5 | R6 | Google Drive file library: tailored resumes and cover letters moved to Drive as company/role/date, links saved in the DB | [google-drive-file-library](plans/google-drive-file-library.md) | 1/8 | 🔄 | R5 |
 
 ## Manual steps (you)
 
@@ -42,6 +43,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | M5 | `applypilot apply`: keep a human in the loop long-term (agent fills forms, you submit, no automated CAPTCHA solving). Needs its own plan later; see Backlog. | Later | ☐ |
 | M6 | Capture and commit scrubbed recorded-response data (R0 Task 4): `python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin`, check with `grep -ri "<your email or name>" tests/data`, commit. | During R0 | ☐ |
 | M7 | Connect GitHub to your Claude account at https://claude.ai/connect-github (grant access to `SiddharthEngineer/ApplyPilot`), then create the routine "ApplyPilot nightly build" (daily 2:07 AM CT, Default environment, model `claude-opus-5-5`, no connectors). | Before the first nightly run | ☑ 2026-10-02: routine `trig_01LsAQHDWu531mcmvkqSspVB`, cron `7 7 * * *` UTC |
+| M8 | Google Drive setup (R6 Task 8): create a Google Cloud OAuth "Desktop app" client with the Drive API enabled, save the client secret to `~/.applypilot/google_client_secret.json`, run `applypilot drive auth --no-browser` over an SSH tunnel, then `applypilot drive sync`. | After R6 Tasks 1–7 | ☐ |
 
 ## Decisions log
 
@@ -52,6 +54,8 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 - 2026-10-01: `applypilot apply` will keep the user in the loop long-term. Deferred behind R0–R5.
 - 2026-10-02 (user): Gemini 503s fail over immediately to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`, with a 5-minute cooldown) instead of 5 backoff retries, because Google counts 503s against the free-tier daily quota. Content-library tailoring defaults to `--validation lenient` (no LLM judge).
 - 2026-10-02 (R5): Tailored resumes take the header from `resume_fixed.yaml` (copied verbatim from resume.txt), not profile.json, because profile.json's `full_name` is just "Siddharth" and its phone and state are formatted differently from the resume. `tailored_resume_path` now stores the template PDF. Role dates print inline after `Title at Company`, as on resume.pdf (the plan said right-aligned). Overflow is detected from the PDF page count.
+
+- 2026-10-02 (user): Tailored PDFs are moved to Google Drive (R6), in folders by company → role → date, because ApplyPilot runs on both the laptop and the VPS. The source board stays in the DB `site` column. `apply` downloads a moved PDF when it needs one. OAuth uses the `drive.file` scope.
 
 ## Findings behind this roadmap (2026-10-01 audit)
 
