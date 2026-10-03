@@ -56,3 +56,11 @@ def test_job_company():
     assert job_company({"site": "NVIDIA"}) == "NVIDIA"
     assert job_company({"site": "indeed", "company": "Acme"}) == "Acme"
     assert job_company({}) == "Unknown company"
+
+
+def test_drive_columns_on_fresh_and_migrated_db(tmp_path):
+    assert DRIVE_COLUMNS <= _columns(init_db(tmp_path / "fresh.db"))
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, site TEXT, strategy TEXT)")
+    ensure_columns(conn)
+    assert DRIVE_COLUMNS <= _columns(conn)
