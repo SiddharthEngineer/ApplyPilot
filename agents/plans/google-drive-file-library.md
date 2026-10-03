@@ -200,3 +200,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 5 done. `ensure_local_pdf`; `build_prompt` downloads moved resume and cover letter PDFs; launcher selects the Drive ids.
 - 2026-10-02: Task 6 done. `applypilot drive auth|sync|links`, doctor row. Fixed `_jobs_with_files` resetting the shared connection's row_factory. Live check is Task 8.
 - 2026-10-02: Task 7 done. `DRIVE_SYNC=1` moves PDFs after the tailor and cover stages (errors only logged). The pdf stage no longer rebuilds PDFs that were moved.
+- 2026-10-02: Task 8 docs written (README "Google Drive file library", `.env.example`, `.gitignore` for OAuth files). The Google Cloud setup and live checks are the user's (M8).

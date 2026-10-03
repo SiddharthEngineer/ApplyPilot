@@ -150,6 +150,42 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
 
 `applypilot discover --probe` checks every source with a tiny search (no DB writes) and prints `ok`, `empty`, `blocked` or `error` for each. During a crawl, a board that answers HTTP 403/429 is skipped for the rest of the run, and a board that returns 0 results is skipped after `site_fail_threshold` searches in a row (default 3, minimum 2).
 
+### Google Drive file library
+
+ApplyPilot can move tailored resume and cover letter PDFs to your Google Drive, filed as
+`ApplyPilot/<Company>/<Role>/<YYYY-MM-DD>/`. This is useful when you run ApplyPilot on more than one machine. Each job's
+Drive links are saved in the database (`resume_drive_url`, `cover_letter_drive_url`). A local PDF is deleted only after
+Drive confirms the same checksum. `applypilot apply` downloads a moved PDF when it needs to attach it. Re-syncing, or
+re-tailoring the same job on the same day, updates the existing Drive file (Drive keeps the old version in its history)
+instead of adding a copy. ApplyPilot asks for the `drive.file` permission, so it can only see the files it created.
+
+One-time Google setup (about 5 minutes, free):
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com), create a project (e.g. "ApplyPilot"), then open
+   **APIs & Services → Library**, search for **Google Drive API** and click **Enable**.
+2. Open **Google Auth Platform** (called **OAuth consent screen** in older consoles) and click **Get started**. Use any
+   app name, your email as the support and contact email, and **External** as the audience.
+3. Under **Audience**, click **Publish app** and confirm. Without this, Google treats the app as "Testing" and your
+   sign-in expires every 7 days. `drive.file` isn't a sensitive permission, so no Google review is needed. You'll see an
+   "unverified app" warning when you sign in; click **Advanced → Go to ApplyPilot**.
+4. Under **Clients**, click **Create client**, choose **Desktop app**, then **Download JSON**. Save it as
+   `~/.applypilot/google_client_secret.json` on every machine that runs ApplyPilot (use the same client everywhere so
+   all machines see the same files). Treat this file like a password: don't commit it.
+
+Then, on each machine:
+
+```bash
+pip install -e ".[drive]"
+applypilot drive auth                    # opens a browser to sign in
+applypilot drive sync                    # move existing PDFs to Drive
+applypilot drive links --csv links.csv   # list the saved links
+```
+
+On a headless server, run `applypilot drive auth --no-browser`. From your laptop, open a tunnel first with
+`ssh -N -L 8765:localhost:8765 <user>@<server>`, then open the printed URL in your laptop's browser. To move new PDFs
+automatically after the tailor and cover stages, set `DRIVE_SYNC=1` in `.env`. `applypilot doctor` shows whether Drive
+is authorized.
+
 ---
 
 ## CLI Reference
@@ -182,6 +218,9 @@ applypilot apply --mark-applied URL     # Manually mark a job as applied
 applypilot apply --mark-failed URL      # Manually mark a job as failed
 applypilot apply --reset-failed         # Reset all failed jobs for retry
 applypilot apply --gen --url URL        # Generate prompt file for manual debugging
+applypilot drive auth [--no-browser]    # Sign in to Google Drive (see "Google Drive file library")
+applypilot drive sync [--keep-local]    # Move tailored resume/cover letter PDFs to Drive, save links in the DB
+applypilot drive links [--csv FILE]     # List each job's Drive links
 applypilot status                       # Pipeline statistics
 applypilot dashboard                    # Open HTML results dashboard
 ```
