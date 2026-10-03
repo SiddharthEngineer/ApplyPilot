@@ -30,7 +30,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 2 | R3 | Stop saving LLM errors as `fit_score = 0`; make them retryable | [scoring-error-recovery](plans/scoring-error-recovery.md) | 2/2 | ✅ | R0 |
 | 3 | R4 | Run the pipeline within Gemini's free tier (per-stage models, daily-quota stop, structured JSON, scoring pre-filter) | [gemini-free-tier-llm](plans/gemini-free-tier-llm.md) | 5/5 | ✅ | R3 |
 | 4 | R5 | Tailored resumes rendered from your resume template and content library | [resume-template-tailoring](plans/resume-template-tailoring.md) | 7/7 | ✅ | R4 |
-| 5 | R6 | Google Drive file library: tailored resumes and cover letters moved to Drive as company/role/date, links saved in the DB | [google-drive-file-library](plans/google-drive-file-library.md) | 1/8 | 🔄 | R5 |
+| 5 | R6 | Google Drive file library: tailored resumes and cover letters moved to Drive as company/role/date, links saved in the DB | [google-drive-file-library](plans/google-drive-file-library.md) | 2/8 | 🔄 | R5 |
 
 ## Manual steps (you)
 

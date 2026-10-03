@@ -60,7 +60,7 @@ will reprocess old data.
 **Acceptance:**
 - `pytest tests/test_drive_layout.py -q` passes, with cases for slashes in titles, empty company, very long titles,
   the date fallback chain, the `DRIVE_ROOT_FOLDER` override, and the same job giving the same target every time.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 3: Drive client with find-or-create, upsert and download
 **Runs:** cloud
@@ -194,3 +194,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: The user chose company/role/date folders (site stays in the DB), a move instead of a mirror (laptop and VPS
   both run ApplyPilot), and asked for the work to be implemented in this session.
 - 2026-10-02: Task 1 done. `company` column, `job_company()`, inserts from JobSpy/Workday/ATS, backfill for employer rows.
+- 2026-10-02: Task 2 done. `storage/drive_layout.py`: company/role/date folders, file names, job key.
