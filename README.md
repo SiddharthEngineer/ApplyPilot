@@ -165,7 +165,12 @@ One-time Google setup (about 5 minutes, free):
    **APIs & Services → Library**, search for **Google Drive API** and click **Enable**.
 2. Open **Google Auth Platform** (called **OAuth consent screen** in older consoles) and click **Get started**. Use any
    app name, your email as the support and contact email, and **External** as the audience.
-3. Under **Audience**, click **Publish app** and confirm. Without this, Google treats the app as "Testing" and your
+3. Publishing needs a homepage and privacy policy on a domain you own. This repo's `docs/` folder has both: enable
+   GitHub Pages for your fork (**Settings → Pages**, branch `trunk`, folder `/docs`), verify
+   `<you>.github.io` in [Google Search Console](https://search.google.com/search-console) (HTML-tag method; paste the
+   tag into `docs/index.html`), then under **Branding** enter `https://<you>.github.io/ApplyPilot/` as the homepage,
+   `https://<you>.github.io/ApplyPilot/privacy.html` as the privacy policy and `<you>.github.io` as the authorized domain.
+   Under **Audience**, click **Publish app** and confirm. Without this, Google treats the app as "Testing" and your
    sign-in expires every 7 days. `drive.file` isn't a sensitive permission, so no Google review is needed. You'll see an
    "unverified app" warning when you sign in; click **Advanced → Go to ApplyPilot**.
 4. Under **Clients**, click **Create client**, choose **Desktop app**, then **Download JSON**. Save it as
