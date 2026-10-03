@@ -67,6 +67,8 @@ class TestNoPasswordsInPrompt:
             patch("applypilot.apply.prompt.config.APPLY_WORKER_DIR", tmp_path),
             patch("applypilot.apply.prompt.shutil.copy"),
             patch("applypilot.apply.prompt.Path") as mock_path_cls,
+            patch("applypilot.apply.prompt.ensure_local_pdf",
+                  side_effect=lambda job, kind: resume_pdf if kind == "resume" else None),
             patch("applypilot.config.load_blocked_sso", return_value=["sso.google.com"]),
         ):
             mock_profile.return_value = _minimal_profile()

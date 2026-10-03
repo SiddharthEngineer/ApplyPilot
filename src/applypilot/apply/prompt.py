@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from applypilot import config
+from applypilot.storage.sync import ensure_local_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -410,9 +411,10 @@ def build_prompt(job: dict, tailored_resume: str,
     if not resume_path:
         raise ValueError(f"No tailored resume for job: {job.get('title', 'unknown')}")
 
-    src_pdf = Path(resume_path).with_suffix(".pdf").resolve()
-    if not src_pdf.exists():
-        raise ValueError(f"Resume PDF not found: {src_pdf}")
+    # The PDF may have been moved to Google Drive; ensure_local_pdf downloads it back.
+    src_pdf = ensure_local_pdf(job, "resume")
+    if not src_pdf:
+        raise ValueError(f"Resume PDF not found: {Path(resume_path).with_suffix('.pdf').resolve()}")
 
     # Copy to a clean filename for upload (recruiters see the filename)
     full_name = personal["full_name"]
@@ -436,8 +438,8 @@ def build_prompt(job: dict, tailored_resume: str,
         elif cl_src.suffix == ".txt":
             cover_letter_text = cl_src.read_text(encoding="utf-8")
         # Upload must be PDF
-        cl_pdf_src = cl_src.with_suffix(".pdf")
-        if cl_pdf_src.exists():
+        cl_pdf_src = ensure_local_pdf(job, "cover_letter")
+        if cl_pdf_src:
             cl_upload = dest_dir / f"{name_slug}_Cover_Letter.pdf"
             shutil.copy(str(cl_pdf_src), str(cl_upload))
             cl_upload_path = str(cl_upload)

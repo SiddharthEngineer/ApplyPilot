@@ -115,7 +115,7 @@ returns None. `build_prompt` calls it for the resume and the cover letter before
 **Acceptance:**
 - A test deletes the local PDF, sets `resume_drive_id` on a fake-backed file, and checks `ensure_local_pdf` restores the bytes.
 - `pytest tests/test_prompt.py -q` still passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-02)
 
 ### Task 6: `applypilot drive` CLI (auth, sync, links) and doctor check
 **Runs:** cloud (code + CLI tests); live check: local (Task 8)
@@ -197,3 +197,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 2 done. `storage/drive_layout.py`: company/role/date folders, file names, job key.
 - 2026-10-02: Task 3 done. `storage/drive.py` (OAuth token, find-or-create folders, upsert by job key, download), `tests/fake_drive.py`, `[drive]` extra.
 - 2026-10-02: Task 4 done. `storage/sync.py`: `run_drive_sync` moves PDFs (deletes local copies after the MD5 matches), Drive id/url columns.
+- 2026-10-02: Task 5 done. `ensure_local_pdf`; `build_prompt` downloads moved resume and cover letter PDFs; launcher selects the Drive ids.
