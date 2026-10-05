@@ -33,7 +33,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 5 | R6 | Google Drive file library: tailored resumes and cover letters moved to Drive as company/role/date, links saved in the DB | [google-drive-file-library](plans/google-drive-file-library.md) | 7/8 | 🔄 | R5 |
 | 6 | R7 | Job store on Postgres: new `applypilot` DB on engineerfamily's Postgres server, `?`→`%s` adapter, `applypilot db migrate/verify`, VPS cutover | [job-store-postgres](plans/job-store-postgres.md) | 7/7 | ✅ | R0 |
 | 7 | R8 | Structured job-posting extraction: Gemini parses each posting into JSON (qualifications, salary, deadline, role category, work mode…), batched `extract` stage + heuristic fallback, backfill | [job-posting-extraction](plans/job-posting-extraction.md) | 6/6 | ✅ (backfill running, M11) | R7 |
-| 8 | R9 | Dashboard API (FastAPI, `applypilot serve`): filters/sort, job detail, status tracking (Active/Inactive/In progress/Submitted/Rejected/Heard back), background resume/cover generation | [dashboard-api](plans/dashboard-api.md) | 0/6 | ⏳ | R7, R8 Task 3 |
+| 8 | R9 | Dashboard API (FastAPI, `applypilot serve`): filters/sort, job detail, status tracking (Active/Inactive/In progress/Submitted/Rejected/Heard back), background resume/cover generation | [dashboard-api](plans/dashboard-api.md) | 1/6 | 🔄 | R7, R8 Task 3 |
 | 9 | R10 | Dashboard UI (React + Vite at `/app/`): jobs table, filter bar, detail page with action buttons | [dashboard-ui](plans/dashboard-ui.md) | 0/4 | ⏳ | R9 |
 | 10 | R11 | Serve the dashboard from engineerfamily: Docker image, compose service, nginx `/app/` + basic auth, prod deploy | [dashboard-deploy](plans/dashboard-deploy.md) | 0/4 | ⏳ | R10 |
 

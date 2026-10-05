@@ -186,8 +186,19 @@ def init_db(db_path: Path | str | None = None) -> Connection:
 
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
+    _ensure_tables(conn)
 
     return conn
+
+
+def _ensure_tables(conn: Connection) -> None:
+    """Side tables and indexes (idempotent). Ids are uuid4 hex, which needs no SERIAL vs AUTOINCREMENT."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS status_events ("
+        "id TEXT PRIMARY KEY, url TEXT, from_status TEXT, to_status TEXT, at TEXT, source TEXT)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_status_events_url ON status_events (url)")
+    conn.commit()
 
 
 # Complete column registry: column_name -> SQL type with optional default.
@@ -272,6 +283,12 @@ _ALL_COLUMNS: dict[str, str] = {
     "apply_duration_ms": "INTEGER",
     "apply_task_id": "TEXT",
     "verification_confidence": "TEXT",
+    # Dashboard status tracking (applypilot.tracking)
+    "user_status": "TEXT",  # NULL | in_progress | submitted | rejected | heard_back
+    "status_updated_at": "TEXT",
+    "submitted_at": "TEXT",
+    "responded_at": "TEXT",
+    "notes": "TEXT",
 }
 
 

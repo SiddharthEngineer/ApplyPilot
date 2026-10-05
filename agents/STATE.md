@@ -1,10 +1,11 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R8 job-posting-extraction ✅ 6/6; backfill running)
+**Last updated:** 2026-10-05 (R9 dashboard-api in progress)
 
 ## Active Plan
 
-**Next: R9 `dashboard-api`** (session 7, new interactive VPS session).
+**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`).
+Next: Task 2 (FastAPI skeleton + `applypilot serve`).
 
 **R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
 (`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`

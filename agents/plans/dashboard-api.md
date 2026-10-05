@@ -51,7 +51,7 @@ Precedence: rejected/heard_back > submitted (user_status, or `apply_status='appl
 `set_status("submitted")` sets `submitted_at` (default now, UTC ISO) and clears `responded_at`. Rejected and heard_back set `responded_at`.
 `None` resets to the derived status. Every change appends to `status_events`.
 **Acceptance:** `pytest tests/web/test_tracking.py -q` passes. A table-driven test checks that `effective_status` and `status_sql` agree on ≥ 12 cases.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 2: App skeleton and `applypilot serve`
 **Runs:** cloud
@@ -153,3 +153,4 @@ T1 status model ─→ T2 skeleton ─→ T3 list ─→ T4 detail/status ─→
 
 ## Historical Record
 - 2026-10-03: Plan created.
+- 2026-10-05: Task 1 done (VPS session 7). `tracking.py` (effective_status, status_sql, set_status, set_submitted_at, status_events, days_since_submitted, no_response); 5 `jobs` columns + `status_events` table. `applypilot apply` submissions count from `applied_at` when `submitted_at` is empty. 17-case table test checks Python vs SQL.
