@@ -9,16 +9,18 @@ basic-auth credentials on cross-site form posts, but a cross-site form can't set
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, FastAPI, Query, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
-from applypilot import __version__
-from applypilot.database import Connection, backend_name, backfill_job_keys, get_connection, init_db
+from applypilot import __version__, tracking
+from applypilot.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from applypilot.web import queries
 
 PREFIX = "/app"
@@ -76,6 +78,90 @@ def list_jobs(
 @api.get("/facets")
 def facets(request: Request) -> dict:
     return queries.facets(db_conn(request), today())
+
+
+# Large raw columns left out of the detail response (the description comes back once, as description_text).
+_RAW_COLUMNS = ("full_description", "description", "details_json")
+
+
+def job_by_key(conn: Connection, key: str) -> dict:
+    """The job row for a dashboard key, or 404."""
+    row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+    if row is None:
+        backfill_job_keys(conn)  # a row discovered since the last list request
+        row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return dict(row)
+
+
+def job_detail(conn: Connection, job: dict) -> dict:
+    day = today()
+    status = tracking.effective_status(job, day)
+    try:
+        details = json.loads(job["details_json"]) if job.get("details_json") else None
+    except ValueError:
+        details = None
+    out = {k: v for k, v in job.items() if k not in _RAW_COLUMNS}
+    out.update(
+        key=job["job_key"],
+        company=job_company(job),
+        description_text=job.get("full_description") or job.get("description"),
+        details=details,
+        status=status,
+        status_color=tracking.COLORS[status],
+        days_since_submitted=tracking.days_since_submitted(job, day),
+        submitted_date=tracking.submitted_date(job),
+        events=tracking.status_events(conn, job["url"]),
+        links={
+            "posting": job["url"],
+            "apply": job.get("application_url"),
+            "drive_folder": job.get("drive_folder_url"),
+            "resume": job.get("resume_drive_url"),
+            "cover_letter": job.get("cover_letter_drive_url"),
+        },
+    )
+    return out
+
+
+@api.get("/jobs/{key}")
+def get_job(key: str, request: Request) -> dict:
+    conn = db_conn(request)
+    return job_detail(conn, job_by_key(conn, key))
+
+
+class StatusUpdate(BaseModel):
+    status: Literal["in_progress", "submitted", "rejected", "heard_back"] | None
+    submitted_at: date | None = None
+
+
+@api.post("/jobs/{key}/status")
+def post_status(key: str, body: StatusUpdate, request: Request) -> dict:
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    submitted_at = body.submitted_at.isoformat() if body.submitted_at else None
+    tracking.set_status(conn, job["url"], body.status, submitted_at=submitted_at)
+    return job_detail(conn, job_by_key(conn, key))
+
+
+class JobPatch(BaseModel):
+    submitted_at: date | None = None
+    notes: str | None = None
+
+
+@api.patch("/jobs/{key}")
+def patch_job(key: str, body: JobPatch, request: Request) -> dict:
+    """Edit the submitted date and/or notes. Only the fields present in the body change."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    if "submitted_at" in body.model_fields_set:
+        if body.submitted_at is None:
+            raise HTTPException(status_code=422, detail="submitted_at can't be cleared; set a status instead")
+        tracking.set_submitted_at(conn, job["url"], body.submitted_at.isoformat())
+    if "notes" in body.model_fields_set:
+        conn.execute("UPDATE jobs SET notes = ? WHERE url = ?", (body.notes, job["url"]))
+        conn.commit()
+    return job_detail(conn, job_by_key(conn, key))
 
 
 def _default_static_dir() -> Path | None:

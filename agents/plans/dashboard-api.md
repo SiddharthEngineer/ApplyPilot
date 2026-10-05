@@ -101,7 +101,7 @@ and work_mode, plus the top 30 locations, for the filter dropdowns. Jobs without
 An unknown key returns 404.
 **Acceptance:** `pytest tests/web/test_job_detail.py -q` passes, covering detail shape, the submit default date, a manual date edit, the reject/heard-back
 transitions and the event log.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 5: Single-job tailoring and cover letters, and the Drive folder link
 **Runs:** cloud
@@ -156,3 +156,4 @@ T1 status model ─→ T2 skeleton ─→ T3 list ─→ T4 detail/status ─→
 - 2026-10-05: Task 1 done (VPS session 7). `tracking.py` (effective_status, status_sql, set_status, set_submitted_at, status_events, days_since_submitted, no_response); 5 `jobs` columns + `status_events` table. `applypilot apply` submissions count from `applied_at` when `submitted_at` is empty. 17-case table test checks Python vs SQL.
 - 2026-10-05: Task 2 done. `web/app.py` (`create_app(static_dir, db)`, `/app/api/health`, SPA fallback, CSRF middleware), `applypilot serve` (`--web-dir` or `APPLYPILOT_WEB_DIR`), `web` extra (CI and cloud_setup install it). Live: `serve --port 8765` → `{"ok":true,"db":"postgresql"}`, POST without the header → 403.
 - 2026-10-05: Task 3 done. `web/queries.py` (JobFilters, where/order clauses, list_jobs, facets); `GET /app/api/jobs` and `/app/api/facets`. `job_key` column + index; `job_key()` moved to `database.py` (drive_layout re-uses it); set by `store_jobs`, backfilled by `init_db` and on each list request (the other discovery inserters don't set it). LIKE wildcards in search text are escaped. Live on Postgres: 3,147 jobs, every filter ~60 ms; first start backfilled 3,147 keys in ~5 s.
+- 2026-10-05: Task 4 done. `GET /app/api/jobs/{key}` (row minus raw text, `description_text`, parsed `details`, status/color/days, `submitted_date`, `events`, `links`), `POST .../status`, `PATCH /app/api/jobs/{key}` (`submitted_at`, `notes`; only fields present change). Live read of a real Snowflake job on Postgres OK.

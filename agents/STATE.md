@@ -4,8 +4,8 @@
 
 ## Active Plan
 
-**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`), Task 2 (`web/app.py`, `applypilot serve`, `web` extra), Task 3 (`web/queries.py`, jobs list + facets, `job_key`).
-Next: Task 4 (job detail + status endpoints).
+**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`), Task 2 (`web/app.py`, `applypilot serve`, `web` extra), Task 3 (`web/queries.py`, jobs list + facets, `job_key`), Task 4 (detail/status/PATCH endpoints).
+Next: Task 5 (single-job tailor/cover via `urls=`, Drive folder link).
 
 **R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
 (`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`
