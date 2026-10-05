@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Job-posting model** (2026-10-05, R8 Task 1): `enrichment/posting_model.py` — `JobPosting` dataclass, enums, lenient `from_dict`, and Gemini `posting_schema()`/`batch_schema()`; `EXTRACT_VERSION = 1`.
 - **Extraction columns** (2026-10-05, R8 Task 3): 19 new `jobs` columns (`details_json`, `role_category`, `work_mode`, `location_*`, `salary_*`, `posted_date`, `deadline`, `extracted_at`, `extract_*`, `category_source`), added on both backends by `ensure_columns`; `PENDING_EXTRACT_WHERE` and a `pending_extract` stage.
+- **`applypilot classify`** (2026-10-05, R8 Task 4): keyword rules fill `role_category`, `work_mode` and `location_*` (`category_source='heuristic'`) for every job not yet LLM-extracted, so dashboard filters work before the backfill finishes. Run on the VPS: 3,147 jobs classified, 0 described jobs without a category.
 
 ### Fixed
 - **`run score --limit N`** (2026-10-05) now caps LLM scoring calls at N. Before, `--limit` applied only to tailor and cover, so `run score --limit 2` scored every pending job. The title prefilter still covers all pending jobs, because it makes no LLM calls.

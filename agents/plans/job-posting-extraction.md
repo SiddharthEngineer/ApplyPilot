@@ -111,7 +111,7 @@ overwrites LLM output.
 **Acceptance:**
 - `pytest tests/test_posting_classify.py -q` passes, with ≥ 25 table-driven cases covering every location format above.
 - Success criterion 4.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 5: Batched `extract` stage
 **Runs:** cloud (code + fake-LLM tests); local (live run of 10 jobs)
@@ -161,3 +161,4 @@ T3 columns ─→ T4 heuristics      ↗
 ## Historical Record
 - 2026-10-03: Plan created. At planning time: 3,147 jobs, 2,940 with full descriptions (avg ~6.9k chars, max ~30k).
 - 2026-10-05: The user requires LLM results to be saved after each call. Task 5 must commit each batch's rows as soon as the response returns (as `run score` now does), so a stopped run keeps everything already paid for. The jobs DB is now Postgres (R7).
+- 2026-10-05: Tasks 1, 3, 4 done. `applypilot classify` on the VPS DB: 3,147 jobs; software_engineering 949, other 897, ml_ai 431, it_infra 282, data_eng 135, data_science 108, hardware 104, product 84, research 75, analytics 71, quant 11. Work mode: remote 1,210, hybrid 631, onsite 366, unknown 940. Criterion 4: 0 described jobs without role_category.

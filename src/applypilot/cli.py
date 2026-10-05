@@ -471,6 +471,23 @@ def status() -> None:
     console.print()
 
 
+@app.command()
+def classify() -> None:
+    """Fill role category, work mode and location for jobs not yet LLM-extracted (keyword rules, no LLM)."""
+    _bootstrap()
+
+    from applypilot.enrichment.classify import run_classify
+
+    result = run_classify()
+    console.print(f"[green]Classified {result['classified']} job(s) by heuristics.[/green]")
+    table = Table(title="Role categories (heuristic)", show_header=True, header_style="bold cyan")
+    table.add_column("Category")
+    table.add_column("Jobs", justify="right")
+    for category, count in result["by_category"].items():
+        table.add_row(category, str(count))
+    console.print(table)
+
+
 template_app = typer.Typer(help="Your resume template: create the fixed blocks and preview the layout.", no_args_is_help=True)
 app.add_typer(template_app, name="template")
 
