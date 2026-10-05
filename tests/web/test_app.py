@@ -1,5 +1,7 @@
 """App skeleton: health, the UI's SPA fallback, and the CSRF header guard (dashboard-api Task 2)."""
 
+import re
+
 from fastapi.testclient import TestClient
 
 from applypilot.web import app as web_app
@@ -77,4 +79,6 @@ def test_serve_command_is_registered():
 
     result = CliRunner().invoke(cli, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--port" in result.output
+    # Typer's Rich help forces colour under GITHUB_ACTIONS/FORCE_COLOR, splitting "--port" with ANSI codes.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--port" in plain

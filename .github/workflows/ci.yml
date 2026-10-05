@@ -7,6 +7,11 @@ on:
     branches: [trunk]
   workflow_dispatch:
 
+# Back-to-back pushes (e.g. the nightly build) queue many runs; keep only the newest per ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
