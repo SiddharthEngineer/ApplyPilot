@@ -26,7 +26,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 # Pipeline stages that can each pick their own model via LLM_{PURPOSE}_MODEL.
-PURPOSES = ("discovery", "scoring", "tailor", "cover")
+PURPOSES = ("discovery", "extract", "scoring", "tailor", "cover")
 
 # ---------------------------------------------------------------------------
 # Provider detection
@@ -40,8 +40,8 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
 
     `purpose` selects a per-stage model: for any purpose in `PURPOSES` the
     model resolves as `LLM_{PURPOSE}_MODEL` -> `LLM_MODEL` -> provider default.
-    On Gemini the discovery default is the cheaper `gemini-3.1-flash-lite`
-    (enough for classification/judge, with a higher free-tier quota).
+    On Gemini the discovery and extract default is the cheaper `gemini-3.1-flash-lite`
+    (enough for classification/judge/extraction, with a higher free-tier quota).
     """
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     openai_key = os.environ.get("OPENAI_API_KEY", "")
@@ -75,7 +75,7 @@ def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
         return (local_url.rstrip("/"), model, api_key)
 
     if gemini_key and not local_url:
-        default = "gemini-3.1-flash-lite" if purpose == "discovery" else "gemini-3.6-flash"
+        default = "gemini-3.1-flash-lite" if purpose in ("discovery", "extract") else "gemini-3.6-flash"
         model = model_override or default
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",

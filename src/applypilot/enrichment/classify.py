@@ -215,19 +215,19 @@ def parse_location(location: str | None) -> Location:
 
 # ── `applypilot classify` ──────────────────────────────────────────────────
 
-def run_classify(conn=None) -> dict:
+def run_classify(conn=None, only_missing: bool = False) -> dict:
     """Fill role_category, work_mode and location_* by heuristics for every job not yet LLM-extracted.
 
     Rows with `extracted_at` set are never touched. Earlier heuristic values are recomputed, so rule
-    changes apply on the next run. Returns {"classified": n, "by_category": {category: n}}.
+    changes apply on the next run, unless `only_missing` (the extract stage's pre-pass), which only
+    fills rows without a role_category. Returns {"classified": n, "by_category": {category: n}}.
     """
     from applypilot.database import get_connection
 
     if conn is None:
         conn = get_connection()
-    rows = conn.execute(
-        "SELECT url, title, location, full_description, description FROM jobs WHERE extracted_at IS NULL"
-    ).fetchall()
+    where = "extracted_at IS NULL" + (" AND role_category IS NULL" if only_missing else "")
+    rows = conn.execute(f"SELECT url, title, location, full_description, description FROM jobs WHERE {where}").fetchall()
     updates = []
     by_category: dict[str, int] = {}
     for url, title, location, full_desc, desc in rows:

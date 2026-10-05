@@ -247,6 +247,14 @@ DEFAULTS = {
 }
 
 
+def extract_batch_size() -> int:
+    """Jobs per LLM request in the extract stage (EXTRACT_BATCH_SIZE, default 5)."""
+    try:
+        return max(1, int(os.environ.get("EXTRACT_BATCH_SIZE", "5")))
+    except ValueError:
+        return 5
+
+
 def database_url() -> str | None:
     """The Postgres URL from APPLYPILOT_DATABASE_URL, read at call time so a .env loaded later counts."""
     return os.environ.get("APPLYPILOT_DATABASE_URL") or None

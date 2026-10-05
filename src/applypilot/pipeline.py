@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from applypilot.config import load_env, ensure_dirs
-from applypilot.database import init_db, get_connection, get_stats
+from applypilot.database import PENDING_EXTRACT_WHERE, init_db, get_connection, get_stats
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -32,7 +32,9 @@ console = Console()
 # Stage definitions
 # ---------------------------------------------------------------------------
 
-STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "pdf")
+# `extract` only needs `enrich`, but runs after the stages the user waits on: it shares the flash-lite
+# daily quota with scoring, so a full run never spends that quota on extraction first.
+STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
 
 STAGE_META: dict[str, dict] = {
     "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
@@ -40,6 +42,7 @@ STAGE_META: dict[str, dict] = {
     "score":    {"desc": "LLM scoring (fit 1-10)"},
     "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
     "cover":    {"desc": "Cover letter generation"},
+    "extract":  {"desc": "Structured posting extraction (LLM, batched) + heuristic categories"},
     "pdf":      {"desc": "PDF conversion (tailored resumes + cover letters)"},
 }
 
@@ -51,6 +54,7 @@ _UPSTREAM: dict[str, str | None] = {
     "score":    "enrich",
     "tailor":   "score",
     "cover":    "tailor",
+    "extract":  "enrich",
     "pdf":      "cover",
 }
 
@@ -154,6 +158,21 @@ def _run_score(prefilter: bool = True, limit: int | None = None) -> dict:
         return {"status": f"error: {e}"}
 
 
+def _run_extract(limit: int | None = None) -> dict:
+    """Stage: heuristic categories for new jobs (no LLM), then batched LLM extraction."""
+    try:
+        from applypilot.enrichment.classify import run_classify
+        from applypilot.enrichment.extract import run_extraction
+        run_classify(only_missing=True)
+        stats = run_extraction(limit=limit)
+        if stats.get("stopped") == "errors":
+            return {"status": "error: extraction requests keep failing (see log)"}
+        return _stage_status(stats)
+    except Exception as e:  # noqa: BLE001 -- reported as the stage status, like the other stages
+        log.error("Extraction failed: %s", e)
+        return {"status": f"error: {e}"}
+
+
 def tailor_validation_mode(validation_mode: str | None, source: str) -> str:
     """Validation for the tailor stage when --validation isn't given.
 
@@ -227,6 +246,7 @@ _STAGE_RUNNERS: dict[str, callable] = {
     "score":    _run_score,
     "tailor":   _run_tailor,
     "cover":    _run_cover,
+    "extract":  _run_extract,
     "pdf":      _run_pdf,
 }
 
@@ -289,6 +309,7 @@ class _StageTracker:
 _PENDING_SQL: dict[str, str] = {
     "enrich": "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
     "score":  "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL",
+    "extract": f"SELECT COUNT(*) FROM jobs WHERE {PENDING_EXTRACT_WHERE}",
     "tailor": (
         "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? "
         "AND full_description IS NOT NULL "
@@ -354,6 +375,8 @@ def _run_stage_streaming(
     if stage == "score":
         kwargs["prefilter"] = prefilter
         kwargs["limit"] = limit
+    if stage == "extract":
+        kwargs["limit"] = limit
 
     upstream = _UPSTREAM[stage]
 
@@ -389,8 +412,8 @@ def _run_stage_streaming(
                     # Re-running would only spend another request on the same exhausted quota.
                     tracker.mark_done(stage, {"status": QUOTA_STOPPED, "passes": passes})
                     return
-                if stage == "score" and limit:
-                    # --limit caps LLM scoring calls for the whole run, so one pass is all it gets.
+                if stage in ("score", "extract") and limit:
+                    # --limit caps LLM calls for the whole run, so one pass is all it gets.
                     break
         else:
             # No work right now
@@ -444,6 +467,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                 kwargs["no_cache"] = no_cache
             if name == "score":
                 kwargs["prefilter"] = prefilter
+                kwargs["limit"] = limit
+            if name == "extract":
                 kwargs["limit"] = limit
             result = runner(**kwargs)
             elapsed = time.time() - t0

@@ -30,7 +30,7 @@ console = Console()
 log = logging.getLogger(__name__)
 
 # Valid pipeline stages (in execution order)
-VALID_STAGES = ("discover", "enrich", "score", "tailor", "cover", "pdf")
+VALID_STAGES = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +125,8 @@ def run(
     ),
     limit: int | None = typer.Option(
         None, "--limit", "-l", min=1,
-        help="Max jobs sent to the LLM by the score stage (default: all) and by the tailor and cover "
-             "stages (default 20 each).",
+        help="Max jobs sent to the LLM by the score and extract stages (default: all) and by the tailor "
+             "and cover stages (default 20 each).",
     ),
     reset_errors: bool = typer.Option(
         False,
@@ -134,7 +134,7 @@ def run(
         help="Mark jobs whose scoring failed with an LLM error as unscored again (resets their retry count), then exit.",
     ),
 ) -> None:
-    """Run pipeline stages: discover, enrich, score, tailor, cover, pdf."""
+    """Run pipeline stages: discover, enrich, score, tailor, cover, extract, pdf."""
     _bootstrap()
 
     from applypilot.pipeline import run_pipeline
@@ -157,7 +157,7 @@ def run(
         return
 
     # Gate AI stages behind Tier 2
-    llm_stages = {"score", "tailor", "cover"}
+    llm_stages = {"score", "tailor", "cover", "extract"}
     if any(s in stage_list for s in llm_stages) or "all" in stage_list:
         from applypilot.config import check_tier
         check_tier(2, "AI scoring/tailoring")
