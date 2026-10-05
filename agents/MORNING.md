@@ -25,7 +25,7 @@ Session plan (remaining):
 
 ## Session 5a (2026-10-05, interactive): R7 Postgres job store, code half
 
-**Not committed yet.** It's all in the `/srv/ApplyPilot` working tree on `trunk`. The session's permission classifier blocked `git commit`.
+**Committed on `trunk` as 84c9e92** (2026-10-05, after the repo was chowned back to `dev`).
 - **Adapter** (`db_pg.py`): ApplyPilot's sqlite3-style SQL runs unchanged on Postgres. `?` placeholders work, and rows act like `sqlite3.Row`. Writes open a transaction the way sqlite3 does, so reads never leave a session "idle in transaction". A failed INSERT rolls back to a savepoint, which keeps the `except IntegrityError` dedupe working. NUL bytes are stripped.
 - **Dispatch:** set `APPLYPILOT_DATABASE_URL=postgresql://…` to use Postgres. Unset, it's SQLite as before. Unit tests always unset it.
 - **Portable SQL:** `char(10)` became a parameter. `BEGIN IMMEDIATE` is handled, and on Postgres `acquire_job` uses `FOR UPDATE SKIP LOCKED`: 6 parallel workers claimed 6 distinct jobs.
@@ -38,7 +38,6 @@ cd /srv/ApplyPilot && git status && . .venv/bin/activate && pytest tests/ -q
 ```
 
 **Waiting on you**
-- Commit and push the working tree (or allow `git commit` and `git push` for the agent), one commit per task if you like.
 - Task 1 (engineerfamily DB provisioning plus prod deploy) wasn't started. `/home/dev/src/engineerfamily` is on branch `bind-app-localhost` with work of its own.
 
 ## Session 4 follow-up (2026-10-02): your answers

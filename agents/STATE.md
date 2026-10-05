@@ -1,6 +1,6 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R7 job-store-postgres: code tasks done, uncommitted; VPS/engineerfamily steps pending)
+**Last updated:** 2026-10-05 (R7 job-store-postgres: code tasks done, committed 84c9e92; VPS/engineerfamily steps pending)
 
 ## Active Plan
 
@@ -8,8 +8,7 @@
 analytics-db are still to do), Tasks 1 and 7 ❌ (engineerfamily provisioning, cutover). New: `db_pg.py` (PgConnection adapter),
 `migrate.py` + `applypilot db migrate|verify`, backend dispatch in `database.py` (`APPLYPILOT_DATABASE_URL`), `doctor`
 Database row, `pg` test tier (`APPLYPILOT_TEST_DATABASE_URL`). Gate: 677 passed, 29 skipped (SQLite); 686 passed
-with a throwaway Postgres 16. **The work is uncommitted in the `/srv/ApplyPilot` working tree:** the session's auto-mode
-classifier blocked `git commit` (as root with the user's identity, and as `dev`). Next: the user commits/pushes, then Task 1
+with a throwaway Postgres 16. Committed on `trunk` as 84c9e92 (2026-10-05). Next: Task 1
 (engineerfamily: note the working clone `/home/dev/src/engineerfamily` is on branch `bind-app-localhost`, not `main`), then
 the Task 5/6 runs and Task 7.
 
