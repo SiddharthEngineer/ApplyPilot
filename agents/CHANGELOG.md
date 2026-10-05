@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dashboard UI** (2026-10-05, R10): a React + TypeScript + Vite app in `dashboard/`, built into `src/applypilot/web/static/` (committed and packaged). `applypilot serve` now serves it by default.
+  - Jobs table: colored status badges, sorting by Fit/Found/Due, 50 rows per page.
+  - Filter bar: status counts, role categories, location with suggestions, Remote/Hybrid/On-site, found and due date ranges, fit score range, and a debounced search. Filters live in the URL.
+  - Job detail page: the extracted sections, links, Generate resume/cover/both with progress polling, Mark submitted (editable date), Rejected, Heard back, Reset, notes and status history.
+  - Tests: 30 Vitest tests.
+- **Dashboard Docker image** (2026-10-05, R11 Task 1): a `Dockerfile` on `playwright/python:v1.63.0-noble` with fonts-liberation and `.[web,postgres,drive]`, plus a `.dockerignore`. The image holds no secrets or user data.
 - **Overload stop** (2026-10-05): when a Gemini model with no fallback left (flash-lite, or the fallback itself) answers 503 on all 5 tries, the stage stops with `stopped: model overloaded` instead of charging the job a failed attempt (`LLMOverloaded`; both it and `LLMQuotaExhausted` extend `LLMStopRun`, which every stage catches). The dashboard shows "Gemini is overloaded right now; try again in a few minutes."
 - **Dashboard generation tasks** (2026-10-05, R9 Task 6): `POST /app/api/jobs/{key}/generate {resume, cover}` queues a tailored resume and/or cover letter for one job. It runs on a single background thread, moves the PDFs to Drive when that's authorized, and marks the job In progress. Poll with `GET /app/api/tasks/{id}`. A server restart marks running tasks `interrupted`, and the daily Gemini quota shows as a readable error.
 - **Single-job generation** (2026-10-05, R9 Task 5): `run_tailoring(urls=[...])` and `run_cover_letters(urls=[...])` regenerate for exactly those jobs, scored or not. Drive sync now saves each job's folder link (`drive_folder_id`, `drive_folder_url`).

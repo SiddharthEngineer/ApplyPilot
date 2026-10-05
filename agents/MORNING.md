@@ -17,10 +17,56 @@ Session plan (remaining):
 5. ~~Session 5: R7 `job-store-postgres`~~ ✅ 2026-10-05 (the VPS now runs on Postgres)
 6. ~~Session 6: R8 `job-posting-extraction`~~ ✅ 2026-10-05 (backfill running; rerun daily, see below)
 7. ~~Session 7: R9 `dashboard-api`~~ ✅ 2026-10-05
-8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
-   For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily via `main`, then fast-forward `prod` and `make up`. See `BUILD_AGENT.md` §0.
-   **Unattended cron is disabled** (user, 2026-10-05): sessions 6–8 run interactively, each in a new session.
-   Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching.
+8. ~~Session 8: R10 `dashboard-ui`~~ ✅ 2026-10-05; R11 code done, **prod deploy waiting on you** (see Session 8 below).
+9. **Session 9:** after your deploy, record R11 Task 4 (success criteria 1–5) and close R11. If you'd rather the agent
+   deploy, allow it first (see below). Then pick a new plan. Unplanned candidates: `apply` human-in-the-loop mode,
+   whole-word matching in the location filter, Cloudflare Access in front of `/app/*`.
+   **Unattended cron is disabled** (user, 2026-10-05). Sessions run interactively, each in a new session.
+
+## Session 8 (2026-10-05, interactive): R10 dashboard UI, R11 deploy prep
+
+**Landed on `trunk`** (no PRs): 71179dc, 32d67e2, 0e4b1ac, 30e1f10 (R10 4/4 ✅), 19ff81c (R11 Task 1), plus the docs commit.
+**engineerfamily `main`:** [8e382c9](https://github.com/SiddharthEngineer/engineerfamily/commit/8e382c9). This is not deployed yet: `prod` is unchanged.
+
+- **The dashboard UI** lives in `dashboard/` (React + TypeScript + Vite). Its build is committed in the Python package, so `applypilot serve` shows it at `/app/` with no Node needed.
+  - **Jobs table:** colored status badges, sorting on Fit/Found/Due, and 50 rows per page.
+  - **Filters:** status (with counts), role categories, location (with suggestions), Remote/Hybrid/On-site, found and due date ranges, fit score range, and a search. All of them are kept in the URL, so you can bookmark a view.
+  - **Detail page:** the extracted sections, the links, and Generate resume/cover/both with a progress line. Then Mark submitted (today by default, the date is editable), Rejected, Heard back and Reset, plus notes and the status history.
+  - **Phone:** it works at 375 px; the table scrolls sideways inside its box.
+- **Live click-through:** I used Snowflake "Senior Data Scientist - Product". Generate both took 33 s, and the Drive folder, resume and cover letter links appeared. Then Submitted, then Rejected. **Afterwards I reset its status to Active.** The new resume and cover letter in Drive are real and were kept.
+- **Docker image** (R11 Task 1): `docker build -t applypilot-dashboard /srv/ApplyPilot` works. It has Chromium, the fonts and the extras, and no `.env`. It runs as `dev` (uid 1000) with `HOME=/home/dev`, not as root (a change from the plan). That way the files it writes in `~/.applypilot` stay yours, and the resume paths stored in the DB still resolve.
+  - Pre-check on loopback, with the same mounts as prod: health returned `postgresql`, `/app/` returned 200, Chromium rendered a PDF, and the Gemini key loaded.
+- **engineerfamily** (Tasks 2–3):
+  - An `applypilot` service in `docker-compose.prod.yml`, with no public port.
+  - nginx `location /app/` with basic auth.
+  - `make applypilot-up` (rebuild and restart just the dashboard) and `make applypilot-logs`.
+  - README updates.
+- **Credentials:** user `applypilot`, with a random password, are in **`/home/dev/applypilot-dashboard-credentials.txt`** (mode 600). The hash is in `/srv/engineerfamily/services/nginx/.htpasswd-applypilot` (untracked).
+
+**Waiting on you: the prod deploy.** The session's auto-mode classifier blocked my `prod` fast-forward and `make up` ("Production Deploy"), even though BUILD_AGENT §0 pre-approves it. Run it yourself:
+```bash
+cd /srv/engineerfamily
+git -c safe.directory=/srv/engineerfamily fetch origin && git -c safe.directory=/srv/engineerfamily merge --ff-only origin/main
+git -c safe.directory=/srv/engineerfamily push origin prod
+make up
+```
+Then check:
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://applypilot.engineerfamily.net/app/          # 401
+curl -s -u "applypilot:$(sed -n 's/^password: //p' ~/applypilot-dashboard-credentials.txt)" https://applypilot.engineerfamily.net/app/api/health   # {"ok":true,"db":"postgresql",...}
+for u in https://engineerfamily.net https://umami.engineerfamily.net https://applypilot.engineerfamily.net https://applypilot.engineerfamily.net/privacy; do curl -s -o /dev/null -w "%{http_code} $u\n" $u; done
+docker exec engineerfamily-applypilot-1 python -c "import os; print(os.environ['APPLYPILOT_DATABASE_URL'].split('@')[1])"   # analytics-db:5432/applypilot
+```
+Then log in at https://applypilot.engineerfamily.net/app/ and click "Generate both" on one job (success criterion 4). If a site breaks: revert 8e382c9 on `main`, then fast-forward `prod` and `make up` again.
+- **To let the agent deploy next time**, add a Bash allow rule (e.g. for `make up`, `make applypilot-up` and `git push origin prod` in `/srv/engineerfamily`) to `.claude/settings.local.json`. Or just tell me in the session that the deploy is approved.
+- **Later ApplyPilot changes:** `git pull` in `/srv/ApplyPilot`, then `make applypilot-up` in `/srv/engineerfamily`. The image is built from the checkout, including the committed UI bundle.
+
+**Verify the UI without the deploy (≈2 min)**
+```bash
+cd /srv/ApplyPilot && git pull && . .venv/bin/activate && pytest tests/ -q
+cd dashboard && npm ci && npm test && cd ..
+applypilot serve --port 8765      # then http://127.0.0.1:8765/app/ through an SSH tunnel
+```
 
 ## Session 7 (2026-10-05, interactive): R9 dashboard API
 

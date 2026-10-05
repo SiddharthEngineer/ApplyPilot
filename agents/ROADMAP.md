@@ -35,7 +35,7 @@ Status key: ⏳ queued · 🔄 in progress · 🟡 cloud work done, local steps 
 | 7 | R8 | Structured job-posting extraction: Gemini parses each posting into JSON (qualifications, salary, deadline, role category, work mode…), batched `extract` stage + heuristic fallback, backfill | [job-posting-extraction](plans/job-posting-extraction.md) | 6/6 | ✅ (backfill running, M11) | R7 |
 | 8 | R9 | Dashboard API (FastAPI, `applypilot serve`): filters/sort, job detail, status tracking (Active/Inactive/In progress/Submitted/Rejected/Heard back), background resume/cover generation | [dashboard-api](plans/dashboard-api.md) | 6/6 | ✅ | R7, R8 Task 3 |
 | 9 | R10 | Dashboard UI (React + Vite at `/app/`): jobs table, filter bar, detail page with action buttons | [dashboard-ui](plans/dashboard-ui.md) | 4/4 | ✅ | R9 |
-| 10 | R11 | Serve the dashboard from engineerfamily: Docker image, compose service, nginx `/app/` + basic auth, prod deploy | [dashboard-deploy](plans/dashboard-deploy.md) | 1/4 | 🔄 | R10 |
+| 10 | R11 | Serve the dashboard from engineerfamily: Docker image, compose service, nginx `/app/` + basic auth, prod deploy | [dashboard-deploy](plans/dashboard-deploy.md) | 1/4 (+2 🟡) | 🔄 | R10 |
 
 ## Manual steps (you)
 

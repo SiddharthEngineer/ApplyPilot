@@ -1,10 +1,21 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R9 dashboard-api ✅ 6/6)
+**Last updated:** 2026-10-05 (R10 dashboard-ui ✅ 4/4; R11 code done, prod deploy pending the user)
 
 ## Active Plan
 
-**Next: R10 `dashboard-ui`** (session 8, new interactive VPS session), then R11 `dashboard-deploy`.
+**Next: the user deploys R11** (MORNING.md, session 8 "Waiting on you"), then the agent (or the user) records R11 Task 4's checks.
+
+**R11 `dashboard-deploy`** 🔄 (2026-10-05, session 8).
+- Task 1 ✅: `Dockerfile` and `.dockerignore`. The image runs as the host's dev with `HOME=/home/dev`.
+- Tasks 2–3 🟡: engineerfamily 8e382c9 is on `main` (compose `applypilot` service, nginx `/app/` + basic auth, `make applypilot-up`/`applypilot-logs`). The credentials file is created.
+- Task 4 ⏸: the auto-mode classifier denied the agent's prod deploy (`prod` fast-forward + `make up`).
+
+**R10 `dashboard-ui`** ✅ 4/4 (2026-10-05, session 8, commits on `trunk`).
+- `dashboard/` holds a React 18 + TS + Vite 8 + react-router 7 app. Tests are Vitest 5 + Testing Library, and the API is mocked with `vi.mock('../api')`.
+- Code: `api.ts`, `types.ts`, `labels.ts`, `useQueryState.ts`, the pages (`JobsPage`, `JobPage`) and the components (`JobsTable`, `StatusBadge`, `Filters`, `ActionBar`, `TaskProgress`).
+- The build goes to `src/applypilot/web/static/` (committed). `create_app` falls back to `PACKAGED_STATIC_DIR`.
+- Live click-through on the VPS passed. Gate: pytest 901 passed, 29 skipped; Vitest 30 passed.
 
 **R9 `dashboard-api`** ✅ 6/6 (2026-10-05, interactive VPS session 7, commits on `trunk`). New: `tracking.py` (status
 model, `status_sql`, `set_status`, `status_events` table), `web/app.py` (`create_app(static_dir, db, generate, run_tasks)`,
