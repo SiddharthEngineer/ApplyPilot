@@ -30,7 +30,7 @@ go into the image: everything arrives through mounts at runtime (Task 2).
 - `docker build -t applypilot-dashboard /srv/ApplyPilot` succeeds.
 - `docker run --rm applypilot-dashboard applypilot --version` works.
 - `docker history` shows no `.env`.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 2: Compose service in engineerfamily
 **Runs:** local (VPS; cross-repo: engineerfamily, see `BUILD_AGENT.md` §0)
@@ -110,3 +110,8 @@ T1 image ─→ T2 compose ─→ T3 nginx ─→ T4 deploy + verify
 
 ## Historical Record
 - 2026-10-03: Plan created.
+- 2026-10-05: Task 1 done (VPS session 8). The base image is `playwright/python:v1.63.0-noble`, which matches the `.venv`, so Chromium ships in the image and no `playwright install` is needed. Extras: `.[web,postgres,drive]` (Drive is needed for the generate upload). Changed from the plan:
+  - The container runs as the host's `dev` (compose `user: 1000:1001`) with `HOME=/home/dev`, not as root with `HOME=/root`. `~/.applypilot` is mode 700 and `.env` is 600, both owned by `dev`. Root-written files would also break the shared-group setup. And the DB stores absolute `/home/dev/.applypilot/...` paths for tailored files, which now resolve inside the container too.
+  - `.dockerignore` leaves out everything except pyproject, README, LICENSE and src.
+  - Checks: the build succeeds, `applypilot --version` works, `docker history` has 0 `.env` mentions, and there's no `.env` file in the image.
+

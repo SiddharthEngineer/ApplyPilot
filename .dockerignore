@@ -1,0 +1,20 @@
+# Only pyproject.toml, README.md, LICENSE and src/ are copied; keep everything else out of the build context.
+.env
+.env.*
+*.env
+.venv
+venv
+personal/
+.git
+.github
+dashboard/node_modules
+dashboard/
+tests/
+agents/
+scripts/
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+*.db
+*.db.bak*

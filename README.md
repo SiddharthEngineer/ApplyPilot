@@ -212,9 +212,11 @@ applypilot doctor   # Database: postgresql (user@host), N jobs
 `db migrate` can be rerun safely: it copies only the jobs that aren't in Postgres yet, and it backs the SQLite file up
 to `applypilot.db.bak-<date>` first, without changing it. To switch back to SQLite, unset `APPLYPILOT_DATABASE_URL`.
 
-### Dashboard API
+### Dashboard
 
-`applypilot serve` runs the job dashboard's backend (FastAPI) at `http://127.0.0.1:8765/app/`:
+`applypilot serve` runs the job dashboard at `http://127.0.0.1:8765/app/`: a filterable, sortable jobs table and a detail
+page per job, with buttons to generate the resume and cover letter and to track the application's status.
+The built UI ships in the package (`src/applypilot/web/static/`), so Node is only needed to change it:
 
 ```bash
 pip install -e ".[web]"
@@ -236,6 +238,30 @@ curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", .
 
 Every POST/PATCH needs the header `X-ApplyPilot: 1`. Put the server behind a reverse proxy with authentication;
 it has no login of its own.
+
+**UI development** (React + TypeScript + Vite, in `dashboard/`):
+
+```bash
+cd dashboard && npm ci
+npm run dev      # http://localhost:5173/app/ , proxies /app/api to applypilot serve on :8765
+npm test         # Vitest
+npm run build    # writes src/applypilot/web/static/ (commit it)
+```
+
+The filters and sort live in the URL, so a view like "Submitted, no response, Data Science" can be bookmarked.
+
+**Docker:** the `Dockerfile` builds the dashboard image (Playwright's Python image + Chromium, fonts-liberation,
+`.[web,postgres,drive]`). It contains no secrets or user data. At runtime, mount `~/.applypilot` at the same path as on
+the host, run as the user that owns it, and mount the `.env` with the Gemini key at `/app/.env`:
+
+```bash
+docker build -t applypilot-dashboard .
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=$HOME -v $HOME/.applypilot:$HOME/.applypilot \
+  -v $PWD/.env:/app/.env:ro -p 127.0.0.1:8000:8000 applypilot-dashboard
+```
+
+On the VPS, the engineerfamily stack runs it at `https://applypilot.engineerfamily.net/app/` behind basic auth
+(`make applypilot-up` there rebuilds and restarts it).
 
 ---
 
