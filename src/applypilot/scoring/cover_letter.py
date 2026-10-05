@@ -279,8 +279,8 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
 
     COVER_LETTER_DIR.mkdir(parents=True, exist_ok=True)
     log.info(
-        "Generating cover letters for %d jobs (score >= %d)...",
-        len(jobs), min_score,
+        "Generating cover letters for %d jobs (%s)...",
+        len(jobs), "requested" if urls is not None else f"score >= {min_score}",
     )
     t0 = time.time()
     completed = 0

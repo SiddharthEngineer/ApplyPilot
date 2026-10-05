@@ -16,11 +16,38 @@ Session plan (remaining):
 4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (signed off)
 5. ~~Session 5: R7 `job-store-postgres`~~ ✅ 2026-10-05 (the VPS now runs on Postgres)
 6. ~~Session 6: R8 `job-posting-extraction`~~ ✅ 2026-10-05 (backfill running; rerun daily, see below)
-7. **Session 7:** R9 `dashboard-api`.
+7. ~~Session 7: R9 `dashboard-api`~~ ✅ 2026-10-05
 8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
    For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily via `main`, then fast-forward `prod` and `make up`. See `BUILD_AGENT.md` §0.
    **Unattended cron is disabled** (user, 2026-10-05): sessions 6–8 run interactively, each in a new session.
    Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching.
+
+## Session 7 (2026-10-05, interactive): R9 dashboard API
+
+**Landed on `trunk`** (no PRs): 1a25fb8, 1d102a5, a7e15d1, 9dc3e89, 2199732, 2587af8, e23b3dc, plus the docs commit. R9 is 6/6, and all 5 success criteria are verified.
+- **`applypilot serve`** (needs `uv pip install -e ".[web]"`) runs a FastAPI app with everything under `/app`. On the VPS, `/app/api/health` returns `{"ok": true, "db": "postgresql"}`.
+- **Jobs list:** `GET /app/api/jobs` filters by status, role, work mode, location text, found and due date ranges, score range and title/company text. It sorts by found date, deadline or score (empty values last) and pages up to 200 rows. On your 3,147 jobs, each query takes about 60 ms. `GET /app/api/facets` returns the dropdown counts. Right now that's 3,125 Active and 22 Inactive (deadline passed).
+- **Status:** a job is Active or Inactive from its deadline until you set In progress, Submitted, Rejected or Heard back. Submitted takes today's date unless you give one, and the date can be edited later. Jobs that `applypilot apply` submitted count as Submitted. Every change is logged and shown newest first in `GET /app/api/jobs/{key}`, along with the extracted details and the posting, apply and Drive links.
+- **Generate:** `POST /app/api/jobs/{key}/generate {"resume": true, "cover": true}` tailors and writes the letter for that one job, even an unscored one, and regenerates if the files exist. It runs on one background thread, uploads to Drive, and saves the job's Drive folder link.
+- **Security:** every POST/PATCH needs the header `X-ApplyPilot: 1`. There's no login in the app itself; R11 puts basic auth in front.
+
+**Live run:** I generated a resume and cover letter for Supabase "Software Engineer - Branching" (score 7, wasn't tailored yet). It finished in 29 s. gemini-3.6-flash returned a 503, so flash-lite did the work. The job is now **In progress**, and its Drive folder, resume and cover letter links are all set. To undo the status: `curl -H 'X-ApplyPilot: 1' -H 'Content-Type: application/json' -X POST localhost:8765/app/api/jobs/bf2fc053c024/status -d '{"status": null}'` while `serve` is running.
+
+**Changes on the VPS outside the repo:** `fastapi` and `uvicorn` are installed in `.venv`. Your Postgres `jobs` table has 8 new columns, `job_key` is filled for every row, and there are 2 new tables (`status_events`, `dashboard_tasks`).
+
+**Verify (≈3 min)**
+```bash
+cd /srv/ApplyPilot && git pull && . .venv/bin/activate && uv pip install -e ".[web]" && pytest tests/ -q
+applypilot serve --port 8765        # in another terminal, then:
+curl -s localhost:8765/app/api/health
+curl -s "localhost:8765/app/api/jobs?sort=-fit_score&page_size=5"
+curl -s localhost:8765/app/api/jobs/bf2fc053c024
+```
+API docs: http://127.0.0.1:8765/app/api/docs (through an SSH tunnel).
+
+**Waiting on you**
+- Nothing blocks R10. The **M11 extract backfill** is still running: at 20:12 UTC it was at 560/1500. That's slower than I estimated, because flash-lite keeps returning 503s that get retried.
+- The generate button uses the same models as `applypilot run`: tailor and cover on gemini-3.6-flash (20/day), with 503s falling back to flash-lite.
 
 ## Session 6 (2026-10-05, interactive): R8 structured job-posting extraction
 

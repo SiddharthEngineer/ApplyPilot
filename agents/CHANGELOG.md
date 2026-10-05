@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dashboard generation tasks** (2026-10-05, R9 Task 6): `POST /app/api/jobs/{key}/generate {resume, cover}` queues a tailored resume and/or cover letter for one job. It runs on a single background thread, moves the PDFs to Drive when that's authorized, and marks the job In progress. Poll with `GET /app/api/tasks/{id}`. A server restart marks running tasks `interrupted`, and the daily Gemini quota shows as a readable error.
 - **Single-job generation** (2026-10-05, R9 Task 5): `run_tailoring(urls=[...])` and `run_cover_letters(urls=[...])` regenerate for exactly those jobs, scored or not. Drive sync now saves each job's folder link (`drive_folder_id`, `drive_folder_url`).
 - **Dashboard job detail and status** (2026-10-05, R9 Task 4): `GET /app/api/jobs/{key}` (full row, description, extracted details, status history, posting/apply/Drive links), `POST /app/api/jobs/{key}/status` (Submitted/Rejected/Heard back/In progress/reset) and `PATCH /app/api/jobs/{key}` (submitted date, notes).
 - **Dashboard jobs list** (2026-10-05, R9 Task 3): `GET /app/api/jobs` filters by status (incl. `no_response`), role, work mode, location text, found/due date ranges, score range and title/company text; sorts by discovered date, deadline or score (NULLs last); pages up to 200. `GET /app/api/facets` gives the dropdown counts. New `jobs.job_key` column (short sha1 of the URL) keys dashboard URLs.

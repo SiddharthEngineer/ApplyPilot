@@ -1,11 +1,19 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R9 dashboard-api in progress)
+**Last updated:** 2026-10-05 (R9 dashboard-api ✅ 6/6)
 
 ## Active Plan
 
-**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`), Task 2 (`web/app.py`, `applypilot serve`, `web` extra), Task 3 (`web/queries.py`, jobs list + facets, `job_key`), Task 4 (detail/status/PATCH endpoints), Task 5 (`urls=` single-job tailor/cover, Drive folder link).
-Next: Task 6 (background generation tasks + one live generation).
+**Next: R10 `dashboard-ui`** (session 8, new interactive VPS session), then R11 `dashboard-deploy`.
+
+**R9 `dashboard-api`** ✅ 6/6 (2026-10-05, interactive VPS session 7, commits on `trunk`). New: `tracking.py` (status
+model, `status_sql`, `set_status`, `status_events` table), `web/app.py` (`create_app(static_dir, db, generate, run_tasks)`,
+everything under `/app`, CSRF header `X-ApplyPilot: 1`, SPA fallback), `web/queries.py` (list filters/sort/paging, facets),
+`web/tasks.py` (`dashboard_tasks` queue + `TaskRunner` thread, `generate_for_job`), CLI `applypilot serve`, `web` extra.
+DB: `jobs` gains `job_key` (indexed; backfilled by `init_db` and list requests), `user_status`, `status_updated_at`,
+`submitted_at`, `responded_at`, `notes`, `drive_folder_id`, `drive_folder_url`. `run_tailoring`/`run_cover_letters` take
+`urls=`; `sync_job` saves the job's Drive folder. `job_key()` now lives in `database.py`. Live: health → postgresql;
+one generation (Supabase job) → done in 29 s with all three Drive links. Gate: 891 passed, 29 skipped.
 
 **R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
 (`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`

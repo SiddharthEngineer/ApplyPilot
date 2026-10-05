@@ -1103,7 +1103,8 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         return {"approved": 0, "failed": 0, "errors": 0, "elapsed": 0.0}
 
     TAILORED_DIR.mkdir(parents=True, exist_ok=True)
-    log.info("Tailoring resumes for %d jobs (score >= %d, source=%s)...", len(jobs), min_score, source)
+    selection = "requested" if urls is not None else f"score >= {min_score}"
+    log.info("Tailoring resumes for %d jobs (%s, source=%s)...", len(jobs), selection, source)
     t0 = time.time()
     completed = 0
     results: list[dict] = []

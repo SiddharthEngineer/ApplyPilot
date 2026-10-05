@@ -1,6 +1,6 @@
 # Plan: Dashboard API (FastAPI)
 **Started:** 2026-10-03
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-05)
 
 ## Goal
 `applypilot serve` starts a FastAPI app that is the backend of the job dashboard. It lists jobs with filters and
@@ -133,7 +133,7 @@ configured (`storage.drive` credentials present). Otherwise it leaves the local 
 - `pytest tests/web/test_tasks.py -q` passes. With fake tailor/cover/drive, it checks that tasks run in order, that status becomes in_progress,
   that the interrupted recovery works, and that the quota error message appears.
 - On the VPS: `applypilot serve`, then `curl -H 'X-ApplyPilot: 1' -X POST .../generate` for one scored job reaches `done`, and the Drive links are set.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ## Implementation Order
 ```
@@ -158,3 +158,4 @@ T1 status model ─→ T2 skeleton ─→ T3 list ─→ T4 detail/status ─→
 - 2026-10-05: Task 3 done. `web/queries.py` (JobFilters, where/order clauses, list_jobs, facets); `GET /app/api/jobs` and `/app/api/facets`. `job_key` column + index; `job_key()` moved to `database.py` (drive_layout re-uses it); set by `store_jobs`, backfilled by `init_db` and on each list request (the other discovery inserters don't set it). LIKE wildcards in search text are escaped. Live on Postgres: 3,147 jobs, every filter ~60 ms; first start backfilled 3,147 keys in ~5 s.
 - 2026-10-05: Task 4 done. `GET /app/api/jobs/{key}` (row minus raw text, `description_text`, parsed `details`, status/color/days, `submitted_date`, `events`, `links`), `POST .../status`, `PATCH /app/api/jobs/{key}` (`submitted_at`, `notes`; only fields present change). Live read of a real Snowflake job on Postgres OK.
 - 2026-10-05: Task 5 done. `run_tailoring(urls=)` / `run_cover_letters(urls=)` via new `database.get_jobs_by_urls` (description required; score, limit, attempt cap and already-done checks ignored; cover letters also drop the tailored-resume requirement). `DriveFile.folder_id`; `sync_job` saves `drive_folder_id`/`drive_folder_url` (resume's leaf folder, else the cover letter's).
+- 2026-10-05: Task 6 done. `web/tasks.py` (`dashboard_tasks` queue, `TaskRunner` daemon thread started by the app lifespan, interrupted recovery, quota message, duplicate queued tasks collapsed, `generate_for_job` = tailor/cover via `urls=` + `sync_job` when Drive is authorized); `POST .../generate`, `GET /app/api/tasks/{id}`, `GET .../tasks`. Live on the VPS: `serve` + `POST /generate {resume,cover}` for Supabase "Software Engineer - Branching" reached `done` in 29 s (a 503 on 3.6-flash failed over to flash-lite); status In progress; `drive_folder_url`, `resume_drive_url` and `cover_letter_drive_url` set. All 5 success criteria verified. R9 ✅.

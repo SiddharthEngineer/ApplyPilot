@@ -211,6 +211,30 @@ applypilot doctor   # Database: postgresql (user@host), N jobs
 `db migrate` can be rerun safely: it copies only the jobs that aren't in Postgres yet, and it backs the SQLite file up
 to `applypilot.db.bak-<date>` first, without changing it. To switch back to SQLite, unset `APPLYPILOT_DATABASE_URL`.
 
+### Dashboard API
+
+`applypilot serve` runs the job dashboard's backend (FastAPI) at `http://127.0.0.1:8765/app/`:
+
+```bash
+pip install -e ".[web]"
+applypilot serve --port 8765 [--web-dir path/to/built/ui]
+curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", ...}
+```
+
+- `GET /app/api/jobs` lists jobs. Filters: `status` (repeatable: active, inactive, in_progress, submitted, rejected,
+  heard_back, no_response), `role`, `work_mode`, `location`, `found_from`/`found_to`, `due_from`/`due_to`,
+  `score_min`/`score_max` and `q`. Sort with `sort=-fit_score` (or `discovered_at`, `deadline`). Page with `page` and `page_size` (at most 200).
+  `GET /app/api/facets` returns the counts for the filter dropdowns.
+- `GET /app/api/jobs/{key}` returns one job with its extracted details, status history and links.
+- Status: `POST /app/api/jobs/{key}/status {"status": "submitted"}` (or `rejected`, `heard_back`, `in_progress`, `null`
+  to reset). Active and Inactive are derived from the deadline. `PATCH /app/api/jobs/{key}` edits `submitted_at` and `notes`.
+- `POST /app/api/jobs/{key}/generate {"resume": true, "cover": true}` queues a tailored resume and/or cover letter
+  for that job, then moves the PDFs to Drive when it's authorized. Poll `GET /app/api/tasks/{id}`. Tasks run one
+  at a time on a background thread.
+
+Every POST/PATCH needs the header `X-ApplyPilot: 1`. Put the server behind a reverse proxy with authentication;
+it has no login of its own.
+
 ---
 
 ## CLI Reference
@@ -253,6 +277,7 @@ applypilot status                       # Pipeline statistics
 applypilot db migrate [--from F --to URL]  # Copy the SQLite jobs into Postgres (rerunnable)
 applypilot db verify  [--from F --to URL]  # Compare counts between the two
 applypilot dashboard                    # Open HTML results dashboard
+applypilot serve [--port 8765]          # Dashboard API + UI at /app/ (see "Dashboard API")
 ```
 
 ---
