@@ -18,7 +18,7 @@ from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
-from applypilot.llm import LLMQuotaExhausted, get_client
+from applypilot.llm import LLMStopRun, get_client
 from applypilot.scoring.content_library import ContentLibrary, parse_content_library
 from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
@@ -1164,9 +1164,9 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
                 "attempts": report["attempts"],
                 "overflow": overflow_info,
             }
-        except LLMQuotaExhausted as e:
+        except LLMStopRun as e:
             # Don't count an attempt for this job; it and the rest wait for the next run.
-            stopped = "daily_quota"
+            stopped = e.reason
             log.warning("Tailoring stopped: %s. %d jobs left for the next run.", e, len(jobs) - completed + 1)
             break
         except Exception as e:

@@ -726,6 +726,31 @@ class TestOverloadFallback:
             assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
         assert post.call_count == 2 and sleep.call_count == 1
 
+    def test_lite_model_overloaded_on_every_retry_stops_the_run(self):
+        from applypilot.llm import LLMOverloaded, LLMStopRun
+        client = LLMClient(base_url=self._BASE, model="gemini-3.1-flash-lite", api_key="k")
+        with patch.object(client._client, "post", return_value=_make_response(503)) as post, \
+                patch("applypilot.llm.time.sleep"), pytest.raises(LLMOverloaded) as err:
+            client.chat([{"role": "user", "content": "hi"}])
+        assert post.call_count == 5
+        assert isinstance(err.value, LLMStopRun) and err.value.reason == "overloaded"
+
+    def test_fallback_overloaded_too_stops_the_run(self):
+        from applypilot.llm import LLMOverloaded
+        primary, fb = self._pair()
+        with patch.object(primary._client, "post", return_value=_make_response(503)), \
+                patch.object(fb._client, "post", return_value=_make_response(503)) as f_post, \
+                patch("applypilot.llm.time.sleep"), pytest.raises(LLMOverloaded):
+            primary.chat([{"role": "user", "content": "hi"}])
+        assert f_post.call_count == 5
+
+    def test_other_server_errors_still_raise_http_errors(self):
+        import httpx
+        client = LLMClient(base_url=self._BASE, model="gemini-3.1-flash-lite", api_key="k")
+        with patch.object(client._client, "post", return_value=_make_response(500)), \
+                pytest.raises(httpx.HTTPStatusError):
+            client.chat([{"role": "user", "content": "hi"}])
+
     def test_get_client_wires_fallback(self, monkeypatch):
         from applypilot.llm import reset_clients
         monkeypatch.setenv("GEMINI_API_KEY", "k")

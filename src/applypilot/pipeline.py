@@ -138,12 +138,17 @@ def _run_enrich(workers: int = 1) -> dict:
 
 
 QUOTA_STOPPED = "stopped: daily quota"
+OVERLOAD_STOPPED = "stopped: model overloaded"
+# A stage that stopped early on purpose; the rest of its jobs wait for the next run.
+STOPPED_STATUSES = (QUOTA_STOPPED, OVERLOAD_STOPPED)
 
 
 def _stage_status(stats: dict | None) -> dict:
-    """Map an LLM stage's stats to a pipeline status ("stopped" = daily quota hit, rest left for later)."""
+    """Map an LLM stage's stats to a pipeline status ("stopped" = quota or overload hit, rest left for later)."""
     if isinstance(stats, dict) and stats.get("stopped") == "daily_quota":
         return {"status": QUOTA_STOPPED}
+    if isinstance(stats, dict) and stats.get("stopped") == "overloaded":
+        return {"status": OVERLOAD_STOPPED}
     return {"status": "ok"}
 
 
@@ -408,9 +413,9 @@ def _run_stage_streaming(
                 log.error("Stage '%s' error (pass %d): %s", stage, passes, e)
                 passes += 1
             else:
-                if isinstance(result, dict) and result.get("status") == QUOTA_STOPPED:
+                if isinstance(result, dict) and result.get("status") in STOPPED_STATUSES:
                     # Re-running would only spend another request on the same exhausted quota.
-                    tracker.mark_done(stage, {"status": QUOTA_STOPPED, "passes": passes})
+                    tracker.mark_done(stage, {"status": result["status"], "passes": passes})
                     return
                 if stage in ("score", "extract") and limit:
                     # --limit caps LLM calls for the whole run, so one pass is all it gets.
@@ -491,7 +496,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
             console.print(f"\n  [red]STAGE FAILED:[/red] {e}")
 
         results.append({"stage": name, "status": status, "elapsed": elapsed})
-        if status not in ("ok", "partial", QUOTA_STOPPED):
+        if status not in ("ok", "partial", *STOPPED_STATUSES):
             errors[name] = status
 
         console.print(f"\n  Stage '{name}' completed in {elapsed:.1f}s — {status}")
@@ -562,7 +567,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         status = r.get("status", "ok")
 
         results.append({"stage": name, "status": status, "elapsed": elapsed})
-        if status not in ("ok", "partial", "skipped", QUOTA_STOPPED):
+        if status not in ("ok", "partial", "skipped", *STOPPED_STATUSES):
             errors[name] = status
 
     return {"stages": results, "errors": errors, "elapsed": total_elapsed}
@@ -657,7 +662,7 @@ def run_pipeline(
         status_display = r["status"][:30]
         if r["status"] == "ok":
             style = "green"
-        elif r["status"] in ("partial", "skipped", QUOTA_STOPPED):
+        elif r["status"] in ("partial", "skipped", *STOPPED_STATUSES):
             style = "yellow"
         else:
             style = "red"

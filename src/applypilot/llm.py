@@ -219,16 +219,39 @@ class DailyUsage:
 daily_usage = DailyUsage()
 
 
-class LLMQuotaExhausted(RuntimeError):
-    """A per-day quota is used up: no retry inside this run can succeed.
+class LLMStopRun(RuntimeError):
+    """The model can't take more requests in this run.
 
-    Stage loops catch this, stop, and leave the remaining jobs for the next run.
+    Stage loops catch this, stop without counting an attempt for the job in progress, and leave the remaining
+    jobs for the next run. `reason` is the stage's "stopped" value.
     """
+
+    reason = "stopped"
+
+
+class LLMQuotaExhausted(LLMStopRun):
+    """A per-day quota is used up (a 429 naming a per-day quota): no retry inside this run can succeed."""
+
+    reason = "daily_quota"
 
     def __init__(self, model: str, scope: str) -> None:
         self.model = model
         self.scope = scope
         super().__init__(f"Gemini daily quota exhausted for {model} ({scope})")
+
+
+class LLMOverloaded(LLMStopRun):
+    """Every retry got a 503 ("model overloaded") and there is no fallback model left to try.
+
+    Google's overload is transient (minutes), but the free tier counts each 503 against the daily quota,
+    so the run stops instead of burning more requests; the next run picks the jobs up.
+    """
+
+    reason = "overloaded"
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+        super().__init__(f"{model} is overloaded (HTTP 503 on every retry)")
 
 
 def _parse_quota_error(resp: httpx.Response) -> tuple[str | None, float | None]:
@@ -556,6 +579,10 @@ class LLMClient:
                     )
                     time.sleep(wait)
                     continue
+                if resp.status_code == 503:
+                    log.error("%s still overloaded after %d tries. Stopping; the next run retries.",
+                              self.model, _MAX_RETRIES)
+                    raise LLMOverloaded(self.model) from exc
                 raise
 
             except httpx.TimeoutException:

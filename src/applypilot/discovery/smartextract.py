@@ -31,7 +31,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_connection, init_db, store_jobs, get_stats, Connection, IntegrityError
-from applypilot.llm import LLMQuotaExhausted, get_discovery_client
+from applypilot.llm import LLMStopRun, get_discovery_client
 
 log = logging.getLogger(__name__)
 
@@ -541,7 +541,7 @@ def _judge_sequential(
                      "KEEP" if is_relevant else "DROP", reason)
             if is_relevant:
                 relevant.append(resp)
-        except LLMQuotaExhausted:
+        except LLMStopRun:
             raise
         except Exception as e:
             log.warning("Judge ERROR for %s: %s -- keeping", resp.get("url", "?")[:80], e)
@@ -620,7 +620,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
         log.info("Batch judge: %d/%d responses kept (1 LLM call)", len(relevant), len(candidates))
         return relevant
 
-    except LLMQuotaExhausted:
+    except LLMStopRun:
         raise
     except Exception as e:
         log.warning("Batch judge failed (%s), falling back to sequential", e)
@@ -1019,7 +1019,7 @@ def execute_css_selectors(intel: dict) -> tuple[dict, list[dict]]:
 
     try:
         raw, elapsed, meta = ask_llm(prompt)
-    except LLMQuotaExhausted:
+    except LLMStopRun:
         raise
     except Exception as e:
         log.error("LLM_ERROR in Phase 2: %s", e)
@@ -1155,7 +1155,7 @@ def _run_one_site(name: str, url: str) -> dict:
         prompt = STRATEGY_PROMPT.format(briefing=briefing)
         try:
             raw, elapsed, meta = ask_llm(prompt)
-        except LLMQuotaExhausted:
+        except LLMStopRun:
             raise
         except Exception as e:
             log.error("LLM_ERROR: %s", e)
@@ -1189,7 +1189,7 @@ def _run_one_site(name: str, url: str) -> dict:
         else:
             log.warning("Unknown strategy: %s", strategy)
             jobs = []
-    except LLMQuotaExhausted:
+    except LLMStopRun:
         raise
     except Exception as e:
         log.error("EXECUTION_ERROR: %s", e)
@@ -1241,9 +1241,9 @@ def _run_one_site_safe(name: str, url: str) -> dict:
     """
     try:
         return _run_one_site(name, url)
-    except LLMQuotaExhausted as e:
+    except LLMStopRun as e:
         log.warning("SmartExtract stopped: %s", e)
-        return {"name": name, "status": "QUOTA", "error": str(e), "fatal": True, "stopped": "daily_quota"}
+        return {"name": name, "status": "QUOTA", "error": str(e), "fatal": True, "stopped": e.reason}
     except Exception as e:  # noqa: BLE001 - page/network errors vary; report and continue
         msg = str(e).splitlines()[0] if str(e) else type(e).__name__
         if "Executable doesn't exist" in msg:

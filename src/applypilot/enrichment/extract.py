@@ -19,7 +19,7 @@ from applypilot.config import extract_batch_size
 from applypilot.database import MAX_EXTRACT_ATTEMPTS, PENDING_EXTRACT_WHERE, get_connection, get_jobs_by_stage
 from applypilot.enrichment.posting_model import EXTRACT_VERSION, JobPosting, batch_schema
 from applypilot.enrichment.posting_prompt import build_extract_prompt, format_batch, job_id
-from applypilot.llm import LLMQuotaExhausted, get_client
+from applypilot.llm import LLMStopRun, get_client
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +73,8 @@ def extract_batch(jobs: list[dict], today: str | None = None) -> tuple[dict[str,
     """One LLM request for `jobs`. Returns ({url: posting}, {url: error}) covering every job.
 
     Raises:
-        LLMQuotaExhausted: the model's daily quota is used up (nothing was extracted).
+        LLMStopRun: the daily quota is used up, or the model stayed overloaded through every retry
+            (nothing was extracted).
         Exception: the request itself failed (HTTP error, timeout) or the reply wasn't a batch.
     """
     today = today or datetime.now().astimezone().date().isoformat()
@@ -117,8 +118,8 @@ def run_extraction(limit: int | None = None, batch_size: int | None = None, conn
         conn: DB connection (default: the configured job store).
 
     Returns:
-        {"extracted", "errors", "requests", "pending_left", "elapsed"} plus "stopped" ("daily_quota" or
-        "errors") when the run ended early.
+        {"extracted", "errors", "requests", "pending_left", "elapsed"} plus "stopped" ("daily_quota",
+        "overloaded" or "errors") when the run ended early.
     """
     conn = conn or get_connection()
     batch_size = max(1, batch_size or extract_batch_size())
@@ -140,9 +141,9 @@ def run_extraction(limit: int | None = None, batch_size: int | None = None, conn
         try:
             got, failed = extract_batch(batch)
             consecutive_failures = 0
-        except LLMQuotaExhausted as e:
+        except LLMStopRun as e:
             requests -= 1
-            stopped = "daily_quota"
+            stopped = e.reason
             log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
             break
         except Exception as e:  # noqa: BLE001 -- one bad request must not lose the run

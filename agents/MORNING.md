@@ -24,6 +24,11 @@ Session plan (remaining):
 
 ## Session 7 (2026-10-05, interactive): R9 dashboard API
 
+**Follow-up to your answers (same session)**
+- **Cover letters now always come after the resume.** A letter is written from the tailored resume's bullets and the content-library facts they cite. "Cover only" on a job without such a resume tailors the resume first, and `run_cover_letters(urls=)` skips jobs with no tailored resume.
+- **503s now stop the stage instead of failing jobs.** A 503 means "model overloaded", not a rate limit; rate limits are 429s, and the backfill had none. Non-lite models already fail over to flash-lite. Before, flash-lite retried 4 times (about 130 s) and then charged the 5 jobs in that request a failed attempt (once today, at 19:48; those jobs still have 2 attempts left). Now that case stops the stage with `stopped: model overloaded` and charges no attempt, and the next run continues. I didn't add another fallback for flash-lite: the other models on your key have 0–19 requests left today, and tailoring needs those.
+- **AI Studio's counter vs the log:** AI Studio shows flash-lite at 61/500, but the backfill log alone has 136 successful flash-lite requests today. So the page either lags or counts differently, and I can't tell from it whether 503s count against the daily limit.
+
 **Landed on `trunk`** (no PRs): 1a25fb8, 1d102a5, a7e15d1, 9dc3e89, 2199732, 2587af8, e23b3dc, plus the docs commit. R9 is 6/6, and all 5 success criteria are verified.
 - **`applypilot serve`** (needs `uv pip install -e ".[web]"`) runs a FastAPI app with everything under `/app`. On the VPS, `/app/api/health` returns `{"ok": true, "db": "postgresql"}`.
 - **Jobs list:** `GET /app/api/jobs` filters by status, role, work mode, location text, found and due date ranges, score range and title/company text. It sorts by found date, deadline or score (empty values last) and pages up to 200 rows. On your 3,147 jobs, each query takes about 60 ms. `GET /app/api/facets` returns the dropdown counts. Right now that's 3,125 Active and 22 Inactive (deadline passed).

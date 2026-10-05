@@ -15,7 +15,7 @@ import httpx
 
 from applypilot.config import RESUME_PATH, load_profile, load_search_config
 from applypilot.database import get_connection, get_jobs_by_stage
-from applypilot.llm import LLMQuotaExhausted, get_client
+from applypilot.llm import LLMStopRun, get_client
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ def score_job(resume_text: str, job: dict) -> dict:
             result["parse_error"] = True
             return result
         return parsed
-    except LLMQuotaExhausted:
+    except LLMStopRun:
         raise  # run_scoring stops the stage; this job stays untouched
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
@@ -295,8 +295,8 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
     for job in jobs:
         try:
             result = score_job(resume_text, job)
-        except LLMQuotaExhausted as e:
-            stopped = "daily_quota"
+        except LLMStopRun as e:
+            stopped = e.reason
             log.warning("Scoring stopped: %s. %d jobs left unscored for the next run.",
                         e, len(jobs) - completed)
             break

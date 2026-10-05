@@ -574,8 +574,8 @@ class TestSingleJobUrls:
                 patch.object(cover_letter, "generate_cover_letter", side_effect=fake), \
                 patch("applypilot.scoring.pdf.convert_to_pdf", side_effect=RuntimeError("no browser")):
             stats = cover_letter.run_cover_letters(urls=[self.UNSCORED, self.TAILORED])
-        # No score and no tailored resume needed; an existing letter is rewritten.
-        assert seen == [self.UNSCORED, self.TAILORED] and stats["generated"] == 2
+        # The letter needs the tailored resume first (UNSCORED has none); an existing letter is rewritten.
+        assert seen == [self.TAILORED] and stats["generated"] == 1
         paths = dict(conn.execute("SELECT url, cover_letter_path FROM jobs").fetchall())
-        assert paths[self.UNSCORED].endswith("_CL.txt") and paths[self.TAILORED] != "/old/cl.txt"
+        assert paths[self.UNSCORED] is None and paths[self.TAILORED].endswith("_CL.txt")
 

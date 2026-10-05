@@ -203,6 +203,7 @@ def fake_stages(tmp_path, monkeypatch):
         calls.append(("tailor", urls, kw))
         pdf = tmp_path / "resume.pdf"
         pdf.write_bytes(b"%PDF resume")
+        pdf.with_suffix(".json").write_text("{}")  # the content-library sidecar cover letters cite
         conn = get_connection()
         conn.execute("UPDATE jobs SET tailored_resume_path = ?, tailored_at = '2026-10-05T12:00:00' WHERE url = ?",
                      (str(pdf), urls[0]))
@@ -249,6 +250,41 @@ def test_generate_end_to_end_sets_drive_links(default_db, fake_stages, drive):
     assert detail["links"]["drive_folder"].startswith("https://drive.google.com/drive/folders/")
 
 
+@pytest.fixture
+def library(tmp_path, monkeypatch):
+    from applypilot import config
+
+    path = tmp_path / "content_library.md"
+    path.write_text("# library")
+    monkeypatch.setattr(config, "CONTENT_LIBRARY_PATH", path)
+    return path
+
+
+def test_cover_only_tailors_the_resume_first(default_db, fake_stages, library, monkeypatch):
+    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
+    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]))
+    tasks.generate_for_job(url, "cover")
+    assert [c[0] for c in fake_stages] == ["tailor", "cover"]
+    assert fake_stages[0][2]["source"] == "content-library"
+
+
+def test_cover_only_reuses_a_content_library_resume(default_db, fake_stages, library, monkeypatch, tmp_path):
+    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
+    resume = tmp_path / "old.pdf"
+    resume.with_suffix(".json").write_text("{}")
+    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]), tailored_resume_path=str(resume))
+    tasks.generate_for_job(url, "cover")
+    assert [c[0] for c in fake_stages] == ["cover"]
+
+
+def test_cover_only_retailors_a_resume_without_sidecar(default_db, fake_stages, library, monkeypatch, tmp_path):
+    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
+    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]),
+                  tailored_resume_path=str(tmp_path / "legacy.txt"))  # a resume.txt rewrite: nothing to cite
+    tasks.generate_for_job(url, "cover")
+    assert [c[0] for c in fake_stages] == ["tailor", "cover"]
+
+
 def test_generate_without_drive_keeps_local_pdfs(default_db, fake_stages, monkeypatch, tmp_path):
     monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
     url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]))
@@ -270,12 +306,34 @@ def test_generate_failure_messages(default_db, monkeypatch, stats, message):
         tasks.generate_for_job(URLS[0], "resume")
 
 
-def test_generate_quota_stop_raises(default_db, monkeypatch):
-    from applypilot.scoring import cover_letter
+def test_overload_error_message(db_path):
+    from applypilot.llm import LLMOverloaded
+    from applypilot.web.tasks import OVERLOAD_MESSAGE
 
+    init_db(db_path)
+    add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
+    gen = FakeGenerate(fail={URLS[0]: LLMOverloaded("gemini-3.1-flash-lite")})
+    with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
+        task = wait_for(c, _generate(c, URLS[0]).json()["id"])
+    assert task["error"] == OVERLOAD_MESSAGE
+
+
+def test_generate_quota_stop_raises(default_db, monkeypatch):
+    from applypilot.scoring import cover_letter, tailor
+
+    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
     monkeypatch.setattr(cover_letter, "run_cover_letters", lambda **kw: {"generated": 0, "stopped": "daily_quota"})
     with pytest.raises(LLMQuotaExhausted):
-        tasks.generate_for_job(URLS[0], "cover")
+        tasks.generate_for_job(URLS[0], "both")
+
+
+def test_generate_overload_stop_raises(default_db, monkeypatch):
+    from applypilot.llm import LLMOverloaded
+    from applypilot.scoring import tailor
+
+    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 0, "stopped": "overloaded"})
+    with pytest.raises(LLMOverloaded):
+        tasks.generate_for_job(URLS[0], "resume")
 
 
 def test_runner_stops_cleanly(db_path):

@@ -16,13 +16,14 @@ from pathlib import Path
 
 from applypilot import tracking
 from applypilot.database import Connection, get_connection
-from applypilot.llm import LLMQuotaExhausted
+from applypilot.llm import LLMOverloaded, LLMQuotaExhausted, LLMStopRun
 
 log = logging.getLogger(__name__)
 
 KINDS = ("resume", "cover", "both")
 STATES = ("queued", "running", "done", "error")
 QUOTA_MESSAGE = "Daily Gemini quota reached; try again tomorrow."
+OVERLOAD_MESSAGE = "Gemini is overloaded right now; try again in a few minutes."
 
 # generate(url, kind) does the work for one task and raises on failure.
 Generator = Callable[[str, str], None]
@@ -101,10 +102,13 @@ def generate_for_job(url: str, kind: str) -> None:
     from applypilot.config import CONTENT_LIBRARY_PATH
     from applypilot.pipeline import tailor_validation_mode
 
+    use_library = CONTENT_LIBRARY_PATH.exists()
+    if kind == "cover" and _needs_resume_first(url, use_library):
+        kind = "both"  # the letter is written from the tailored resume's content-library evidence
     if kind in ("resume", "both"):
         from applypilot.scoring.tailor import run_tailoring
 
-        source = "content-library" if CONTENT_LIBRARY_PATH.exists() else "resume"
+        source = "content-library" if use_library else "resume"
         stats = run_tailoring(urls=[url], source=source, validation_mode=tailor_validation_mode(None, source))
         _check(stats, "approved", "resume")
     if kind in ("cover", "both"):
@@ -126,9 +130,20 @@ def generate_for_job(url: str, kind: str) -> None:
             raise GenerationFailed(f"Generated, but the Drive upload failed: {e}") from e
 
 
+def _needs_resume_first(url: str, use_library: bool) -> bool:
+    """No tailored resume yet, or (with a content library) none with the .json sidecar a cover letter cites."""
+    row = get_connection().execute("SELECT tailored_resume_path FROM jobs WHERE url = ?", (url,)).fetchone()
+    path = row[0] if row else None
+    if not path:
+        return True
+    return use_library and not Path(path).with_suffix(".json").exists()
+
+
 def _check(stats: dict, ok_key: str, what: str) -> None:
     if stats.get("stopped") == "daily_quota":
         raise LLMQuotaExhausted("gemini", "daily")
+    if stats.get("stopped") == "overloaded":
+        raise LLMOverloaded("gemini")
     if not stats.get(ok_key):
         if stats.get("errors"):
             raise GenerationFailed(f"The {what} failed with an error (see the server log).")
@@ -194,6 +209,8 @@ class TaskRunner:
             self.generate(task["url"], task["kind"])
         except LLMQuotaExhausted:
             state, error = "error", QUOTA_MESSAGE
+        except LLMStopRun:
+            state, error = "error", OVERLOAD_MESSAGE
         except GenerationFailed as e:
             state, error = "error", str(e)
         except Exception as e:  # reported on the task

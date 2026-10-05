@@ -163,6 +163,17 @@ def test_quota_stop_keeps_finished_batches(conn):
     assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
 
 
+def test_overload_stops_without_charging_attempts(conn):
+    from applypilot.llm import LLMOverloaded
+
+    fake = FakeLLM(fail_calls={2: LLMOverloaded("gemini-3.1-flash-lite")})
+    stats = _run(conn, fake, batch_size=5)
+    assert stats["stopped"] == "overloaded"
+    assert stats["extracted"] == 5 and stats["requests"] == 1
+    assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
+    assert pipeline._stage_status(stats) == {"status": pipeline.OVERLOAD_STOPPED}
+
+
 def test_repeated_request_failures_stop_the_run(conn):
     boom = RuntimeError("HTTP 500")
     fake = FakeLLM(fail_calls={1: boom, 2: boom, 3: boom, 4: boom, 5: boom})

@@ -142,6 +142,7 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
 - **Structured output**: scoring and tailoring ask Gemini for schema-constrained JSON, so malformed replies don't cost retries.
 - **`--validation lenient`** skips the LLM judge, saving one call per attempt. It's the default for content-library tailoring, whose bullets are already checked mechanically (project ids, numbers, bullet ranges). Pass `--validation normal` to bring the judge back.
 - **503 failover**: when a Gemini model answers 503 ("overloaded"), the request goes straight to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`), and that model is used for the next 5 minutes (`LLM_FALLBACK_COOLDOWN`). Google counts 503s against the daily quota, so retrying a 20-request/day model five times could use up most of a day. Set `LLM_FALLBACK_MODEL=none` to retry with backoff instead.
+- **Overload stop**: the fallback model itself (or any model without one) retries a 503 with backoff (10, 20, 40, 60 s). If all 5 tries fail, the stage stops (`stopped: model overloaded`) without charging the job an attempt, and the next run picks the rest up.
 - **OpenCode free models**: set `OPENCODE_API_KEY` to route through `opencode/*` free models at no cost.
 
 **Privacy:** on the free tier, Google may use what you submit (your resume, profile facts and job descriptions) to improve its products, per the [Gemini API terms](https://ai.google.dev/gemini-api/terms). Enabling billing on the project (the paid tier) opts you out of that.
@@ -229,7 +230,8 @@ curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", .
 - Status: `POST /app/api/jobs/{key}/status {"status": "submitted"}` (or `rejected`, `heard_back`, `in_progress`, `null`
   to reset). Active and Inactive are derived from the deadline. `PATCH /app/api/jobs/{key}` edits `submitted_at` and `notes`.
 - `POST /app/api/jobs/{key}/generate {"resume": true, "cover": true}` queues a tailored resume and/or cover letter
-  for that job, then moves the PDFs to Drive when it's authorized. Poll `GET /app/api/tasks/{id}`. Tasks run one
+  for that job, then moves the PDFs to Drive when it's authorized. A cover letter is written from the tailored
+  resume's content-library evidence, so asking for only a cover letter tailors the resume first if there isn't one. Poll `GET /app/api/tasks/{id}`. Tasks run one
   at a time on a background thread.
 
 Every POST/PATCH needs the header `X-ApplyPilot: 1`. Put the server behind a reverse proxy with authentication;

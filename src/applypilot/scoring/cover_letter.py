@@ -14,7 +14,7 @@ from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, COVER_LETTER_DIR, RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
-from applypilot.llm import LLMQuotaExhausted, get_client
+from applypilot.llm import LLMStopRun, get_client
 from applypilot.scoring.content_library import parse_content_library
 from applypilot.scoring.validator import (
     BANNED_WORDS,
@@ -244,8 +244,9 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
         limit:           Maximum jobs to process.
         validation_mode: "strict", "normal", or "lenient".
         urls:            Write letters for exactly these jobs (the dashboard's "generate"): min_score,
-                         limit, the attempt cap, and the existing-letter and tailored-resume checks are
-                         ignored. Without a tailored resume the letter has no cited-bullets evidence.
+                         limit, the attempt cap and the existing-letter check are ignored. Jobs without a
+                         tailored resume are still skipped: the letter is written from that resume's
+                         content-library evidence, so the resume comes first.
 
     Returns:
         {"generated": int, "errors": int, "elapsed": float}
@@ -255,7 +256,7 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
     conn = get_connection()
 
     if urls is not None:
-        jobs = get_jobs_by_urls(conn, urls)
+        jobs = [j for j in get_jobs_by_urls(conn, urls) if j.get("tailored_resume_path")]
     else:
         # Fetch jobs that have tailored resumes but no cover letter yet
         jobs = conn.execute(
@@ -326,9 +327,9 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
                 "%d/%d [OK] | %.1f jobs/min | %s",
                 completed, len(jobs), rate * 60, result["title"][:40],
             )
-        except LLMQuotaExhausted as e:
+        except LLMStopRun as e:
             # Don't count an attempt for this job; it and the rest wait for the next run.
-            stopped = "daily_quota"
+            stopped = e.reason
             log.warning("Cover letters stopped: %s. %d jobs left for the next run.", e, len(jobs) - completed + 1)
             break
         except Exception as e:

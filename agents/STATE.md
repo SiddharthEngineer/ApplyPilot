@@ -13,7 +13,8 @@ everything under `/app`, CSRF header `X-ApplyPilot: 1`, SPA fallback), `web/quer
 DB: `jobs` gains `job_key` (indexed; backfilled by `init_db` and list requests), `user_status`, `status_updated_at`,
 `submitted_at`, `responded_at`, `notes`, `drive_folder_id`, `drive_folder_url`. `run_tailoring`/`run_cover_letters` take
 `urls=`; `sync_job` saves the job's Drive folder. `job_key()` now lives in `database.py`. Live: health → postgresql;
-one generation (Supabase job) → done in 29 s with all three Drive links. Gate: 891 passed, 29 skipped.
+one generation (Supabase job) → done in 29 s with all three Drive links. Follow-up (user): cover-only generate tailors first; `LLMOverloaded`/`LLMStopRun` stop a stage on persistent 503s without
+charging attempts (pipeline status `stopped: model overloaded`). Gate: 900 passed, 29 skipped.
 
 **R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
 (`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`

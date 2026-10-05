@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Overload stop** (2026-10-05): when a Gemini model with no fallback left (flash-lite, or the fallback itself) answers 503 on all 5 tries, the stage stops with `stopped: model overloaded` instead of charging the job a failed attempt (`LLMOverloaded`; both it and `LLMQuotaExhausted` extend `LLMStopRun`, which every stage catches). The dashboard shows "Gemini is overloaded right now; try again in a few minutes."
 - **Dashboard generation tasks** (2026-10-05, R9 Task 6): `POST /app/api/jobs/{key}/generate {resume, cover}` queues a tailored resume and/or cover letter for one job. It runs on a single background thread, moves the PDFs to Drive when that's authorized, and marks the job In progress. Poll with `GET /app/api/tasks/{id}`. A server restart marks running tasks `interrupted`, and the daily Gemini quota shows as a readable error.
 - **Single-job generation** (2026-10-05, R9 Task 5): `run_tailoring(urls=[...])` and `run_cover_letters(urls=[...])` regenerate for exactly those jobs, scored or not. Drive sync now saves each job's folder link (`drive_folder_id`, `drive_folder_url`).
 - **Dashboard job detail and status** (2026-10-05, R9 Task 4): `GET /app/api/jobs/{key}` (full row, description, extracted details, status history, posting/apply/Drive links), `POST /app/api/jobs/{key}/status` (Submitted/Rejected/Heard back/In progress/reset) and `PATCH /app/api/jobs/{key}` (submitted date, notes).
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`applypilot run extract`** (2026-10-05, R8 Task 5–6): batched LLM extraction (5 jobs per request on `LLM_EXTRACT_MODEL`, default `gemini-3.1-flash-lite`; `EXTRACT_BATCH_SIZE`), best-scored jobs first, each batch committed as it returns, misses retried alone, clean stop at the daily quota. Runs after `cover` in a full `applypilot run`. Hand check: 18/20 right on category, work mode and salary, with no fabricated fields (`EXTRACT_VERSION = 3`).
 
 ### Fixed
+- **Dashboard cover letters come after the resume** (2026-10-05): `run_cover_letters(urls=)` skips jobs without a tailored resume again, and a cover-only generate tailors the resume first when the job has no content-library resume (no `.json` sidecar), so the letter cites the library facts.
 - **`run score --limit N`** (2026-10-05) now caps LLM scoring calls at N. Before, `--limit` applied only to tailor and cover, so `run score --limit 2` scored every pending job. The title prefilter still covers all pending jobs, because it makes no LLM calls.
 - **Scores are saved per LLM call** (2026-10-05). `run score` used to write results only when the run finished, so stopping it lost every score from that run.
 
