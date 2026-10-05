@@ -81,3 +81,23 @@ def test_cli_flag_reaches_scoring():
     with patch("applypilot.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=False)
     rs.assert_called_once_with(prefilter=False)
+
+
+def test_limit_caps_llm_calls_after_prefilter(tmp_path):
+    c = init_db(tmp_path / "lim.db")
+    rows = [("https://example.com/rn", "Registered Nurse")] + [
+        (f"https://example.com/de{i}", "Data Engineer") for i in range(5)
+    ]
+    c.executemany("INSERT INTO jobs (url, title, site, full_description) VALUES (?, ?, 'acme', 'desc')", rows)
+    c.commit()
+    stats, client = _run(c, tmp_path, limit=2)
+    assert client.chat.call_count == 2
+    assert stats["scored"] == 2 and stats["prefiltered"] == 1  # the prefilter still covers every pending job
+    assert c.execute("SELECT COUNT(*) FROM jobs WHERE fit_score IS NULL").fetchone()[0] == 3
+
+
+def test_limit_reaches_scoring():
+    from applypilot import pipeline
+    with patch("applypilot.scoring.scorer.run_scoring", return_value={}) as rs:
+        pipeline._run_score(prefilter=True, limit=2)
+    rs.assert_called_once_with(prefilter=True, limit=2)

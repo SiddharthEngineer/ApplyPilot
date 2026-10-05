@@ -217,6 +217,7 @@ applypilot run --dry-run                # Preview without executing
 applypilot run --source content-library  # Tailor from content_library.md (default when it exists)
 applypilot run --source resume           # Tailor by rewriting resume.txt
 applypilot run tailor --limit 3          # Cap the tailor/cover stages at N jobs
+applypilot run score --limit 20          # Send at most N jobs to the LLM for scoring (each score is saved as it returns)
 applypilot template init                # Create resume_fixed.yaml + resume_template.html from resume.txt
 applypilot template preview             # Render your base resume through the template (template_preview.pdf)
 applypilot run --validation normal      # Run the LLM judge (default: lenient for content-library tailoring, else normal)

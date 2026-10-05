@@ -145,3 +145,25 @@ def test_cli_reset_errors(tmp_path):
     assert "Reset 326 job(s)" in result.output
     reset.assert_called_once()
     pipeline.assert_not_called()
+
+
+def test_each_score_is_saved_before_the_next_call(tmp_path, resume):
+    """A crash mid-run keeps the scores already returned (they're committed per call)."""
+    c = init_db(tmp_path / "per_call.db")
+    c.executemany(
+        "INSERT INTO jobs (url, title, site, location, full_description) VALUES (?, 'Engineer', 'indeed', 'Remote', 'd')",
+        [("https://example.com/a",), ("https://example.com/b",)],
+    )
+    c.commit()
+    replies = iter(['{"score": 8, "keywords": "k", "reasoning": "r"}'])
+
+    def chat(*_a, **_k):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise KeyboardInterrupt from None
+
+    with pytest.raises(KeyboardInterrupt):
+        _run(c, resume, chat)
+    scores = dict(c.execute("SELECT url, fit_score FROM jobs").fetchall())
+    assert sorted(scores.values(), key=lambda v: (v is None, v)) == [8, None]

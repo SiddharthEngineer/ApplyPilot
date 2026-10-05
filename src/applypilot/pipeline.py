@@ -143,11 +143,12 @@ def _stage_status(stats: dict | None) -> dict:
     return {"status": "ok"}
 
 
-def _run_score(prefilter: bool = True) -> dict:
+def _run_score(prefilter: bool = True, limit: int | None = None) -> dict:
     """Stage: LLM scoring — assign fit scores 1-10."""
     try:
         from applypilot.scoring.scorer import run_scoring
-        return _stage_status(run_scoring(prefilter=prefilter))
+        extra = {"limit": limit} if limit else {}
+        return _stage_status(run_scoring(prefilter=prefilter, **extra))
     except Exception as e:
         log.error("Scoring failed: %s", e)
         return {"status": f"error: {e}"}
@@ -352,6 +353,7 @@ def _run_stage_streaming(
         kwargs["no_cache"] = no_cache
     if stage == "score":
         kwargs["prefilter"] = prefilter
+        kwargs["limit"] = limit
 
     upstream = _UPSTREAM[stage]
 
@@ -387,6 +389,9 @@ def _run_stage_streaming(
                     # Re-running would only spend another request on the same exhausted quota.
                     tracker.mark_done(stage, {"status": QUOTA_STOPPED, "passes": passes})
                     return
+                if stage == "score" and limit:
+                    # --limit caps LLM scoring calls for the whole run, so one pass is all it gets.
+                    break
         else:
             # No work right now
             upstream_done = upstream is None or tracker.is_done(upstream)
@@ -439,6 +444,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                 kwargs["no_cache"] = no_cache
             if name == "score":
                 kwargs["prefilter"] = prefilter
+                kwargs["limit"] = limit
             result = runner(**kwargs)
             elapsed = time.time() - t0
 
@@ -560,7 +566,8 @@ def run_pipeline(
         source: Resume source — "resume" (default) or "content-library".
         no_cache: If True, bypass per-domain strategy cache in smart-extract.
         prefilter: If False, score every job with the LLM (skip the title pre-filter).
-        limit: Max jobs for the tailor and cover stages (default: each stage's own, 20).
+        limit: Max jobs sent to the LLM by the score stage (default: all) and by the tailor and
+            cover stages (default: each stage's own, 20).
 
     Returns:
         Dict with keys: stages (list of result dicts), errors (dict), elapsed (float).

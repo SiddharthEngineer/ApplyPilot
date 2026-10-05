@@ -160,3 +160,4 @@ T3 columns ─→ T4 heuristics      ↗
 
 ## Historical Record
 - 2026-10-03: Plan created. At planning time: 3,147 jobs, 2,940 with full descriptions (avg ~6.9k chars, max ~30k).
+- 2026-10-05: The user requires LLM results to be saved after each call. Task 5 must commit each batch's rows as soon as the response returns (as `run score` now does), so a stopped run keeps everything already paid for. The jobs DB is now Postgres (R7).

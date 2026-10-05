@@ -19,9 +19,8 @@ Session plan (remaining):
 7. **Session 7:** R9 `dashboard-api`.
 8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
    For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily via `main`, then fast-forward `prod` and `make up`. See `BUILD_AGENT.md` §0.
-   **Unattended:** cron runs `scripts/agent_tick.sh` at 2:07, 8:07, 14:07 and 20:07 CT (01/07/13/19:07 UTC), one plan per run.
-   Sessions 5–8 map to runs 1–5 (one plan each). Progress: `tail /var/log/applypilot-agent/ticks.log`.
-   Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching, save scores per job during `run score`.
+   **Unattended cron is disabled** (user, 2026-10-05): sessions 6–8 run interactively, each in a new session.
+   Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching.
 
 ## Session 5a (2026-10-05, interactive): R7 Postgres job store, code half
 
@@ -45,13 +44,13 @@ cd /srv/ApplyPilot && git status && . .venv/bin/activate && pytest tests/ -q
 - Task 7: `APPLYPILOT_DATABASE_URL` is set in `~/.applypilot/.env` (which ApplyPilot loads first), not `/srv/ApplyPilot/.env` as the plan said. `doctor` shows `postgresql`, and the `status` totals match. A `run score` wrote 674 rows to Postgres and none to SQLite. The full suite still passes (675 passed), and the jobs table was untouched by tests.
 - Rollback: comment out `APPLYPILOT_DATABASE_URL` in `~/.applypilot/.env`. The SQLite file is unchanged since the migration, but anything written after the cutover is only in Postgres.
 
-**Found during QC**
-- `run score --limit N` doesn't limit scoring. `--limit` only applies to tailor and cover, so the run tried all 1,920 pending jobs.
-- `run score` saves LLM scores only when the run finishes. Two runs I stopped early lost about 60 LLM scores, and only the 674 prefilter writes were kept. This is the "save scores per job" candidate below.
+**Found during QC, then fixed**
+- `run score --limit N` now sends at most N jobs to the LLM. Before, `--limit` applied only to tailor and cover. Live check: `run score --limit 2` made 2 calls, and both scores landed in Postgres.
+- `run score` now commits each score as its LLM call returns. Before, it wrote everything at the end, so two runs stopped early lost about 60 scores.
 - Gemini `flash-lite` returns frequent 503s, which are retried and then succeed.
 
-**Waiting on you**
-- `sudo chown -R deploy:srv /srv/engineerfamily` (the merge left the new files owned by `dev`).
+**Access model (no more `chown`):** `dev` and `deploy` share group `srv` (umask 002, setgid dirs, `core.sharedRepository=group` in `/srv/engineerfamily`). The earlier `chown`s came from a session that ran as root and from an unneeded `chown` step in the deploy docs, which is now removed.
+`/srv/engineerfamily-preprod/.env.template` is mode 600, the one file `dev` can't read there (harmless).
 
 ## Session 4 follow-up (2026-10-02): your answers
 

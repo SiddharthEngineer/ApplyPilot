@@ -124,7 +124,9 @@ def run(
              "search queries or target role get fit_score 1 without an LLM call.",
     ),
     limit: int | None = typer.Option(
-        None, "--limit", "-l", min=1, help="Max jobs for the tailor and cover stages (default 20 each).",
+        None, "--limit", "-l", min=1,
+        help="Max jobs sent to the LLM by the score stage (default: all) and by the tailor and cover "
+             "stages (default 20 each).",
     ),
     reset_errors: bool = typer.Option(
         False,

@@ -208,11 +208,32 @@ def prefilter_jobs(jobs: list[dict], target_tokens: set[str]) -> tuple[list[dict
     return keep, skipped
 
 
+def _save_score(conn, r: dict) -> None:
+    """Write one scoring result and commit it right away."""
+    if r["score"] is None:
+        # Leave fit_score NULL so the job is retried, up to MAX_SCORE_ATTEMPTS runs.
+        conn.execute(
+            "UPDATE jobs SET fit_score = NULL, score_reasoning = ?, scored_at = NULL, "
+            "score_attempts = COALESCE(score_attempts, 0) + 1 WHERE url = ?",
+            (r["reasoning"], r["url"]),
+        )
+    else:
+        conn.execute(
+            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
+            (r["score"], f"{r['keywords']}\n{r['reasoning']}", datetime.now(timezone.utc).isoformat(), r["url"]),
+        )
+    conn.commit()
+
+
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -> dict:
     """Score unscored jobs that have full descriptions.
 
+    Each result is written to the DB as soon as its LLM call returns, so a run that is
+    stopped (Ctrl-C, quota, crash) keeps every score it already paid for.
+
     Args:
-        limit: Maximum number of jobs to score in this run.
+        limit: Maximum number of jobs sent to the LLM in this run (0 = all). Applied after
+            the prefilter, which costs no LLM calls and always covers every pending job.
         rescore: If True, re-score all jobs (not just unscored ones).
         prefilter: If True, jobs whose title shares no word with the search queries / target role
             get fit_score 1 without an LLM call.
@@ -229,7 +250,8 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
             query += f" LIMIT {limit}"
         jobs = conn.execute(query).fetchall()
     else:
-        jobs = get_jobs_by_stage(conn=conn, stage="pending_score", limit=limit)
+        # No SQL limit: the prefilter must see every pending job, and `limit` caps LLM calls below.
+        jobs = get_jobs_by_stage(conn=conn, stage="pending_score", limit=0)
 
     if not jobs:
         log.info("No unscored jobs with descriptions found.")
@@ -256,6 +278,10 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
         if not jobs:
             return {"scored": 0, "errors": 0, "parse_errors": 0, "prefiltered": prefiltered,
                     "elapsed": 0.0, "distribution": []}
+
+    if limit > 0 and len(jobs) > limit:
+        log.info("--limit %d: scoring %d of %d jobs; the rest stay pending.", limit, limit, len(jobs))
+        jobs = jobs[:limit]
 
     log.info("Scoring %d jobs sequentially...", len(jobs))
     t0 = time.time()
@@ -285,6 +311,7 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
                 first_error_msg = result.get("reasoning", "")
 
         results.append(result)
+        _save_score(conn, result)
 
         log.info(
             "[%d/%d] score=%s  %s",
@@ -301,23 +328,6 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
             "  First error: %s",
             errors, first_error_msg,
         )
-
-    # Write scores to DB
-    now = datetime.now(timezone.utc).isoformat()
-    for r in results:
-        if r["score"] is None:
-            # Leave fit_score NULL so the job is retried, up to MAX_SCORE_ATTEMPTS runs.
-            conn.execute(
-                "UPDATE jobs SET fit_score = NULL, score_reasoning = ?, scored_at = NULL, "
-                "score_attempts = COALESCE(score_attempts, 0) + 1 WHERE url = ?",
-                (r["reasoning"], r["url"]),
-            )
-        else:
-            conn.execute(
-                "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-                (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
-            )
-    conn.commit()
 
     elapsed = time.time() - t0
     log.info("Done: %d scored, %d errors in %.1fs (%.1f jobs/sec)", len(results) - errors, errors, elapsed,

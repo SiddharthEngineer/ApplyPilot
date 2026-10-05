@@ -21,12 +21,13 @@ Used when a session runs on the user's VPS (`/srv/ApplyPilot`) instead of the cl
   (`git clone https://github.com/SiddharthEngineer/engineerfamily.git` if it's missing; `git pull` first), then `git push origin main`.
   Never commit directly on `prod`. To deploy (pre-approved, including for testing): in the live checkout `/srv/engineerfamily` (branch `prod`),
   `git -c safe.directory=/srv/engineerfamily fetch origin && git … merge --ff-only origin/main`, then
-  `git … push origin prod` (origin's push URL is SSH; the HTTPS URL has no credentials), then `sudo chown -R deploy:srv /srv/engineerfamily`
-  (keep group `srv` so `dev` can still write; skip if the agent isn't allowed, it isn't needed for `make up`) and `make up`.
+  `git … push origin prod` (origin's push URL is SSH; the HTTPS URL has no credentials), then `make up`.
+  No `chown`: both `dev` and `deploy` are in group `srv`, with umask 002, setgid directories and `core.sharedRepository=group`,
+  so files either user writes stay writable by the other. Never run sessions as root, because root-owned files are the one thing that breaks this.
   Untracked server files (`.env`, `services/nginx/ssl/`, `.htpasswd*`) live only in `/srv/engineerfamily`: edit them there, never commit them.
   No tags, no `make tag-prod`. Afterwards, check that `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net`
   return 200. If they don't, revert on `main`, redeploy the same way, and note it in MORNING.md.
-- **Unattended runs:** the `dev` user's cron runs `scripts/agent_tick.sh` at 01:07, 07:07, 13:07 and 19:07 UTC. Each run completes one plan (`agents/TICK_PROMPT.md`), with tools
+- **Unattended runs (disabled by the user 2026-10-05; the crontab line is commented out):** the `dev` user's cron ran `scripts/agent_tick.sh` at 01:07, 07:07, 13:07 and 19:07 UTC. Each run completes one plan (`agents/TICK_PROMPT.md`), with tools
   from `scripts/agent/settings.json` and a headless Playwright browser (`scripts/agent/mcp.json`). Logs are in `/var/log/applypilot-agent/`.
 - End of session: prepend a dated section to `agents/MORNING.md` (what landed + PR links, how to verify,
   blocked/waiting on user) and update its **Next session** block. Commit it to trunk via the plan PR.

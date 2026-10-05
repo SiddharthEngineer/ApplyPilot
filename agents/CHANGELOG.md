@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`run score --limit N`** (2026-10-05) now caps LLM scoring calls at N. Before, `--limit` applied only to tailor and cover, so `run score --limit 2` scored every pending job. The title prefilter still covers all pending jobs, because it makes no LLM calls.
+- **Scores are saved per LLM call** (2026-10-05). `run score` used to write results only when the run finished, so stopping it lost every score from that run.
+
 ### Changed
 - **The VPS job store is Postgres** (2026-10-05, R7 Task 7): 3,147 jobs were migrated and verified. `APPLYPILOT_DATABASE_URL` is in `~/.applypilot/.env`, and commenting it out goes back to SQLite.
 
