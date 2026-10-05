@@ -5,6 +5,7 @@ pipeline stage are created up front so any stage can run independently
 without migration ordering issues.
 """
 
+import hashlib
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -187,6 +188,7 @@ def init_db(db_path: Path | str | None = None) -> Connection:
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
     _ensure_tables(conn)
+    backfill_job_keys(conn)
 
     return conn
 
@@ -198,7 +200,25 @@ def _ensure_tables(conn: Connection) -> None:
         "id TEXT PRIMARY KEY, url TEXT, from_status TEXT, to_status TEXT, at TEXT, source TEXT)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_status_events_url ON status_events (url)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_job_key ON jobs (job_key)")
     conn.commit()
+
+
+def job_key(url: str) -> str:
+    """Stable per-job ID (12 hex chars of sha1(url)): dashboard URLs and the Drive appProperties key."""
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+
+
+def backfill_job_keys(conn: Connection | None = None) -> int:
+    """Set job_key on rows that lack it (rows inserted by discovery paths that don't set it). Returns the count."""
+    if conn is None:
+        conn = get_connection()
+    urls = [r[0] for r in conn.execute("SELECT url FROM jobs WHERE job_key IS NULL").fetchall()]
+    for url in urls:
+        conn.execute("UPDATE jobs SET job_key = ? WHERE url = ?", (job_key(url), url))
+    if urls:
+        conn.commit()
+    return len(urls)
 
 
 # Complete column registry: column_name -> SQL type with optional default.
@@ -221,6 +241,7 @@ PENDING_EXTRACT_WHERE = (
 _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
+    "job_key": "TEXT",  # job_key(url): short stable id for dashboard URLs and Drive appProperties
     "title": "TEXT",
     "salary": "TEXT",
     "description": "TEXT",
@@ -492,10 +513,10 @@ def store_jobs(conn: Connection, jobs: list[dict],
             continue
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, job_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now),
+                 job.get("location"), site, strategy, now, job_key(url)),
             )
             new += 1
         except IntegrityError:

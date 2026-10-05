@@ -10,13 +10,16 @@ basic-auth credentials on cross-site form posts, but a cross-site form can't set
 from __future__ import annotations
 
 import os
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from applypilot import __version__
-from applypilot.database import Connection, backend_name, get_connection, init_db
+from applypilot.database import Connection, backend_name, backfill_job_keys, get_connection, init_db
+from applypilot.web import queries
 
 PREFIX = "/app"
 CSRF_HEADER = "X-ApplyPilot"
@@ -35,6 +38,44 @@ def health(request: Request) -> dict:
     conn = db_conn(request)
     conn.execute("SELECT 1").fetchone()
     return {"ok": True, "db": backend_name(conn), "version": __version__}
+
+
+def today() -> date:
+    """The dashboard's "today" for deadlines and day counts (UTC, matching the stored timestamps)."""
+    return datetime.now(UTC).date()
+
+
+@api.get("/jobs")
+def list_jobs(
+    request: Request,
+    status: Annotated[list[queries.StatusFilter], Query()] = [],  # noqa: B006 -- FastAPI copies defaults
+    role: Annotated[list[str], Query()] = [],  # noqa: B006
+    work_mode: Annotated[list[str], Query()] = [],  # noqa: B006
+    location: str | None = None,
+    found_from: date | None = None,
+    found_to: date | None = None,
+    due_from: date | None = None,
+    due_to: date | None = None,
+    score_min: Annotated[int | None, Query(ge=0, le=10)] = None,
+    score_max: Annotated[int | None, Query(ge=0, le=10)] = None,
+    q: str | None = None,
+    sort: Annotated[str, Query(pattern=queries.SORT_PATTERN)] = "-discovered_at",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=queries.MAX_PAGE_SIZE)] = 50,
+) -> dict:
+    conn = db_conn(request)
+    backfill_job_keys(conn)
+    filters = queries.JobFilters(
+        status=list(status), role=role, work_mode=work_mode, location=location,
+        found_from=found_from, found_to=found_to, due_from=due_from, due_to=due_to,
+        score_min=score_min, score_max=score_max, q=q,
+    )
+    return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today())
+
+
+@api.get("/facets")
+def facets(request: Request) -> dict:
+    return queries.facets(db_conn(request), today())
 
 
 def _default_static_dir() -> Path | None:

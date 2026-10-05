@@ -5,13 +5,12 @@ Pure functions with no Google imports, so the layout is easy to test and stable 
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from applypilot.database import job_company
+from applypilot.database import job_company, job_key
 
 KINDS = ("resume", "cover_letter")
 _KIND_LABEL = {"resume": "Resume", "cover_letter": "Cover Letter"}
@@ -55,11 +54,6 @@ def job_date(job: dict, kind: str) -> str:
 
 def folder_path(job: dict, kind: str) -> list[str]:
     return [root_folder(), clean_name(job_company(job)), clean_name(job.get("title")), job_date(job, kind)]
-
-
-def job_key(url: str) -> str:
-    """Stable per-job ID stored on each Drive file, so either machine finds the same file."""
-    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
 def file_name(job: dict, kind: str, suffix: str = "") -> str:
