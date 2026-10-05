@@ -63,7 +63,7 @@ for unknown `/app/*` paths. `GET /app/api/health` returns `{ok, db: backend_name
 `X-ApplyPilot: 1` header (403). `applypilot serve --host 127.0.0.1 --port 8765` runs uvicorn with one worker, which the
 background task runner needs. The test conftest builds the app on a temp SQLite DB with `APPLYPILOT_DATABASE_URL` unset.
 **Acceptance:** `pytest tests/web/test_app.py -q` covers health, the SPA fallback and the CSRF 403.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 3: Jobs list endpoint with filters, sorting and facets
 **Runs:** cloud
@@ -154,3 +154,4 @@ T1 status model ─→ T2 skeleton ─→ T3 list ─→ T4 detail/status ─→
 ## Historical Record
 - 2026-10-03: Plan created.
 - 2026-10-05: Task 1 done (VPS session 7). `tracking.py` (effective_status, status_sql, set_status, set_submitted_at, status_events, days_since_submitted, no_response); 5 `jobs` columns + `status_events` table. `applypilot apply` submissions count from `applied_at` when `submitted_at` is empty. 17-case table test checks Python vs SQL.
+- 2026-10-05: Task 2 done. `web/app.py` (`create_app(static_dir, db)`, `/app/api/health`, SPA fallback, CSRF middleware), `applypilot serve` (`--web-dir` or `APPLYPILOT_WEB_DIR`), `web` extra (CI and cloud_setup install it). Live: `serve --port 8765` → `{"ok":true,"db":"postgresql"}`, POST without the header → 403.

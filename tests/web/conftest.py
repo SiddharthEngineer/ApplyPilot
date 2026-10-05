@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from applypilot.database import close_connection, get_connection  # noqa: E402
-from applypilot.web.app import create_app  # noqa: E402
+from applypilot.database import close_connection, get_connection
+from applypilot.web.app import create_app
 
 HEADERS = {"X-ApplyPilot": "1"}
 

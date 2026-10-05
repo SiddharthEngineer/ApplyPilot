@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`applypilot serve`** (2026-10-05, R9 Task 2): FastAPI dashboard backend under `/app` (`/app/api/health`, the built UI with an SPA fallback from `--web-dir`/`APPLYPILOT_WEB_DIR`). Mutating requests need `X-ApplyPilot: 1`. New `web` extra: `pip install -e ".[web]"`.
 - **Application status tracking** (2026-10-05, R9 Task 1): `tracking.py` — effective status (Active/Inactive derived from `deadline`; In progress/Submitted/Rejected/Heard back set by the user; `apply_status='applied'` counts as Submitted), a matching SQL `CASE` for filtering, `set_status` with a `status_events` log, and `days_since_submitted`. New `jobs` columns: `user_status`, `status_updated_at`, `submitted_at`, `responded_at`, `notes`.
 - **Job-posting model** (2026-10-05, R8 Task 1): `enrichment/posting_model.py` — `JobPosting` dataclass, enums, lenient `from_dict`, and Gemini `posting_schema()`/`batch_schema()`; `EXTRACT_VERSION = 1`.
 - **Extraction columns** (2026-10-05, R8 Task 3): 19 new `jobs` columns (`details_json`, `role_category`, `work_mode`, `location_*`, `salary_*`, `posted_date`, `deadline`, `extracted_at`, `extract_*`, `category_source`), added on both backends by `ensure_columns`; `PENDING_EXTRACT_WHERE` and a `pending_extract` stage.

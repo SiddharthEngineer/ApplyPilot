@@ -4,8 +4,8 @@
 
 ## Active Plan
 
-**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`).
-Next: Task 2 (FastAPI skeleton + `applypilot serve`).
+**R9 `dashboard-api`** 🔄 (session 7, interactive VPS session, commits on `trunk`). Done: Task 1 (`tracking.py`, status columns, `status_events`), Task 2 (`web/app.py`, `applypilot serve`, `web` extra).
+Next: Task 3 (jobs list + facets).
 
 **R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
 (`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`
