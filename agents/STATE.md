@@ -1,10 +1,20 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R7 job-store-postgres ✅: the VPS job store is Postgres on engineerfamily's analytics-db)
+**Last updated:** 2026-10-05 (R8 job-posting-extraction ✅ 6/6; backfill running)
 
 ## Active Plan
 
-**Next: R8 `job-posting-extraction`** (not started; the user wants it in a new session).
+**Next: R9 `dashboard-api`** (session 7, new interactive VPS session).
+
+**R8 `job-posting-extraction`** ✅ 6/6 (2026-10-05, interactive VPS session, commits on `trunk`). New: `enrichment/posting_model.py`
+(`JobPosting`, enums, `posting_schema()`/`batch_schema()`, `EXTRACT_VERSION = 3`), `enrichment/posting_prompt.py`
+(`build_extract_prompt`, `format_batch`, boilerplate-first truncation), `enrichment/classify.py` (`classify_title`,
+`classify_work_mode`, `parse_location`, `run_classify`; CLI `applypilot classify`), `enrichment/extract.py` (`run_extraction`,
+5 jobs/request, per-batch commit, single-job retry, quota stop), 19 `jobs` columns + `PENDING_EXTRACT_WHERE`, `extract`
+pipeline stage (after `cover`; upstream `enrich`), `LLM_EXTRACT_MODEL` purpose (default flash-lite), `EXTRACT_BATCH_SIZE`.
+Live: classify filled all 3,147 jobs; `run extract --limit 10` = 2 requests; hand QC 18/20 (v2 prompt). Backfill started
+with `--limit 1500` (log `~/.applypilot/logs/extract-backfill-2026-10-05.log`); M11 = rerun `applypilot run extract` daily.
+Gate: 787 passed, 29 skipped.
 
 **R7 `job-store-postgres`** ✅ (2026-10-05, interactive VPS session). Task 1: engineerfamily b09a98a deployed;
 `applypilot`/`applypilot_test` DBs on analytics-db at `127.0.0.1:5432`. Tasks 5–7: the user's `pytest -m pg` run passed (9),

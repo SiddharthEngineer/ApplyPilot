@@ -15,12 +15,41 @@ Session plan (remaining):
 3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
 4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (signed off)
 5. ~~Session 5: R7 `job-store-postgres`~~ ✅ 2026-10-05 (the VPS now runs on Postgres)
-6. **Session 6:** R8 `job-posting-extraction` (finish), plus a live QC of 20 jobs, then start the backfill (it runs across several days of quota).
+6. ~~Session 6: R8 `job-posting-extraction`~~ ✅ 2026-10-05 (backfill running; rerun daily, see below)
 7. **Session 7:** R9 `dashboard-api`.
 8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
    For R7–R11, commit straight to `trunk` (no PRs) and deploy engineerfamily via `main`, then fast-forward `prod` and `make up`. See `BUILD_AGENT.md` §0.
    **Unattended cron is disabled** (user, 2026-10-05): sessions 6–8 run interactively, each in a new session.
    Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching.
+
+## Session 6 (2026-10-05, interactive): R8 structured job-posting extraction
+
+**Landed on `trunk`** (no PRs, per the R7–R11 rule): c861e1b, 12c8f89, 0751b67, f69422c, 5a15347, 5ea8243, plus the docs commit. R8 is 6/6.
+- **`applypilot run extract`** has Gemini (`gemini-3.1-flash-lite`, set with `LLM_EXTRACT_MODEL`) turn each posting into one structured record: role category, seniority, employment type, work mode, locations, salary min/max/currency/period, posted date and deadline, summary, team, responsibilities, required and preferred qualifications, skills, education, years of experience, visa sponsorship, clearance, travel and benefits.
+  - **Storage:** the full record goes in `details_json`. The filter fields get their own columns (19 new columns, on Postgres too).
+  - **Batching and saving:** each request carries 5 jobs (`EXTRACT_BATCH_SIZE`), best-scored jobs first. Each batch is saved as soon as it returns. A job missing from a reply is retried on its own, and the run stops cleanly at the daily quota.
+  - **Run order:** in a full `applypilot run`, extract runs **after cover**, so scoring gets the shared flash-lite quota first. The plan said "after enrich"; I changed it so extraction can't starve scoring.
+- **`applypilot classify`** fills role category, work mode and location from keyword rules (no LLM) for every job not yet extracted, so dashboard filters work now. It never overwrites LLM results. Run on your DB, it classified all 3,147 jobs, and 0 described jobs are left without a category.
+- **Live checks**
+  - `run extract --limit 10` made 2 requests (usage 88 → 90).
+  - **Hand check of 20 jobs**, 5 each from Workday, Greenhouse/Ashby, Indeed and LinkedIn. The first prompt got category, work mode and salary all right on 14 of 20. Its misses: categories taken from the job duties instead of the title, consultants filed as product managers, an onsite guess with no wording behind it, an hourly rate rounded from the metadata, and 4 skills that weren't in the posting.
+  - **After fixing the prompt: 18/20 right, and no fabricated fields.** The 2 remaining misses are OpenAI "Software Engineer, Host Assurance" (→ infra) and "…, Workload Enablement" (→ ML/AI). Both are defensible from the job duties.
+- **Backfill started:** `applypilot run extract --limit 1500` is running detached since 19:35 UTC (about 85 min, ~300 requests). I capped it so about 100 flash-lite requests are left today.
+
+**Verify (≈3 min)**
+```bash
+cd /srv/ApplyPilot && git pull && . .venv/bin/activate && pytest tests/ -q
+tail -3 ~/.applypilot/logs/extract-backfill-2026-10-05.log
+applypilot run extract --dry-run
+```
+To look at a few results:
+```bash
+python -c "from applypilot.config import load_env; load_env(); from applypilot.database import get_connection as g; [print(r) for r in g().execute(\"select title, role_category, work_mode, salary_min, salary_max, salary_period, deadline from jobs where category_source='llm' order by extracted_at desc limit 15\").fetchall()]"
+```
+
+**Waiting on you**
+- **M11: rerun the backfill daily** with `applypilot run extract` until nothing is pending. It stops by itself at the daily quota. About 1,470 jobs will be left after today's run, so that's about 300 requests, or 1–2 days. `applypilot run extract` prints the number still pending at the end. Run it after `run score` if you score the same day, because both use flash-lite's 500/day.
+- **Category disagreements are fixable.** Known weak spot: flash-lite still sometimes categorizes "Software Engineer, <team or product>" titles by their duties (e.g. "Software Engineer - Branching" → infra, "…SnowConvert AI" → ML/AI). If a category looks wrong in the dashboard, tell me the pattern. Prompt changes bump `EXTRACT_VERSION`, and the next run then re-extracts the affected jobs.
 
 ## Session 5a (2026-10-05, interactive): R7 Postgres job store, code half
 

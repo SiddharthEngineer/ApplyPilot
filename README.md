@@ -72,6 +72,14 @@ ruff check src/
 | **5. Cover Letter** | AI generates a targeted cover letter per job, citing the same projects as that job's resume |
 | **6. Auto-Apply** | Claude Code or OpenCode navigates application forms, fills fields, uploads documents, answers questions, and submits |
 
+**Extract** (`applypilot run extract`) parses each enriched posting into structured fields: role category, seniority,
+employment type, work mode, locations, salary range, posted date and deadline, responsibilities, required and preferred
+qualifications, skills, education, years of experience, visa sponsorship and more. It sends 5 postings per LLM request
+and saves each batch as it returns. The full record is stored in `details_json`, and the filter fields get their own
+columns. Until a job has been extracted, `applypilot classify` fills its role category, work mode and location from
+keyword rules (no LLM). In a full `applypilot run`, extract runs after the cover stage, so scoring gets the shared
+quota first.
+
 Each stage is independent. Run them all or pick what you need.
 
 ### Two Paths
@@ -117,6 +125,7 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
 |---|---|---|
 | `LLM_DISCOVERY_MODEL` | SmartExtract strategy + API judge | a **lite** model, e.g. `gemini-3.1-flash-lite` (default) |
 | `LLM_SCORING_MODEL` | Scoring (highest volume) | a **lite** model, e.g. `gemini-3.1-flash-lite` |
+| `LLM_EXTRACT_MODEL` | Posting extraction (`EXTRACT_BATCH_SIZE` jobs per request, default 5) | a **lite** model, e.g. `gemini-3.1-flash-lite` (default) |
 | `LLM_TAILOR_MODEL` | Resume tailoring | the best **flash** model your key lists, e.g. `gemini-3.6-flash` |
 | `LLM_COVER_MODEL` | Cover letters | same as tailoring |
 
@@ -218,6 +227,8 @@ applypilot run --source content-library  # Tailor from content_library.md (defau
 applypilot run --source resume           # Tailor by rewriting resume.txt
 applypilot run tailor --limit 3          # Cap the tailor/cover stages at N jobs
 applypilot run score --limit 20          # Send at most N jobs to the LLM for scoring (each score is saved as it returns)
+applypilot run extract --limit 100       # Parse N postings into structured fields (5 per request; stops at the daily quota)
+applypilot classify                     # Keyword role category / work mode / location for jobs not yet extracted (no LLM)
 applypilot template init                # Create resume_fixed.yaml + resume_template.html from resume.txt
 applypilot template preview             # Render your base resume through the template (template_preview.pdf)
 applypilot run --validation normal      # Run the LLM judge (default: lenient for content-library tailoring, else normal)
