@@ -4,7 +4,7 @@
 # No browsers, API keys, or ~/.applypilot data are needed: unit tests are hermetic.
 set -euo pipefail
 
-python -m pip install --quiet -e ".[dev]"
+python -m pip install --quiet -e ".[dev,web]"
 # python-jobspy 1.2.0 dropped the numpy==1.26.3 pin that used to need --no-deps,
 # and adds curl_cffi (browser TLS impersonation). Adopted in R2 Task 0.
 python -m pip install --quiet "python-jobspy==1.2.0"

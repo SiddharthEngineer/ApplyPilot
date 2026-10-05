@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         # Same as scripts/cloud_setup.sh. python-jobspy 1.2.0 no longer needs --no-deps.
         run: |
-          uv pip install -e ".[dev]" "python-jobspy==1.2.0"
+          uv pip install -e ".[dev,web]" "python-jobspy==1.2.0"
 
       - name: Lint (errors only)
         # The default ruff rule set reports ~150 pre-existing style findings; CI gates on real errors only.

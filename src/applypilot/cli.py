@@ -730,6 +730,28 @@ def dashboard() -> None:
     open_dashboard()
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to listen on."),
+    port: int = typer.Option(8765, "--port", help="Port to listen on."),
+    web_dir: Optional[str] = typer.Option(
+        None, "--web-dir", help="Built dashboard UI (default: $APPLYPILOT_WEB_DIR). Without it only /app/api is served.",
+    ),
+) -> None:
+    """Run the dashboard API (and UI) at http://HOST:PORT/app/."""
+    _bootstrap()
+    try:
+        import uvicorn
+
+        from applypilot.web.app import create_app
+    except ImportError:
+        console.print('[red]The dashboard needs the web extra:[/red] pip install -e ".[web]"')
+        raise typer.Exit(code=1)
+
+    # One worker: generation tasks run on a single background thread inside this process.
+    uvicorn.run(create_app(static_dir=web_dir), host=host, port=port, workers=1, log_level="info")
+
+
 def _doctor_database_row(ok_mark: str) -> tuple[str, str, str]:
     from applypilot.config import DB_PATH, database_url
     from applypilot.db_pg import describe_url
