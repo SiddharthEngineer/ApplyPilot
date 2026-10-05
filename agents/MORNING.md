@@ -14,7 +14,7 @@ Session plan (remaining):
 2. ~~Session 2: R2 `job-board-discovery-repair`~~ ✅ 2026-10-02
 3. ~~Session 3: R4 `gemini-free-tier-llm`~~ ✅ 2026-10-02
 4. ~~Session 4: R5 `resume-template-tailoring`~~ ✅ 2026-10-02 (signed off)
-5. **Session 5:** R7 `job-store-postgres` (provision the DB in engineerfamily, adapter, migrate, cut over). If any time is left, start R8 Tasks 1, 3 and 4.
+5. ~~Session 5: R7 `job-store-postgres`~~ ✅ 2026-10-05 (the VPS now runs on Postgres)
 6. **Session 6:** R8 `job-posting-extraction` (finish), plus a live QC of 20 jobs, then start the backfill (it runs across several days of quota).
 7. **Session 7:** R9 `dashboard-api`.
 8. **Session 8:** R10 `dashboard-ui`, then R11 `dashboard-deploy` (live at `applypilot.engineerfamily.net/app/`).
@@ -39,10 +39,19 @@ cd /srv/ApplyPilot && git status && . .venv/bin/activate && pytest tests/ -q
 
 **Task 1 done (later the same day):** engineerfamily [b09a98a](https://github.com/SiddharthEngineer/engineerfamily/commit/b09a98a) deployed to prod. `analytics-db` listens on `127.0.0.1:5432` only, and holds the `applypilot` role and the `applypilot` and `applypilot_test` databases. All containers are up, and the three sites return 200.
 
-**Waiting on you** (the agent isn't allowed to read the prod `.env` password)
+**R7 done; the VPS runs on Postgres (2026-10-05).**
+- Task 5: your `pytest -m pg` run against `applypilot_test` passed (9 passed).
+- Task 6: `applypilot db migrate` copied 3,147 jobs, and `db verify` matched every count. The SQLite backup is at `~/.applypilot/applypilot.db.bak-2026-10-05`.
+- Task 7: `APPLYPILOT_DATABASE_URL` is set in `~/.applypilot/.env` (which ApplyPilot loads first), not `/srv/ApplyPilot/.env` as the plan said. `doctor` shows `postgresql`, and the `status` totals match. A `run score` wrote 674 rows to Postgres and none to SQLite. The full suite still passes (675 passed), and the jobs table was untouched by tests.
+- Rollback: comment out `APPLYPILOT_DATABASE_URL` in `~/.applypilot/.env`. The SQLite file is unchanged since the migration, but anything written after the cutover is only in Postgres.
+
+**Found during QC**
+- `run score --limit N` doesn't limit scoring. `--limit` only applies to tailor and cover, so the run tried all 1,920 pending jobs.
+- `run score` saves LLM scores only when the run finishes. Two runs I stopped early lost about 60 LLM scores, and only the 674 prefilter writes were kept. This is the "save scores per job" candidate below.
+- Gemini `flash-lite` returns frequent 503s, which are retried and then succeed.
+
+**Waiting on you**
 - `sudo chown -R deploy:srv /srv/engineerfamily` (the merge left the new files owned by `dev`).
-- Task 5 run: `cd /srv/ApplyPilot && APPLYPILOT_TEST_DATABASE_URL="postgresql://applypilot:$(sudo sed -n 's/^APPLYPILOT_DB_PASSWORD=//p' /srv/engineerfamily/.env)@127.0.0.1:5432/applypilot_test" .venv/bin/pytest -m pg -q`
-- Task 6/7: put `APPLYPILOT_DATABASE_URL=postgresql://applypilot:<password>@127.0.0.1:5432/applypilot` in `~/.applypilot/.env`, then `applypilot db migrate` / `db verify` (or give the agent a password file it may read).
 
 ## Session 4 follow-up (2026-10-02): your answers
 

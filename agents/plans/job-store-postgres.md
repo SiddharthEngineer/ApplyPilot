@@ -1,6 +1,6 @@
 # Plan: Job Store on Postgres
 **Started:** 2026-10-03
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-05)
 
 ## Goal
 ApplyPilot's job data moves out of the SQLite file at `~/.applypilot/applypilot.db` and into a dedicated
@@ -103,7 +103,7 @@ store_jobs dedupe, get_jobs_by_stage, get_stats, reset_score_errors) to run on b
 **Acceptance:**
 - `pytest tests/ -q` passes, with pg tests skipped.
 - On the VPS: `APPLYPILOT_TEST_DATABASE_URL=postgresql://applypilot:$PW@127.0.0.1:5432/applypilot_test pytest -m pg -q` passes.
-**Status:** 🟡 Cloud part done (2026-10-05), local steps pending (run against `applypilot_test` on analytics-db after Task 1)
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 6: `applypilot db migrate` and `applypilot db verify`
 **Runs:** cloud (code + SQLite→SQLite unit test); local (real migration on the VPS)
@@ -118,7 +118,7 @@ non-zero on any mismatch. The unit test migrates between two SQLite files (the d
 - `pytest tests/test_migrate.py -q` passes.
 - On the VPS: `applypilot db migrate --from ~/.applypilot/applypilot.db --to "$APPLYPILOT_DATABASE_URL"`, then
   `applypilot db verify …` exits 0, and the jobs count equals the SQLite count (3,147 at planning time, or more if discovery ran since).
-**Status:** 🟡 Cloud part done (2026-10-05), local steps pending (real migration into analytics-db after Task 1)
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 7: Cut over the VPS to Postgres
 **Runs:** local (VPS)
@@ -133,7 +133,7 @@ since Task 6), then add `APPLYPILOT_DATABASE_URL=postgresql://applypilot:<pw>@12
 - `applypilot run score --limit 2` runs, and `select count(*) from jobs where scored_at > now()::text` (or the equivalent) shows the new rows in Postgres.
 - `pytest tests/ -q` still passes, because tests don't read the user's `.env`. Check this explicitly: if `load_env` leaks
   `APPLYPILOT_DATABASE_URL` into tests, add an autouse fixture in `conftest.py` that unsets it.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ## Implementation Order
 ```
@@ -158,3 +158,6 @@ T2 adapter → T3 dispatch → T4 portable SQL → T5 pg tests → T6 migrate �
 - 2026-10-05: Task 5 code done. `pg` marker, `pg_db`/`db_target` fixtures, autouse `_no_user_database_url` (unit tests never see the developer's `APPLYPILOT_DATABASE_URL`). `tests/test_database_pg.py`: 7 cases × 2 backends + 1 pg-only. Verified against a throwaway `postgres:16-alpine` container on 127.0.0.1:55432: `pytest -m pg` → 8 passed. Still to do: the same run against `applypilot_test` on analytics-db.
 - 2026-10-05: Task 6 code done. `migrate.py` (`migrate`, `verify`, `backup_source`) + `applypilot db migrate|verify`; 8 tests in `tests/test_migrate.py` (+1 pg). Dry run on a copy of the VPS DB into the throwaway Postgres: 3,147 jobs in 3 s, `db verify` all OK; `status` and the HTML dashboard on Postgres match SQLite (same lines; only the order of tied rows differs); 6 concurrent `acquire_job` workers got 6 distinct jobs. Also: the adapter strips NUL bytes from string params (Postgres text can't hold them); `doctor` shows a Database row (backend, user@host, job count, or the connection error).
 - 2026-10-05: Task 1 done. engineerfamily b09a98a on `main` (analytics-db on `127.0.0.1:5432`, `scripts/init-applypilot-db.sh`, `make applypilot-db-init`), `prod` fast-forwarded and pushed, `make up`; the user appended `APPLYPILOT_DB_PASSWORD` to `/srv/engineerfamily/.env`; init created role `applypilot` and DBs `applypilot`, `applypilot_test`. Acceptance: all containers up (db/nginx/streamlit healthy), `select 1` as `applypilot` → 1, `ss` shows only `127.0.0.1:5432`, all three sites 200. The agent may not read the prod `.env` (blocked as a secret/production read), so the Task 5/6/7 runs that need the password are the user's or need a credential the agent is allowed to read.
+- 2026-10-05: Task 5 done: the user ran `pytest -m pg` against `applypilot_test` (9 passed).
+- 2026-10-05: Task 6 done: `applypilot db migrate` copied 3,147 jobs (SQLite backed up to `applypilot.db.bak-2026-10-05`), and `db verify` reported every count OK.
+- 2026-10-05: Task 7 done. The URL is in `~/.applypilot/.env` (loaded first by `load_env`), not `/srv/ApplyPilot/.env`. `doctor`: `postgresql (applypilot@127.0.0.1)`. `status` totals = verify. `run score` wrote 674 rows (prefilter) to Postgres and none to SQLite. The full suite passes (675), and Postgres `jobs` was unchanged by tests. Note: `run score --limit` doesn't limit scoring (the option is tailor/cover-only), and LLM scores are saved only at the end of a run, so runs stopped early lose them.

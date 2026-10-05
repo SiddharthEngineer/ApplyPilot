@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The VPS job store is Postgres** (2026-10-05, R7 Task 7): 3,147 jobs were migrated and verified. `APPLYPILOT_DATABASE_URL` is in `~/.applypilot/.env`, and commenting it out goes back to SQLite.
+
 ### Added
 - **`applypilot` database on engineerfamily** (2026-10-05, R7 Task 1): prod `analytics-db` (Postgres 16) now listens on `127.0.0.1:5432` and hosts the `applypilot` and `applypilot_test` databases (`make applypilot-db-init` in engineerfamily).
 
