@@ -202,16 +202,22 @@ def list_job_tasks(key: str, request: Request) -> list[dict]:
     return [{**t, "key": key} for t in tasks.job_tasks(conn, job["url"])]
 
 
+# The built UI ships inside the package (dashboard/ builds into it), so pip installs need no Node.
+PACKAGED_STATIC_DIR = Path(__file__).parent / "static"
+
+
 def _default_static_dir() -> Path | None:
     value = os.environ.get("APPLYPILOT_WEB_DIR")
-    return Path(value) if value else None
+    if value:
+        return Path(value)
+    return PACKAGED_STATIC_DIR if (PACKAGED_STATIC_DIR / "index.html").is_file() else None
 
 
 def create_app(static_dir: Path | str | None = None, db: Path | str | None = None,
                generate: tasks.Generator | None = None, run_tasks: bool = True) -> FastAPI:
     """The dashboard app.
 
-    static_dir: the built UI (default: $APPLYPILOT_WEB_DIR); without it only the API is served.
+    static_dir: the built UI (default: $APPLYPILOT_WEB_DIR, else the bundle in web/static); without it only the API is served.
     db: a SQLite path or database URL (default: APPLYPILOT_DATABASE_URL, else the SQLite DB_PATH).
     generate: the generation function for queued tasks (default: real tailoring/cover/Drive, which uses the
         configured database, so pass db=None with it). run_tasks=False queues tasks without running them.
@@ -257,7 +263,7 @@ def _mount_ui(app: FastAPI, static_dir: Path | None) -> None:
         if path == "api" or path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         if root is None or not (root / "index.html").is_file():
-            return JSONResponse({"detail": "Dashboard UI not built (set APPLYPILOT_WEB_DIR)"}, status_code=404)
+            return JSONResponse({"detail": "Dashboard UI not built (cd dashboard && npm ci && npm run build)"}, status_code=404)
         if path:
             candidate = (root / path).resolve()
             if candidate.is_relative_to(root) and candidate.is_file():

@@ -735,7 +735,7 @@ def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Interface to listen on."),
     port: int = typer.Option(8765, "--port", help="Port to listen on."),
     web_dir: Optional[str] = typer.Option(
-        None, "--web-dir", help="Built dashboard UI (default: $APPLYPILOT_WEB_DIR). Without it only /app/api is served.",
+        None, "--web-dir", help="Built dashboard UI (default: $APPLYPILOT_WEB_DIR, else the bundle shipped in the package).",
     ),
 ) -> None:
     """Run the dashboard API (and UI) at http://HOST:PORT/app/."""

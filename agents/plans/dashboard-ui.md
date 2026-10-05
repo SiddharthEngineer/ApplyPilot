@@ -29,7 +29,7 @@ and `build.outDir: "../src/applypilot/web/static"`. The dev server proxies `/app
 helpers mirroring the `dashboard-api` responses. They send `X-ApplyPilot: 1` on every mutating call and surface errors as thrown
 `ApiError`s. Keep dependencies minimal: no UI kit, plain CSS with tokens, and a dark mode via `prefers-color-scheme`.
 **Acceptance:** `npm ci && npm run build && npm test` pass in `dashboard/`, and `applypilot serve` serves the built index at `/app/`.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 2: Jobs table and sorting
 **Runs:** cloud
@@ -91,3 +91,4 @@ T1 scaffold ─→ T2 table ─→ T3 filters
 
 ## Historical Record
 - 2026-10-03: Plan created.
+- 2026-10-05: Task 1 done (VPS session 8). React 18 + TS + Vite 8, Vitest 5 + Testing Library; react-router-dom 7 (6.x has open advisories, GHSA-wrjc-x8rr-h8h6). `serve` now defaults to the packaged bundle in `web/static` when `APPLYPILOT_WEB_DIR` is unset. Checked live: `/app/`, `/app/jobs/x` (SPA fallback) and the JS asset return 200.

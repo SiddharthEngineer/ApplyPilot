@@ -56,3 +56,6 @@ google_client_secret.json
 google_token.json
 client_secret*.json
 .playwright-mcp/
+
+# Dashboard UI (the built bundle in src/applypilot/web/static/ IS committed)
+dashboard/node_modules/

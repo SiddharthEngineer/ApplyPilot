@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+from applypilot.web import app as web_app
 from applypilot.web.app import create_app
 
 
@@ -39,10 +40,22 @@ def test_no_path_traversal(client, web_dir):
     assert "secret" != r.text
 
 
-def test_api_only_without_ui(db_path):
+def test_api_only_without_ui(db_path, tmp_path, monkeypatch):
+    monkeypatch.delenv("APPLYPILOT_WEB_DIR", raising=False)
+    monkeypatch.setattr(web_app, "PACKAGED_STATIC_DIR", tmp_path / "no-bundle")
     with TestClient(create_app(db=db_path)) as c:
         assert c.get("/app/api/health").status_code == 200
         assert c.get("/app/").status_code == 404
+
+
+def test_packaged_bundle_is_the_default_ui(db_path, tmp_path, monkeypatch):
+    monkeypatch.delenv("APPLYPILOT_WEB_DIR", raising=False)
+    bundle = tmp_path / "static"
+    bundle.mkdir()
+    (bundle / "index.html").write_text("<!doctype html><title>packaged</title>")
+    monkeypatch.setattr(web_app, "PACKAGED_STATIC_DIR", bundle)
+    with TestClient(create_app(db=db_path)) as c:
+        assert "packaged" in c.get("/app/").text
 
 
 def test_mutations_need_the_header(app):
