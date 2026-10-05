@@ -40,7 +40,7 @@ Role, Location (with a Remote/Hybrid tag), Fit score, Found (date), Due (date or
 Clicking the Found, Due or Fit headers toggles the sort (asc/desc), and the indicator shows the active sort. Rows link to `/app/jobs/:key`.
 Pagination is server-side (50 per page) and shows the total count. Loading, empty and error states each get their own message.
 **Acceptance:** Vitest checks the rendering of each status color, that a sort-header click updates the query, and that row links work.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 3: Filter bar with URL state
 **Runs:** cloud
@@ -92,3 +92,4 @@ T1 scaffold ─→ T2 table ─→ T3 filters
 ## Historical Record
 - 2026-10-03: Plan created.
 - 2026-10-05: Task 1 done (VPS session 8). React 18 + TS + Vite 8, Vitest 5 + Testing Library; react-router-dom 7 (6.x has open advisories, GHSA-wrjc-x8rr-h8h6). `serve` now defaults to the packaged bundle in `web/static` when `APPLYPILOT_WEB_DIR` is unset. Checked live: `/app/`, `/app/jobs/x` (SPA fallback) and the JS asset return 200.
+- 2026-10-05: Task 2 done. `useQueryState.ts` (URL ⇄ query parse/serialize) landed here rather than in Task 3, because sort and page already live in the URL. Sorting: the first click on a header sorts descending, the second ascending. The table has `min-width: 900px` inside an `overflow-x: auto` container. Vitest: 12 passed.
