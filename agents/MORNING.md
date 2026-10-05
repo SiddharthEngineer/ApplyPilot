@@ -37,8 +37,12 @@ Session plan (remaining):
 cd /srv/ApplyPilot && git status && . .venv/bin/activate && pytest tests/ -q
 ```
 
-**Waiting on you**
-- Task 1 (engineerfamily DB provisioning plus prod deploy) wasn't started. `/home/dev/src/engineerfamily` is on branch `bind-app-localhost` with work of its own.
+**Task 1 done (later the same day):** engineerfamily [b09a98a](https://github.com/SiddharthEngineer/engineerfamily/commit/b09a98a) deployed to prod. `analytics-db` listens on `127.0.0.1:5432` only, and holds the `applypilot` role and the `applypilot` and `applypilot_test` databases. All containers are up, and the three sites return 200.
+
+**Waiting on you** (the agent isn't allowed to read the prod `.env` password)
+- `sudo chown -R deploy:srv /srv/engineerfamily` (the merge left the new files owned by `dev`).
+- Task 5 run: `cd /srv/ApplyPilot && APPLYPILOT_TEST_DATABASE_URL="postgresql://applypilot:$(sudo sed -n 's/^APPLYPILOT_DB_PASSWORD=//p' /srv/engineerfamily/.env)@127.0.0.1:5432/applypilot_test" .venv/bin/pytest -m pg -q`
+- Task 6/7: put `APPLYPILOT_DATABASE_URL=postgresql://applypilot:<password>@127.0.0.1:5432/applypilot` in `~/.applypilot/.env`, then `applypilot db migrate` / `db verify` (or give the agent a password file it may read).
 
 ## Session 4 follow-up (2026-10-02): your answers
 

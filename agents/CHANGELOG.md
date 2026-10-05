@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`applypilot` database on engineerfamily** (2026-10-05, R7 Task 1): prod `analytics-db` (Postgres 16) now listens on `127.0.0.1:5432` and hosts the `applypilot` and `applypilot_test` databases (`make applypilot-db-init` in engineerfamily).
+
+### Added
 - **`applypilot db migrate` / `db verify`** (2026-10-05, R7 Task 6): copy `~/.applypilot/applypilot.db` into Postgres (rerunnable, skips urls already there, backs the file up first) and compare counts. `doctor` shows which database is in use.
 
 ### Added

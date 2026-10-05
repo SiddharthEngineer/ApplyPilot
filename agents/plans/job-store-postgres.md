@@ -39,7 +39,7 @@ on `main`, push, then deploy (BUILD_AGENT §0). Then run `scripts/init-applypilo
 - `docker exec engineerfamily-analytics-db-1 psql -U applypilot -d applypilot -c 'select 1'` returns 1.
 - `ss -ltn | grep 5432` shows only `127.0.0.1:5432`.
 - `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net` still return 200 (Umami is unaffected).
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 2: Postgres connection adapter with SQLite-compatible rows
 **Runs:** cloud
@@ -157,3 +157,4 @@ T2 adapter → T3 dispatch → T4 portable SQL → T5 pg tests → T6 migrate �
 - 2026-10-05: Task 4 done. There was no `INSERT OR`/`datetime('now')` left; the SQLite-only bits were `except sqlite3.IntegrityError` (6 places → `database.IntegrityError`), `char(10)` in `reset_score_errors` (→ bound parameter) and `BEGIN IMMEDIATE` in `apply/launcher.acquire_job` (the adapter maps it to BEGIN; on Postgres the SELECT adds `FOR UPDATE SKIP LOCKED` so parallel apply workers can't claim the same job). Type hints use the `Connection` alias.
 - 2026-10-05: Task 5 code done. `pg` marker, `pg_db`/`db_target` fixtures, autouse `_no_user_database_url` (unit tests never see the developer's `APPLYPILOT_DATABASE_URL`). `tests/test_database_pg.py`: 7 cases × 2 backends + 1 pg-only. Verified against a throwaway `postgres:16-alpine` container on 127.0.0.1:55432: `pytest -m pg` → 8 passed. Still to do: the same run against `applypilot_test` on analytics-db.
 - 2026-10-05: Task 6 code done. `migrate.py` (`migrate`, `verify`, `backup_source`) + `applypilot db migrate|verify`; 8 tests in `tests/test_migrate.py` (+1 pg). Dry run on a copy of the VPS DB into the throwaway Postgres: 3,147 jobs in 3 s, `db verify` all OK; `status` and the HTML dashboard on Postgres match SQLite (same lines; only the order of tied rows differs); 6 concurrent `acquire_job` workers got 6 distinct jobs. Also: the adapter strips NUL bytes from string params (Postgres text can't hold them); `doctor` shows a Database row (backend, user@host, job count, or the connection error).
+- 2026-10-05: Task 1 done. engineerfamily b09a98a on `main` (analytics-db on `127.0.0.1:5432`, `scripts/init-applypilot-db.sh`, `make applypilot-db-init`), `prod` fast-forwarded and pushed, `make up`; the user appended `APPLYPILOT_DB_PASSWORD` to `/srv/engineerfamily/.env`; init created role `applypilot` and DBs `applypilot`, `applypilot_test`. Acceptance: all containers up (db/nginx/streamlit healthy), `select 1` as `applypilot` → 1, `ss` shows only `127.0.0.1:5432`, all three sites 200. The agent may not read the prod `.env` (blocked as a secret/production read), so the Task 5/6/7 runs that need the password are the user's or need a credential the agent is allowed to read.

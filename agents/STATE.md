@@ -1,16 +1,16 @@
 # Current State
 
-**Last updated:** 2026-10-05 (R7 job-store-postgres: code tasks done, committed 84c9e92; VPS/engineerfamily steps pending)
+**Last updated:** 2026-10-05 (R7 job-store-postgres: Tasks 1–4 ✅, DB live on engineerfamily; Task 5/6 runs and Task 7 cutover pending)
 
 ## Active Plan
 
-**R7 `job-store-postgres`** (2026-10-05, interactive VPS session): Tasks 2–4 ✅, Tasks 5–6 🟡 (code done; the runs against
-analytics-db are still to do), Tasks 1 and 7 ❌ (engineerfamily provisioning, cutover). New: `db_pg.py` (PgConnection adapter),
+**R7 `job-store-postgres`** (2026-10-05, interactive VPS session): Tasks 1–4 ✅ (Task 1: engineerfamily b09a98a deployed;
+`applypilot`/`applypilot_test` DBs on analytics-db at `127.0.0.1:5432`), Tasks 5–6 🟡 (code done; the runs against
+analytics-db are still to do), Task 7 ❌ (cutover). Blocker: the agent may not read the password in `/srv/engineerfamily/.env`,
+so the user runs Tasks 5/6/7 or provides a credential the agent may read (see MORNING.md). New: `db_pg.py` (PgConnection adapter),
 `migrate.py` + `applypilot db migrate|verify`, backend dispatch in `database.py` (`APPLYPILOT_DATABASE_URL`), `doctor`
 Database row, `pg` test tier (`APPLYPILOT_TEST_DATABASE_URL`). Gate: 677 passed, 29 skipped (SQLite); 686 passed
-with a throwaway Postgres 16. Committed on `trunk` as 84c9e92 (2026-10-05). Next: Task 1
-(engineerfamily: note the working clone `/home/dev/src/engineerfamily` is on branch `bind-app-localhost`, not `main`), then
-the Task 5/6 runs and Task 7.
+with a throwaway Postgres 16. Committed on `trunk` as 84c9e92 (2026-10-05). Next: the Task 5/6 runs and Task 7.
 
 
 **R6 `google-drive-file-library`** (2026-10-02, local session on the laptop, branch `claude/plan-google-drive-file-library`):

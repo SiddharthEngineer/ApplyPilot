@@ -21,7 +21,8 @@ Used when a session runs on the user's VPS (`/srv/ApplyPilot`) instead of the cl
   (`git clone https://github.com/SiddharthEngineer/engineerfamily.git` if it's missing; `git pull` first), then `git push origin main`.
   Never commit directly on `prod`. To deploy (pre-approved, including for testing): in the live checkout `/srv/engineerfamily` (branch `prod`),
   `git -c safe.directory=/srv/engineerfamily fetch origin && git … merge --ff-only origin/main`, then
-  `git … push https://github.com/SiddharthEngineer/engineerfamily.git prod`, then `chown -R deploy:deploy /srv/engineerfamily` and `make up`.
+  `git … push origin prod` (origin's push URL is SSH; the HTTPS URL has no credentials), then `sudo chown -R deploy:srv /srv/engineerfamily`
+  (keep group `srv` so `dev` can still write; skip if the agent isn't allowed, it isn't needed for `make up`) and `make up`.
   Untracked server files (`.env`, `services/nginx/ssl/`, `.htpasswd*`) live only in `/srv/engineerfamily`: edit them there, never commit them.
   No tags, no `make tag-prod`. Afterwards, check that `https://engineerfamily.net`, `umami.engineerfamily.net` and `applypilot.engineerfamily.net`
   return 200. If they don't, revert on `main`, redeploy the same way, and note it in MORNING.md.
