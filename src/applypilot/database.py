@@ -294,6 +294,8 @@ _ALL_COLUMNS: dict[str, str] = {
     "cover_letter_drive_id": "TEXT",
     "cover_letter_drive_url": "TEXT",
     "drive_synced_at": "TEXT",
+    "drive_folder_id": "TEXT",  # the job's leaf folder (company/role/date), from sync_job
+    "drive_folder_url": "TEXT",
     # Application
     "applied_at": "TEXT",
     "apply_status": "TEXT",
@@ -587,6 +589,20 @@ def get_jobs_by_stage(conn: Connection | None = None,
         columns = rows[0].keys()
         return [dict(zip(columns, row)) for row in rows]
     return []
+
+
+def get_jobs_by_urls(conn: Connection | None, urls: list[str]) -> list[dict]:
+    """These jobs (those with a description), in the order given: a single-job tailor or cover run from the dashboard."""
+    if conn is None:
+        conn = get_connection()
+    if not urls:
+        return []
+    rows = conn.execute(
+        f"SELECT * FROM jobs WHERE url IN ({', '.join('?' * len(urls))}) AND full_description IS NOT NULL",
+        list(urls),
+    ).fetchall()
+    by_url = {row["url"]: dict(row) for row in rows}
+    return [by_url[u] for u in dict.fromkeys(urls) if u in by_url]
 
 
 def reset_score_errors(conn: Connection | None = None) -> int:

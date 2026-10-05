@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, COVER_LETTER_DIR, RESUME_PATH, load_profile
-from applypilot.database import get_connection, get_jobs_by_stage
+from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
 from applypilot.llm import LLMQuotaExhausted, get_client
 from applypilot.scoring.content_library import parse_content_library
 from applypilot.scoring.validator import (
@@ -235,13 +235,17 @@ def generate_cover_letter(
 # ── Batch Entry Point ────────────────────────────────────────────────────
 
 def run_cover_letters(min_score: int = 7, limit: int = 20,
-                      validation_mode: str = "normal") -> dict:
+                      validation_mode: str = "normal",
+                      urls: list[str] | None = None) -> dict:
     """Generate cover letters for high-scoring jobs that have tailored resumes.
 
     Args:
         min_score:       Minimum fit_score threshold.
         limit:           Maximum jobs to process.
         validation_mode: "strict", "normal", or "lenient".
+        urls:            Write letters for exactly these jobs (the dashboard's "generate"): min_score,
+                         limit, the attempt cap, and the existing-letter and tailored-resume checks are
+                         ignored. Without a tailored resume the letter has no cited-bullets evidence.
 
     Returns:
         {"generated": int, "errors": int, "elapsed": float}
@@ -250,16 +254,19 @@ def run_cover_letters(min_score: int = 7, limit: int = 20,
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
 
-    # Fetch jobs that have tailored resumes but no cover letter yet
-    jobs = conn.execute(
-        "SELECT * FROM jobs "
-        "WHERE fit_score >= ? AND tailored_resume_path IS NOT NULL "
-        "AND full_description IS NOT NULL "
-        "AND (cover_letter_path IS NULL OR cover_letter_path = '') "
-        "AND COALESCE(cover_attempts, 0) < ? "
-        "ORDER BY fit_score DESC LIMIT ?",
-        (min_score, MAX_ATTEMPTS, limit),
-    ).fetchall()
+    if urls is not None:
+        jobs = get_jobs_by_urls(conn, urls)
+    else:
+        # Fetch jobs that have tailored resumes but no cover letter yet
+        jobs = conn.execute(
+            "SELECT * FROM jobs "
+            "WHERE fit_score >= ? AND tailored_resume_path IS NOT NULL "
+            "AND full_description IS NOT NULL "
+            "AND (cover_letter_path IS NULL OR cover_letter_path = '') "
+            "AND COALESCE(cover_attempts, 0) < ? "
+            "ORDER BY fit_score DESC LIMIT ?",
+            (min_score, MAX_ATTEMPTS, limit),
+        ).fetchall()
 
     if not jobs:
         log.info("No jobs needing cover letters (score >= %d).", min_score)

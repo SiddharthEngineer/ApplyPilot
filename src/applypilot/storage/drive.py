@@ -38,6 +38,7 @@ class DriveFile:
     url: str
     md5: str | None
     created: bool
+    folder_id: str | None = None  # the job's leaf folder (company/role/date)
 
 
 def _q(value: str) -> str:
@@ -208,7 +209,8 @@ class DriveClient:
                 body=body, media_body=self._media(local_path), fields=_FILE_FIELDS,
             ).execute()
             created = True
-        return DriveFile(id=meta["id"], url=meta.get("webViewLink", ""), md5=meta.get("md5Checksum"), created=created)
+        return DriveFile(id=meta["id"], url=meta.get("webViewLink", ""), md5=meta.get("md5Checksum"), created=created,
+                         folder_id=folder_id)
 
     def download(self, file_id: str, dest: Path) -> Path:
         data = self._service.files().get_media(fileId=file_id).execute()

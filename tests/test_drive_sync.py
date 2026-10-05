@@ -61,6 +61,26 @@ def test_sync_moves_pdfs_and_saves_links(conn, client, drive, tmp_path):
     assert drive.path_of(row["resume_drive_id"])[:4] == ["ApplyPilot", "Acme", "Data Engineer", "2026-09-30"]
 
 
+def test_sync_saves_the_job_folder(conn, client, drive, tmp_path):
+    _add_job(conn, tmp_path)
+    run_drive_sync(conn, client)
+    row = _row(conn)
+    resume = drive.store[row["resume_drive_id"]]
+    folder = resume["parents"][0]
+    assert drive.store[folder]["name"] == "2026-09-30"  # the leaf: company/role/date
+    assert row["drive_folder_id"] == folder
+    assert row["drive_folder_url"] == f"https://drive.google.com/drive/folders/{folder}"
+
+
+def test_cover_only_job_gets_the_cover_folder(conn, client, drive, tmp_path):
+    stem = _add_job(conn, tmp_path)
+    stem.with_suffix(".pdf").unlink()
+    run_drive_sync(conn, client)
+    row = _row(conn)
+    assert row["resume_drive_id"] is None
+    assert row["drive_folder_id"] == drive.store[row["cover_letter_drive_id"]]["parents"][0]
+
+
 def test_second_sync_creates_nothing(conn, client, drive, tmp_path):
     _add_job(conn, tmp_path)
     run_drive_sync(conn, client)

@@ -113,7 +113,7 @@ return the folder id), `src/applypilot/database.py` (modify: `drive_folder_id TE
 select exactly those jobs, ignore `min_score` and the "already tailored" filter (regenerate), and keep all other behavior. `sync_job`
 records the job's leaf folder (company/role/date) as `drive_folder_id` and `drive_folder_url = https://drive.google.com/drive/folders/<id>`.
 **Acceptance:** Existing tailor/cover/drive tests pass. New tests cover `urls=` selecting an unscored job and the folder URL being saved (fake Drive).
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 6: Background generation tasks
 **Runs:** cloud (code + tests); local (one live generation on the VPS)
@@ -157,3 +157,4 @@ T1 status model ─→ T2 skeleton ─→ T3 list ─→ T4 detail/status ─→
 - 2026-10-05: Task 2 done. `web/app.py` (`create_app(static_dir, db)`, `/app/api/health`, SPA fallback, CSRF middleware), `applypilot serve` (`--web-dir` or `APPLYPILOT_WEB_DIR`), `web` extra (CI and cloud_setup install it). Live: `serve --port 8765` → `{"ok":true,"db":"postgresql"}`, POST without the header → 403.
 - 2026-10-05: Task 3 done. `web/queries.py` (JobFilters, where/order clauses, list_jobs, facets); `GET /app/api/jobs` and `/app/api/facets`. `job_key` column + index; `job_key()` moved to `database.py` (drive_layout re-uses it); set by `store_jobs`, backfilled by `init_db` and on each list request (the other discovery inserters don't set it). LIKE wildcards in search text are escaped. Live on Postgres: 3,147 jobs, every filter ~60 ms; first start backfilled 3,147 keys in ~5 s.
 - 2026-10-05: Task 4 done. `GET /app/api/jobs/{key}` (row minus raw text, `description_text`, parsed `details`, status/color/days, `submitted_date`, `events`, `links`), `POST .../status`, `PATCH /app/api/jobs/{key}` (`submitted_at`, `notes`; only fields present change). Live read of a real Snowflake job on Postgres OK.
+- 2026-10-05: Task 5 done. `run_tailoring(urls=)` / `run_cover_letters(urls=)` via new `database.get_jobs_by_urls` (description required; score, limit, attempt cap and already-done checks ignored; cover letters also drop the tailored-resume requirement). `DriveFile.folder_id`; `sync_job` saves `drive_folder_id`/`drive_folder_url` (resume's leaf folder, else the cover letter's).

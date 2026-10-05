@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
-from applypilot.database import get_connection, get_jobs_by_stage
+from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
 from applypilot.llm import LLMQuotaExhausted, get_client
 from applypilot.scoring.content_library import ContentLibrary, parse_content_library
 from applypilot.scoring.resume_model import TailoredResume
@@ -1052,7 +1052,8 @@ def _save_template_outputs(
 
 def run_tailoring(min_score: int = 7, limit: int = 20,
                   validation_mode: str = "normal",
-                  source: str = "resume") -> dict:
+                  source: str = "resume",
+                  urls: list[str] | None = None) -> dict:
     """Generate tailored resumes for high-scoring jobs.
 
     Args:
@@ -1061,6 +1062,8 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
         validation_mode: "strict", "normal", or "lenient".
         source:          "resume" (default, uses resume.txt) or
                          "content-library" (uses content_library.md).
+        urls:            Tailor exactly these jobs (the dashboard's "generate"): min_score, limit,
+                         the attempt cap and "already tailored" are ignored, so it regenerates.
 
     Returns:
         {"approved": int, "failed": int, "errors": int, "elapsed": float}
@@ -1087,10 +1090,16 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             return {"approved": 0, "failed": 0, "errors": 1, "elapsed": 0.0}
         resume_text = RESUME_PATH.read_text(encoding="utf-8")
 
-    jobs = get_jobs_by_stage(conn=conn, stage="pending_tailor", min_score=min_score, limit=limit)
+    if urls is not None:
+        jobs = get_jobs_by_urls(conn, urls)
+    else:
+        jobs = get_jobs_by_stage(conn=conn, stage="pending_tailor", min_score=min_score, limit=limit)
 
     if not jobs:
-        log.info("No untailored jobs with score >= %d.", min_score)
+        if urls is not None:
+            log.info("None of the %d requested jobs has a description to tailor for.", len(urls))
+        else:
+            log.info("No untailored jobs with score >= %d.", min_score)
         return {"approved": 0, "failed": 0, "errors": 0, "elapsed": 0.0}
 
     TAILORED_DIR.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 _PATH_COLUMN = {"resume": "tailored_resume_path", "cover_letter": "cover_letter_path"}
 
 
+def folder_url(folder_id: str) -> str:
+    return f"https://drive.google.com/drive/folders/{folder_id}"
+
+
 def local_pdf(job: dict, kind: str) -> Path | None:
     """Where this job's PDF of the given kind lives (or lived) on disk."""
     path = job.get(_PATH_COLUMN[kind])
@@ -27,8 +31,12 @@ def local_pdf(job: dict, kind: str) -> Path | None:
 
 
 def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool = False) -> dict:
-    """Upload this job's local PDFs, save their links, and delete the local copies once verified."""
+    """Upload this job's local PDFs, save their links, and delete the local copies once verified.
+
+    Also saves the job's Drive folder (drive_folder_id/url): the resume's leaf folder, else the cover letter's.
+    """
     counts = {"uploaded": 0, "updated": 0, "moved": 0, "errors": 0}
+    folder_id = None
     for kind in KINDS:
         pdf = local_pdf(job, kind)
         if not pdf or not pdf.exists():
@@ -40,6 +48,13 @@ def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool 
             f"UPDATE jobs SET {kind}_drive_id = ?, {kind}_drive_url = ?, drive_synced_at = ? WHERE url = ?",
             (result.id, result.url, now, job["url"]),
         )
+        if result.folder_id and folder_id is None:
+            folder_id = result.folder_id
+            conn.execute(
+                "UPDATE jobs SET drive_folder_id = ?, drive_folder_url = ? WHERE url = ?",
+                (folder_id, folder_url(folder_id), job["url"]),
+            )
+            job["drive_folder_id"], job["drive_folder_url"] = folder_id, folder_url(folder_id)
         conn.commit()
         job[f"{kind}_drive_id"], job[f"{kind}_drive_url"] = result.id, result.url
         if keep_local:

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from applypilot.database import init_db
+from applypilot.scoring import cover_letter, tailor
 from applypilot.scoring.content_library import ContentLibrary, Project, RoleSection
 from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.tailor import (
@@ -486,3 +488,94 @@ class TestAssembleResumeTextWithContentLibraryOutput:
         text = assemble_resume_text(data, _minimal_profile())
         assert "EXPERIENCE" in text
         assert "EDUCATION" in text
+
+
+class TestSingleJobUrls:
+    """run_tailoring / run_cover_letters(urls=[...]): the dashboard's single-job "generate" (dashboard-api Task 5)."""
+
+    UNSCORED = "https://example.com/job/unscored"
+    TAILORED = "https://example.com/job/tailored"
+    OTHER = "https://example.com/job/other"
+
+    @pytest.fixture
+    def conn(self, tmp_path):
+        c = init_db(tmp_path / "t.db")
+        rows = [
+            (self.UNSCORED, None, None, 0, None),            # never scored
+            (self.TAILORED, 9, "/old/resume.txt", 7, "/old/cl.txt"),  # done, attempts exhausted
+            (self.OTHER, 9, None, 0, None),                  # pending in a normal run
+        ]
+        for url, score, path, attempts, cl in rows:
+            c.execute(
+                "INSERT INTO jobs (url, title, site, full_description, fit_score, tailored_resume_path, "
+                "tailor_attempts, cover_letter_path, cover_attempts) "
+                "VALUES (?, 'Data Engineer', 'indeed', 'Build pipelines.', ?, ?, ?, ?, ?)",
+                (url, score, path, attempts, cl, attempts),
+            )
+        c.execute("INSERT INTO jobs (url, title, site) VALUES ('https://example.com/job/nodesc', 'X', 'indeed')")
+        c.commit()
+        return c
+
+    @pytest.fixture
+    def resume(self, tmp_path):
+        path = tmp_path / "resume.txt"
+        path.write_text("Test resume")
+        return path
+
+    def _tailor(self, conn, resume, tmp_path, **kw):
+        seen = []
+
+        def fake(resume_text, job, profile, validation_mode="normal"):
+            seen.append(job["url"])
+            return "Tailored text", {"status": "approved", "attempts": 1}
+
+        with patch.object(tailor, "get_connection", return_value=conn), \
+                patch.object(tailor, "load_profile", return_value={}), \
+                patch.object(tailor, "RESUME_PATH", resume), \
+                patch.object(tailor, "TAILORED_DIR", tmp_path / "tailored"), \
+                patch.object(tailor, "tailor_resume", side_effect=fake), \
+                patch.object(tailor, "_save_legacy_outputs",
+                             side_effect=lambda t, r, job, prefix: (str(tmp_path / f"{prefix}.txt"), None, None)):
+            stats = tailor.run_tailoring(**kw)
+        return seen, stats
+
+    def test_urls_selects_an_unscored_job(self, conn, resume, tmp_path):
+        seen, stats = self._tailor(conn, resume, tmp_path, urls=[self.UNSCORED])
+        assert seen == [self.UNSCORED] and stats["approved"] == 1
+        row = conn.execute("SELECT tailored_resume_path, tailored_at FROM jobs WHERE url = ?",
+                           (self.UNSCORED,)).fetchone()
+        assert row[0].endswith(".txt") and row[1]
+
+    def test_urls_regenerates_a_tailored_job(self, conn, resume, tmp_path):
+        seen, _ = self._tailor(conn, resume, tmp_path, urls=[self.TAILORED, "https://example.com/job/nodesc"])
+        assert seen == [self.TAILORED]  # ignores the attempt cap and the existing resume; skips no-description
+        path = conn.execute("SELECT tailored_resume_path FROM jobs WHERE url = ?", (self.TAILORED,)).fetchone()[0]
+        assert path != "/old/resume.txt"
+
+    def test_without_urls_the_normal_selection_applies(self, conn, resume, tmp_path):
+        seen, _ = self._tailor(conn, resume, tmp_path, min_score=7)
+        assert seen == [self.OTHER]
+
+    def test_empty_urls_does_nothing(self, conn, resume, tmp_path):
+        seen, stats = self._tailor(conn, resume, tmp_path, urls=[])
+        assert seen == [] and stats["approved"] == 0
+
+    def test_cover_letter_urls(self, conn, resume, tmp_path):
+        seen = []
+
+        def fake(resume_text, job, profile, validation_mode="normal", evidence=None):
+            seen.append(job["url"])
+            return "Dear team"
+
+        with patch.object(cover_letter, "get_connection", return_value=conn), \
+                patch.object(cover_letter, "load_profile", return_value={}), \
+                patch.object(cover_letter, "RESUME_PATH", resume), \
+                patch.object(cover_letter, "COVER_LETTER_DIR", tmp_path / "cl"), \
+                patch.object(cover_letter, "generate_cover_letter", side_effect=fake), \
+                patch("applypilot.scoring.pdf.convert_to_pdf", side_effect=RuntimeError("no browser")):
+            stats = cover_letter.run_cover_letters(urls=[self.UNSCORED, self.TAILORED])
+        # No score and no tailored resume needed; an existing letter is rewritten.
+        assert seen == [self.UNSCORED, self.TAILORED] and stats["generated"] == 2
+        paths = dict(conn.execute("SELECT url, cover_letter_path FROM jobs").fetchall())
+        assert paths[self.UNSCORED].endswith("_CL.txt") and paths[self.TAILORED] != "/old/cl.txt"
+
