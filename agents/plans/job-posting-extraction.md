@@ -95,7 +95,7 @@ Truncate each description to 12,000 characters, cutting boilerplate-heavy tails 
 (extracted_at IS NULL OR extract_version < EXTRACT_VERSION) AND COALESCE(extract_attempts,0) < 3". `ensure_columns()` adds the columns on both backends.
 `REAL` works on both SQLite and Postgres.
 **Acceptance:** `pytest tests/test_database.py -q` passes, and `ensure_columns` on an old DB adds all 19 columns.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 4: Heuristic classifier (day-one filters)
 **Runs:** cloud

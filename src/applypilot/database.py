@@ -14,6 +14,7 @@ from typing import TypeAlias
 from applypilot import config
 from applypilot.config import DB_PATH
 from applypilot.db_pg import PgConnection
+from applypilot.enrichment.posting_model import EXTRACT_VERSION
 
 # Either backend: sqlite3 (default) or Postgres (APPLYPILOT_DATABASE_URL), which exposes the same API.
 Connection: TypeAlias = sqlite3.Connection | PgConnection
@@ -198,6 +199,14 @@ PENDING_SCORE_WHERE = (
     f"full_description IS NOT NULL AND fit_score IS NULL AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}"
 )
 
+# Jobs an extract run should pick up: described, not yet extracted at the current EXTRACT_VERSION,
+# and not given up on after repeated failures.
+MAX_EXTRACT_ATTEMPTS = 3
+PENDING_EXTRACT_WHERE = (
+    f"full_description IS NOT NULL AND (extracted_at IS NULL OR extract_version < {EXTRACT_VERSION}) "
+    f"AND COALESCE(extract_attempts, 0) < {MAX_EXTRACT_ATTEMPTS}"
+)
+
 _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
@@ -214,6 +223,26 @@ _ALL_COLUMNS: dict[str, str] = {
     "application_url": "TEXT",
     "detail_scraped_at": "TEXT",
     "detail_error": "TEXT",
+    # Extraction (enrichment/extract.py; heuristic fallback in enrichment/classify.py)
+    "details_json": "TEXT",
+    "role_category": "TEXT",
+    "seniority": "TEXT",
+    "employment_type": "TEXT",
+    "work_mode": "TEXT",
+    "location_city": "TEXT",
+    "location_state": "TEXT",
+    "location_country": "TEXT",
+    "salary_min": "REAL",
+    "salary_max": "REAL",
+    "salary_currency": "TEXT",
+    "salary_period": "TEXT",
+    "posted_date": "TEXT",
+    "deadline": "TEXT",
+    "extracted_at": "TEXT",
+    "extract_attempts": "INTEGER DEFAULT 0",
+    "extract_error": "TEXT",
+    "extract_version": "INTEGER",
+    "category_source": "TEXT",  # 'llm' or 'heuristic'
     # Scoring
     "fit_score": "INTEGER",
     "score_reasoning": "TEXT",
@@ -481,6 +510,7 @@ def get_jobs_by_stage(conn: Connection | None = None,
         "discovered": "1=1",
         "pending_detail": "detail_scraped_at IS NULL",
         "enriched": "full_description IS NOT NULL",
+        "pending_extract": PENDING_EXTRACT_WHERE,
         "pending_score": PENDING_SCORE_WHERE,
         "scored": "fit_score IS NOT NULL",
         "pending_tailor": (

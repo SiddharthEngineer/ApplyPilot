@@ -126,3 +126,42 @@ class TestBackendDispatch:
 
         conn = init_db(tmp_path / "t.db")
         assert {"url", "fit_score", "company"} <= table_columns(conn)
+
+
+EXTRACT_COLUMNS = {
+    "details_json", "role_category", "seniority", "employment_type", "work_mode",
+    "location_city", "location_state", "location_country", "salary_min", "salary_max",
+    "salary_currency", "salary_period", "posted_date", "deadline", "extracted_at",
+    "extract_attempts", "extract_error", "extract_version", "category_source",
+}
+
+
+def test_extract_columns_on_fresh_and_migrated_db(tmp_path):
+    assert EXTRACT_COLUMNS <= _columns(init_db(tmp_path / "fresh.db"))
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, site TEXT, strategy TEXT)")
+    added = ensure_columns(conn)
+    assert len(EXTRACT_COLUMNS) == 19
+    assert EXTRACT_COLUMNS <= set(added)
+
+
+def test_pending_extract_selection(tmp_path):
+    from applypilot.database import get_jobs_by_stage
+    from applypilot.enrichment.posting_model import EXTRACT_VERSION
+
+    conn = init_db(tmp_path / "jobs.db")
+    rows = [
+        ("no-desc", None, None, None, 0),
+        ("pending", "d", None, None, 0),
+        ("done", "d", "2026-10-05", EXTRACT_VERSION, 0),
+        ("stale", "d", "2026-10-05", EXTRACT_VERSION - 1, 0),
+        ("gave-up", "d", None, None, 3),
+        ("retry", "d", None, None, 2),
+    ]
+    conn.executemany(
+        "INSERT INTO jobs (url, full_description, extracted_at, extract_version, extract_attempts) "
+        "VALUES (?, ?, ?, ?, ?)", rows,
+    )
+    conn.commit()
+    urls = {j["url"] for j in get_jobs_by_stage(conn=conn, stage="pending_extract", limit=0)}
+    assert urls == {"pending", "stale", "retry"}
