@@ -58,7 +58,7 @@ def posting_schema() -> dict: ...
 def batch_schema() -> dict: ...  # {"jobs": [{"job_id": str, ...JobPosting}]}
 ```
 **Acceptance:** `pytest tests/test_posting_model.py -q` passes (round-trip, enum coercion, unknown keys dropped, schema has no unsupported keywords).
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 2: Extraction prompt built from real postings
 **Runs:** cloud (prompt + offline tests); local (sample review on the VPS)

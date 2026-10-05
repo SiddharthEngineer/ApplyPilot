@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Job-posting model** (2026-10-05, R8 Task 1): `enrichment/posting_model.py` — `JobPosting` dataclass, enums, lenient `from_dict`, and Gemini `posting_schema()`/`batch_schema()`; `EXTRACT_VERSION = 1`.
+
 ### Fixed
 - **`run score --limit N`** (2026-10-05) now caps LLM scoring calls at N. Before, `--limit` applied only to tailor and cover, so `run score --limit 2` scored every pending job. The title prefilter still covers all pending jobs, because it makes no LLM calls.
 - **Scores are saved per LLM call** (2026-10-05). `run score` used to write results only when the run finished, so stopping it lost every score from that run.
