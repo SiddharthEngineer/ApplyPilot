@@ -521,6 +521,81 @@ def template_preview() -> None:
         console.print(f"One page ({info['content_height_pt']}pt of {info['usable_height_pt']:.0f}pt).")
 
 
+db_app = typer.Typer(help="Job store: copy the SQLite jobs into Postgres and check the copy.", no_args_is_help=True)
+app.add_typer(db_app, name="db")
+
+
+def _db_endpoints(src: Optional[str], dst: Optional[str]):
+    from pathlib import Path
+
+    from applypilot.config import DB_PATH, database_url, load_env
+
+    load_env()
+    source = Path(src).expanduser() if src else DB_PATH
+    target = dst or database_url()
+    if not target:
+        console.print("[red]No destination.[/red] Pass --to postgresql://… or set APPLYPILOT_DATABASE_URL.")
+        raise typer.Exit(code=1)
+    if not source.exists():
+        console.print(f"[red]No SQLite database at {source}.[/red]")
+        raise typer.Exit(code=1)
+    return source, target
+
+
+def _safe_target(target: str) -> str:
+    from applypilot.db_pg import describe_url
+
+    return describe_url(target) if "://" in target else target
+
+
+@db_app.command("migrate")
+def db_migrate(
+    src: Optional[str] = typer.Option(None, "--from", help="SQLite file to copy (default: ~/.applypilot/applypilot.db)."),
+    dst: Optional[str] = typer.Option(None, "--to", help="Destination URL (default: APPLYPILOT_DATABASE_URL)."),
+    batch: int = typer.Option(500, "--batch", help="Rows per insert batch."),
+) -> None:
+    """Copy every job into the destination. Safe to rerun: urls already there are skipped."""
+    from applypilot.migrate import migrate
+
+    source, target = _db_endpoints(src, dst)
+    result = migrate(source, target, batch=batch)
+    if result.get("backup"):
+        console.print(f"Backed up {source} to {result['backup']}")
+    if result["missing_columns"]:
+        console.print(f"[yellow]Not copied (no such column in the destination):[/yellow] {', '.join(result['missing_columns'])}")
+    console.print(
+        f"[green]Copied {result['inserted']} new jobs[/green] to {_safe_target(target)} "
+        f"({result['skipped']} already there; destination now has {result['destination']})."
+    )
+
+
+@db_app.command("verify")
+def db_verify(
+    src: Optional[str] = typer.Option(None, "--from", help="SQLite file (default: ~/.applypilot/applypilot.db)."),
+    dst: Optional[str] = typer.Option(None, "--to", help="Destination URL (default: APPLYPILOT_DATABASE_URL)."),
+) -> None:
+    """Compare row counts (and fit_score/tailored_resume_path/... counts) between the SQLite file and the destination."""
+    from rich.table import Table
+
+    from applypilot.migrate import verify
+
+    source, target = _db_endpoints(src, dst)
+    checks = verify(source, target)
+    table = Table(title=f"{source} vs {_safe_target(target)}")
+    for name in ("Check", "SQLite", "Destination", ""):
+        table.add_column(name)
+    bad = 0
+    for check, a, b in checks:
+        ok = a == b
+        bad += not ok
+        table.add_row(check, str(a), str(b), "[green]OK[/green]" if ok else "[red]MISMATCH[/red]")
+    console.print(table)
+    if bad:
+        console.print(f"[red]{bad} mismatch(es).[/red] Rerun `applypilot db migrate` to copy missing rows.")
+        raise typer.Exit(code=1)
+    console.print("[green]All counts match.[/green]")
+
+
 drive_app = typer.Typer(help="Google Drive: move tailored resumes and cover letters there and list their links.",
                         no_args_is_help=True)
 app.add_typer(drive_app, name="drive")
@@ -636,6 +711,31 @@ def dashboard() -> None:
     open_dashboard()
 
 
+def _doctor_database_row(ok_mark: str) -> tuple[str, str, str]:
+    from applypilot.config import DB_PATH, database_url
+    from applypilot.db_pg import describe_url
+
+    url = database_url()
+    where = f"postgresql ({describe_url(url)})" if url else f"sqlite ({DB_PATH})"
+    if not url and not DB_PATH.exists():
+        return ("Database", "[yellow]WARN[/yellow]", f"{where}: not created yet (run 'applypilot run discover')")
+    try:
+        from applypilot.database import get_connection
+
+        conn = get_connection()
+        jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] if _has_jobs_table(conn) else 0
+    except Exception as exc:  # unreachable server, wrong password, psycopg not installed...
+        hint = ' (pip install -e ".[postgres]")' if isinstance(exc, ImportError) else ""
+        return ("Database", "[red]ERROR[/red]", f"{where}: {exc}{hint}")
+    return ("Database", ok_mark, f"{where}, {jobs} jobs")
+
+
+def _has_jobs_table(conn) -> bool:
+    from applypilot.database import table_columns
+
+    return bool(table_columns(conn))
+
+
 @app.command()
 def doctor() -> None:
     """Check your setup and diagnose missing requirements."""
@@ -696,6 +796,9 @@ def doctor() -> None:
         results.append(("searches.yaml", ok_mark, str(SEARCH_CONFIG_PATH)))
     else:
         results.append(("searches.yaml", warn_mark, "Will use example config — run 'applypilot init'"))
+
+    # Job store: SQLite file, or Postgres when APPLYPILOT_DATABASE_URL is set
+    results.append(_doctor_database_row(ok_mark))
 
     # jobspy (discovery dep installed separately)
     try:

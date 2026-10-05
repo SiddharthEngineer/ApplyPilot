@@ -9,27 +9,64 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypeAlias
 
+from applypilot import config
 from applypilot.config import DB_PATH
+from applypilot.db_pg import PgConnection
+
+# Either backend: sqlite3 (default) or Postgres (APPLYPILOT_DATABASE_URL), which exposes the same API.
+Connection: TypeAlias = sqlite3.Connection | PgConnection
+
+try:  # optional: only the Postgres backend needs psycopg
+    import psycopg as _psycopg
+except ImportError:
+    _psycopg = None
+
+# Duplicate-key errors on either backend: `except IntegrityError:` around an INSERT/UPDATE.
+IntegrityError: tuple[type[Exception], ...] = (sqlite3.IntegrityError,) + (
+    (_psycopg.IntegrityError,) if _psycopg else ()
+)
+# A cached connection that can't be used any more (closed, or the server dropped it).
+_STALE_CONNECTION_ERRORS: tuple[type[Exception], ...] = (sqlite3.ProgrammingError,) + (
+    (_psycopg.OperationalError, _psycopg.InterfaceError) if _psycopg else ()
+)
 
 # Thread-local connection storage — each thread gets its own connection
-# (required for SQLite thread safety with parallel workers)
+# (required for SQLite thread safety with parallel workers; psycopg connections aren't shared either)
 _local = threading.local()
 
 
-def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
-    """Get a thread-local cached SQLite connection with WAL mode enabled.
+def _is_pg_url(target: str) -> bool:
+    return target.startswith(("postgresql://", "postgres://"))
 
-    Each thread gets its own connection (required for SQLite thread safety).
-    Connections are cached and reused within the same thread.
+
+def _resolve_target(db_path: Path | str | None) -> str:
+    """The database to open: an explicit path or URL, else APPLYPILOT_DATABASE_URL, else DB_PATH.
+
+    A `sqlite:///path` URL is accepted too and means that SQLite file.
+    """
+    if db_path is None:
+        return config.database_url() or str(DB_PATH)
+    target = str(db_path)
+    if target.startswith("sqlite:///"):
+        return target[len("sqlite:///"):]  # sqlite:////abs/path → /abs/path, sqlite:///rel → rel
+    return target
+
+
+def get_connection(db_path: Path | str | None = None) -> Connection:
+    """Get a thread-local cached connection.
+
+    Postgres when the target is a `postgresql://` URL (by default APPLYPILOT_DATABASE_URL), otherwise a SQLite
+    connection with WAL mode enabled. Connections are cached and reused within the same thread.
 
     Args:
-        db_path: Override the default DB_PATH. Useful for testing.
+        db_path: Override the default database (a SQLite path or a database URL). Useful for testing.
 
     Returns:
-        sqlite3.Connection configured with WAL mode and row factory.
+        A sqlite3.Connection (row factory sqlite3.Row) or a PgConnection with the same API.
     """
-    path = str(db_path or DB_PATH)
+    path = _resolve_target(db_path)
 
     if not hasattr(_local, 'connections'):
         _local.connections = {}
@@ -39,8 +76,13 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
         try:
             conn.execute("SELECT 1")
             return conn
-        except sqlite3.ProgrammingError:
-            pass
+        except _STALE_CONNECTION_ERRORS:
+            _local.connections.pop(path, None)
+
+    if _is_pg_url(path):
+        conn = PgConnection(path)
+        _local.connections[path] = conn
+        return conn
 
     conn = sqlite3.connect(path, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -52,14 +94,19 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 def close_connection(db_path: Path | str | None = None) -> None:
     """Close the cached connection for the current thread."""
-    path = str(db_path or DB_PATH)
+    path = _resolve_target(db_path)
     if hasattr(_local, 'connections'):
         conn = _local.connections.pop(path, None)
         if conn is not None:
             conn.close()
 
 
-def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
+def backend_name(conn: Connection) -> str:
+    """'postgresql' or 'sqlite' (for `doctor`)."""
+    return "postgresql" if isinstance(conn, PgConnection) else "sqlite"
+
+
+def init_db(db_path: Path | str | None = None) -> Connection:
     """Create the full jobs table with all columns from every pipeline stage.
 
     This is idempotent -- safe to call on every startup. Uses CREATE TABLE IF NOT EXISTS
@@ -79,12 +126,13 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         db_path: Override the default DB_PATH.
 
     Returns:
-        sqlite3.Connection with the schema initialized.
+        Connection with the schema initialized.
     """
-    path = db_path or DB_PATH
+    path = _resolve_target(db_path)
 
     # Ensure parent directory exists
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    if not _is_pg_url(path):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
 
     conn = get_connection(path)
     conn.execute("""
@@ -198,7 +246,19 @@ _ALL_COLUMNS: dict[str, str] = {
 }
 
 
-def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
+def table_columns(conn: Connection, table: str = "jobs") -> set[str]:
+    """Column names of a table: information_schema on Postgres, PRAGMA table_info on SQLite."""
+    if isinstance(conn, PgConnection):
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            (table,),
+        ).fetchall()
+        return {row[0] for row in rows}
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def ensure_columns(conn: Connection | None = None) -> list[str]:
     """Add any missing columns to the jobs table (forward migration).
 
     Reads the current table schema via PRAGMA table_info and compares against
@@ -216,7 +276,7 @@ def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
     if conn is None:
         conn = get_connection()
 
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    existing = table_columns(conn)
     added = []
 
     for col, dtype in _ALL_COLUMNS.items():
@@ -256,7 +316,7 @@ def job_company(job: dict) -> str:
     return "Unknown company"
 
 
-def get_stats(conn: sqlite3.Connection | None = None) -> dict:
+def get_stats(conn: Connection | None = None) -> dict:
     """Return job counts by pipeline stage.
 
     Provides a snapshot of how many jobs are at each stage, useful for
@@ -363,7 +423,7 @@ def get_stats(conn: sqlite3.Connection | None = None) -> dict:
     return stats
 
 
-def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
+def store_jobs(conn: Connection, jobs: list[dict],
                site: str, strategy: str) -> tuple[int, int]:
     """Store discovered jobs, skipping duplicates by URL.
 
@@ -392,14 +452,14 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
                  job.get("location"), site, strategy, now),
             )
             new += 1
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             existing += 1
 
     conn.commit()
     return new, existing
 
 
-def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
+def get_jobs_by_stage(conn: Connection | None = None,
                       stage: str = "discovered",
                       min_score: int | None = None,
                       limit: int = 100) -> list[dict]:
@@ -461,7 +521,7 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
     return []
 
 
-def reset_score_errors(conn: sqlite3.Connection | None = None) -> int:
+def reset_score_errors(conn: Connection | None = None) -> int:
     """Make jobs whose scoring failed with an LLM error pending again. Returns the number of rows reset.
 
     Covers the old behavior (errors saved as fit_score = 0) and the new one (fit_score NULL + score_attempts).
@@ -471,7 +531,8 @@ def reset_score_errors(conn: sqlite3.Connection | None = None) -> int:
     cur = conn.execute(
         "UPDATE jobs SET fit_score = NULL, score_reasoning = NULL, scored_at = NULL, score_attempts = 0 "
         # Errors saved before 2026-10-02 are stored as "<empty keywords>\nLLM error: ...".
-        "WHERE LTRIM(score_reasoning, char(10)) LIKE 'LLM error%'"
+        "WHERE LTRIM(score_reasoning, ?) LIKE 'LLM error%'",
+        ("\n",),
     )
     conn.commit()
     return cur.rowcount

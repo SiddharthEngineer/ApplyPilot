@@ -23,6 +23,24 @@ Session plan (remaining):
    Sessions 5–8 map to runs 1–5 (one plan each). Progress: `tail /var/log/applypilot-agent/ticks.log`.
    Older candidates (unplanned): `apply` human-in-the-loop mode, location filter whole-word matching, save scores per job during `run score`.
 
+## Session 5a (2026-10-05, interactive): R7 Postgres job store, code half
+
+**Not committed yet.** It's all in the `/srv/ApplyPilot` working tree on `trunk`. The session's permission classifier blocked `git commit`.
+- **Adapter** (`db_pg.py`): ApplyPilot's sqlite3-style SQL runs unchanged on Postgres. `?` placeholders work, and rows act like `sqlite3.Row`. Writes open a transaction the way sqlite3 does, so reads never leave a session "idle in transaction". A failed INSERT rolls back to a savepoint, which keeps the `except IntegrityError` dedupe working. NUL bytes are stripped.
+- **Dispatch:** set `APPLYPILOT_DATABASE_URL=postgresql://…` to use Postgres. Unset, it's SQLite as before. Unit tests always unset it.
+- **Portable SQL:** `char(10)` became a parameter. `BEGIN IMMEDIATE` is handled, and on Postgres `acquire_job` uses `FOR UPDATE SKIP LOCKED`: 6 parallel workers claimed 6 distinct jobs.
+- **`applypilot db migrate` / `db verify`:** a dry run on a copy of your DB into a throwaway Postgres copied 3,147 jobs in 3 s, and every count matched. `status` and the HTML dashboard show the same data as on SQLite.
+- **`doctor`** has a Database row.
+
+**Verify**
+```bash
+cd /srv/ApplyPilot && git status && . .venv/bin/activate && pytest tests/ -q
+```
+
+**Waiting on you**
+- Commit and push the working tree (or allow `git commit` and `git push` for the agent), one commit per task if you like.
+- Task 1 (engineerfamily DB provisioning plus prod deploy) wasn't started. `/home/dev/src/engineerfamily` is on branch `bind-app-localhost` with work of its own.
+
 ## Session 4 follow-up (2026-10-02): your answers
 
 **Landed on trunk:** [PR #9](https://github.com/SiddharthEngineer/ApplyPilot/pull/9)

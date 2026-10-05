@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`applypilot db migrate` / `db verify`** (2026-10-05, R7 Task 6): copy `~/.applypilot/applypilot.db` into Postgres (rerunnable, skips urls already there, backs the file up first) and compare counts. `doctor` shows which database is in use.
+
+### Added
+- **Postgres test tier** (2026-10-05, R7 Task 5): `APPLYPILOT_TEST_DATABASE_URL=postgresql://… pytest -m pg tests/` runs the core database tests on Postgres; without it they're skipped.
+
+### Changed
+- **Portable SQL** (2026-10-05, R7 Task 4): every query now runs on both SQLite and Postgres. On Postgres, parallel `apply` workers lock the job they claim (`FOR UPDATE SKIP LOCKED`).
+
+### Added
+- **Postgres backend dispatch** (2026-10-05, R7 Task 3): set `APPLYPILOT_DATABASE_URL=postgresql://…` to store jobs in Postgres. Unset, ApplyPilot uses `~/.applypilot/applypilot.db` as before.
+
+### Added
+- **Postgres adapter** (2026-10-05, R7 Task 2): `applypilot.db_pg.PgConnection` gives a psycopg connection the sqlite3 API ApplyPilot uses (`?` placeholders, `sqlite3.Row`-style rows, implicit write transactions). Optional extra: `pip install -e ".[postgres]"`.
+
+### Added
 - **Google Drive file library** (2026-10-02, R6 Tasks 1–7): tailored resume and cover letter PDFs can be moved to Google Drive, filed as `ApplyPilot/<Company>/<Role>/<YYYY-MM-DD>/`. Use `applypilot drive auth`, `drive sync [--keep-local] [--limit N]` and `drive links [--company X] [--csv FILE]`, or set `DRIVE_SYNC=1` to move files after the tailor and cover stages. A local PDF is deleted only after Drive's MD5 matches. Each file carries a per-job key, so re-syncs from any machine update the same file. Two jobs with the same company, role and date get separate files. Links are saved in new `resume_drive_*`/`cover_letter_drive_*` columns. `apply` downloads moved PDFs, and the `pdf` stage no longer rebuilds them. Jobs now store `company` (JobSpy's company; Workday/ATS employer, backfilled). The Google libraries are an optional extra: `pip install -e ".[drive]"`. `doctor` shows the Drive status.
 
 ### Changed

@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.live import Live
 
 from applypilot import config
-from applypilot.database import get_connection
+from applypilot.database import backend_name, get_connection
 from applypilot.apply import chrome, dashboard, prompt as prompt_mod
 from applypilot.apply.chrome import (
     launch_chrome, cleanup_worker, kill_all_chrome,
@@ -156,10 +156,12 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
     conn = get_connection()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        # SQLite's BEGIN IMMEDIATE already serializes workers; Postgres needs a row lock (skip rows another worker holds).
+        lock_clause = "FOR UPDATE SKIP LOCKED" if backend_name(conn) == "postgresql" else ""
 
         if target_url:
             like = f"%{target_url.split('?')[0].rstrip('/')}%"
-            row = conn.execute("""
+            row = conn.execute(f"""
                 SELECT url, title, site, application_url, tailored_resume_path,
                        fit_score, location, full_description, cover_letter_path,
                        resume_drive_id, cover_letter_drive_id
@@ -168,6 +170,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND tailored_resume_path IS NOT NULL
                   AND apply_status != 'in_progress'
                 LIMIT 1
+                {lock_clause}
             """, (target_url, target_url, like, like)).fetchone()
         else:
             blocked_sites, blocked_patterns = _load_blocked()
@@ -195,6 +198,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   {url_clauses}
                 ORDER BY fit_score DESC, url
                 LIMIT 1
+                {lock_clause}
             """, [config.DEFAULTS["max_apply_attempts"]] + params).fetchone()
 
         if not row:

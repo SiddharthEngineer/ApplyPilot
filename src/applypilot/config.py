@@ -11,6 +11,8 @@ APP_DIR = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
 
 # Core paths
 DB_PATH = APP_DIR / "applypilot.db"
+# Postgres job store (postgresql://user:pw@host:port/db). Unset = the SQLite file at DB_PATH.
+DATABASE_URL = os.environ.get("APPLYPILOT_DATABASE_URL")
 PROFILE_PATH = APP_DIR / "profile.json"
 RESUME_PATH = APP_DIR / "resume.txt"
 RESUME_PDF_PATH = APP_DIR / "resume.pdf"
@@ -243,6 +245,11 @@ DEFAULTS = {
     "llm_rpm_limit": 12,
     "llm_discovery_model": "gemini-3.1-flash-lite",
 }
+
+
+def database_url() -> str | None:
+    """The Postgres URL from APPLYPILOT_DATABASE_URL, read at call time so a .env loaded later counts."""
+    return os.environ.get("APPLYPILOT_DATABASE_URL") or None
 
 
 def load_env():

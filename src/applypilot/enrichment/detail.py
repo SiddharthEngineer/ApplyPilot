@@ -13,7 +13,6 @@ Three-tier extraction cascade (cheapest first):
 import json
 import logging
 import re
-import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -24,7 +23,7 @@ from playwright.sync_api import sync_playwright
 
 from applypilot import config
 from applypilot.config import DB_PATH
-from applypilot.database import get_connection, init_db, ensure_columns
+from applypilot.database import get_connection, init_db, ensure_columns, Connection, IntegrityError
 from applypilot.llm import get_client
 
 log = logging.getLogger(__name__)
@@ -81,7 +80,7 @@ def resolve_url(raw_url: str, site: str) -> str | None:
     return urljoin(base, raw_url)
 
 
-def resolve_all_urls(conn: sqlite3.Connection) -> dict:
+def resolve_all_urls(conn: Connection) -> dict:
     """Resolve all relative URLs in the database. Returns stats."""
     rows = conn.execute("SELECT url, site FROM jobs").fetchall()
     resolved = 0
@@ -99,7 +98,7 @@ def resolve_all_urls(conn: sqlite3.Connection) -> dict:
             try:
                 conn.execute("UPDATE jobs SET url = ? WHERE url = ?", (new_url, url))
                 resolved += 1
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 conn.execute("DELETE FROM jobs WHERE url = ?", (url,))
                 resolved += 1
         else:
@@ -124,7 +123,7 @@ def resolve_all_urls(conn: sqlite3.Connection) -> dict:
             "app_resolved": app_resolved}
 
 
-def resolve_wttj_urls(conn: sqlite3.Connection) -> int:
+def resolve_wttj_urls(conn: Connection) -> int:
     """Re-fetch WTTJ Algolia API to get proper detail URLs and fix slug-as-title.
     Returns count of URLs updated."""
     wttj_jobs = conn.execute(
@@ -182,7 +181,7 @@ def resolve_wttj_urls(conn: sqlite3.Connection) -> int:
                     (match["url"], match["name"] or old_title, old_url),
                 )
                 updated += 1
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 conn.execute("DELETE FROM jobs WHERE url = ?", (old_url,))
                 updated += 1
         else:
@@ -194,7 +193,7 @@ def resolve_wttj_urls(conn: sqlite3.Connection) -> int:
                             (data["url"], data["name"] or old_title, old_url),
                         )
                         updated += 1
-                    except sqlite3.IntegrityError:
+                    except IntegrityError:
                         conn.execute("DELETE FROM jobs WHERE url = ?", (old_url,))
                         updated += 1
                     break
@@ -607,7 +606,7 @@ def scrape_detail_page(page, url: str) -> dict:
 
 
 def scrape_site_batch(
-    conn: sqlite3.Connection | None,
+    conn: Connection | None,
     site: str,
     jobs: list[tuple],
     delay: float = 2.0,
@@ -689,7 +688,7 @@ def scrape_site_batch(
 
 
 def _run_detail_scraper(
-    conn: sqlite3.Connection,
+    conn: Connection,
     sites: list[str] | None = None,
     max_per_site: int | None = None,
     workers: int = 1,

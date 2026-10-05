@@ -62,7 +62,7 @@ class PgConnection:
 - `pytest tests/test_db_pg_adapter.py -q` passes with no Postgres server (it covers `translate_sql` on quoted `?`,
   `LIKE '%x%'` and named params, plus `PgRow` behavior built from a fake description).
 - `python -c "import applypilot.database"` works without psycopg installed.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 3: Backend dispatch in `database.py` and portable schema
 **Runs:** cloud
@@ -76,7 +76,7 @@ On Postgres, it skips the WAL/busy-timeout PRAGMAs. `ensure_columns()` reads exi
 **Acceptance:**
 - `pytest tests/ -q` passes (SQLite path).
 - A new unit test sets a fake `postgresql://` URL with `PgConnection` monkeypatched, and asserts that dispatch picks it.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 4: Replace SQLite-only SQL across modules
 **Runs:** cloud
@@ -90,7 +90,7 @@ Type hints `sqlite3.Connection` become a `Connection` alias. No behavior change 
 **Acceptance:**
 - The grep above returns only `database.py`'s SQLite-branch code.
 - `pytest tests/ -q` passes.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 5: Postgres test tier
 **Runs:** cloud (code, skipped without a server); local (VPS run against `applypilot_test`)
@@ -103,7 +103,7 @@ store_jobs dedupe, get_jobs_by_stage, get_stats, reset_score_errors) to run on b
 **Acceptance:**
 - `pytest tests/ -q` passes, with pg tests skipped.
 - On the VPS: `APPLYPILOT_TEST_DATABASE_URL=postgresql://applypilot:$PW@127.0.0.1:5432/applypilot_test pytest -m pg -q` passes.
-**Status:** ❌ Not started
+**Status:** 🟡 Cloud part done (2026-10-05), local steps pending (run against `applypilot_test` on analytics-db after Task 1)
 
 ### Task 6: `applypilot db migrate` and `applypilot db verify`
 **Runs:** cloud (code + SQLite→SQLite unit test); local (real migration on the VPS)
@@ -118,7 +118,7 @@ non-zero on any mismatch. The unit test migrates between two SQLite files (the d
 - `pytest tests/test_migrate.py -q` passes.
 - On the VPS: `applypilot db migrate --from ~/.applypilot/applypilot.db --to "$APPLYPILOT_DATABASE_URL"`, then
   `applypilot db verify …` exits 0, and the jobs count equals the SQLite count (3,147 at planning time, or more if discovery ran since).
-**Status:** ❌ Not started
+**Status:** 🟡 Cloud part done (2026-10-05), local steps pending (real migration into analytics-db after Task 1)
 
 ### Task 7: Cut over the VPS to Postgres
 **Runs:** local (VPS)
@@ -152,3 +152,8 @@ T2 adapter → T3 dispatch → T4 portable SQL → T5 pg tests → T6 migrate �
 
 ## Historical Record
 - 2026-10-03: Plan created. engineerfamily was assumed to run MySQL; it runs Postgres 16 (Umami's `analytics-db`), so the target is a new `applypilot` DB there.
+- 2026-10-05: Task 2 done. `db_pg.py`: `translate_sql`, `PgRow`, `PgConnection` (autocommit; writes open a transaction like sqlite3; a failed write inside a transaction rolls back to a savepoint so `except IntegrityError` keeps working). 21 tests in `tests/test_db_pg_adapter.py`.
+- 2026-10-05: Task 3 done. `get_connection` dispatches on `APPLYPILOT_DATABASE_URL` (read at call time via `config.database_url()`, so a `.env` loaded later counts); an explicit path always means SQLite; `sqlite:///` URLs accepted. `table_columns`, `backend_name`, `database.IntegrityError`, `Connection` alias.
+- 2026-10-05: Task 4 done. There was no `INSERT OR`/`datetime('now')` left; the SQLite-only bits were `except sqlite3.IntegrityError` (6 places → `database.IntegrityError`), `char(10)` in `reset_score_errors` (→ bound parameter) and `BEGIN IMMEDIATE` in `apply/launcher.acquire_job` (the adapter maps it to BEGIN; on Postgres the SELECT adds `FOR UPDATE SKIP LOCKED` so parallel apply workers can't claim the same job). Type hints use the `Connection` alias.
+- 2026-10-05: Task 5 code done. `pg` marker, `pg_db`/`db_target` fixtures, autouse `_no_user_database_url` (unit tests never see the developer's `APPLYPILOT_DATABASE_URL`). `tests/test_database_pg.py`: 7 cases × 2 backends + 1 pg-only. Verified against a throwaway `postgres:16-alpine` container on 127.0.0.1:55432: `pytest -m pg` → 8 passed. Still to do: the same run against `applypilot_test` on analytics-db.
+- 2026-10-05: Task 6 code done. `migrate.py` (`migrate`, `verify`, `backup_source`) + `applypilot db migrate|verify`; 8 tests in `tests/test_migrate.py` (+1 pg). Dry run on a copy of the VPS DB into the throwaway Postgres: 3,147 jobs in 3 s, `db verify` all OK; `status` and the HTML dashboard on Postgres match SQLite (same lines; only the order of tied rows differs); 6 concurrent `acquire_job` workers got 6 distinct jobs. Also: the adapter strips NUL bytes from string params (Postgres text can't hold them); `doctor` shows a Database row (backend, user@host, job count, or the connection error).

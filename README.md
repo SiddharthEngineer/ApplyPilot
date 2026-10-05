@@ -186,6 +186,22 @@ On a headless server, run `applypilot drive auth --no-browser`. From your laptop
 automatically after the tailor and cover stages, set `DRIVE_SYNC=1` in `.env`. `applypilot doctor` shows whether Drive
 is authorized.
 
+### Database
+
+Jobs are stored in a SQLite file, `~/.applypilot/applypilot.db`, by default. To share one job store between
+machines or processes (the CLI, cron jobs, a dashboard), point ApplyPilot at Postgres instead:
+
+```bash
+pip install -e ".[postgres]"
+applypilot db migrate --from ~/.applypilot/applypilot.db --to postgresql://user:pw@host:5432/applypilot
+applypilot db verify  --from ~/.applypilot/applypilot.db --to postgresql://user:pw@host:5432/applypilot
+echo 'APPLYPILOT_DATABASE_URL=postgresql://user:pw@host:5432/applypilot' >> .env
+applypilot doctor   # Database: postgresql (user@host), N jobs
+```
+
+`db migrate` can be rerun safely: it copies only the jobs that aren't in Postgres yet, and it backs the SQLite file up
+to `applypilot.db.bak-<date>` first, without changing it. To switch back to SQLite, unset `APPLYPILOT_DATABASE_URL`.
+
 ---
 
 ## CLI Reference
@@ -222,6 +238,8 @@ applypilot drive auth [--no-browser]    # Sign in to Google Drive (see "Google D
 applypilot drive sync [--keep-local]    # Move tailored resume/cover letter PDFs to Drive, save links in the DB
 applypilot drive links [--csv FILE]     # List each job's Drive links
 applypilot status                       # Pipeline statistics
+applypilot db migrate [--from F --to URL]  # Copy the SQLite jobs into Postgres (rerunnable)
+applypilot db verify  [--from F --to URL]  # Compare counts between the two
 applypilot dashboard                    # Open HTML results dashboard
 ```
 
@@ -272,6 +290,7 @@ pytest tests/ --cov=src/applypilot --cov-report=term-missing  # With coverage
 pytest -m live --run-live -v                               # Live network tests (requires network)
 pytest -m llm --run-llm -v                                # LLM tests (requires GEMINI_API_KEY)
 pytest --run-live --run-llm -v                             # Everything
+APPLYPILOT_TEST_DATABASE_URL=postgresql://…/applypilot_test pytest -m pg -q  # Postgres backend (throwaway DB)
 ```
 
 Unit tests are hermetic: `tests/conftest.py` points `APPLYPILOT_DIR` at a temp dir, and any test not marked

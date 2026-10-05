@@ -15,7 +15,6 @@ placeholders replaced from the user's search configuration.
 import json
 import logging
 import re
-import sqlite3
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,7 +30,7 @@ from playwright.sync_api import sync_playwright
 
 from applypilot import config
 from applypilot.config import CONFIG_DIR
-from applypilot.database import get_connection, init_db, store_jobs, get_stats
+from applypilot.database import get_connection, init_db, store_jobs, get_stats, Connection, IntegrityError
 from applypilot.llm import LLMQuotaExhausted, get_discovery_client
 
 log = logging.getLogger(__name__)
@@ -138,7 +137,7 @@ def load_sites() -> list[dict]:
 
 
 def _store_jobs_filtered(
-    conn: sqlite3.Connection,
+    conn: Connection,
     jobs: list[dict],
     site: str,
     strategy: str,
@@ -166,7 +165,7 @@ def _store_jobs_filtered(
                  job.get("location"), site, strategy, now),
             )
             new += 1
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             existing += 1
 
     if filtered:

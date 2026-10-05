@@ -64,3 +64,65 @@ def test_drive_columns_on_fresh_and_migrated_db(tmp_path):
     conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, site TEXT, strategy TEXT)")
     ensure_columns(conn)
     assert DRIVE_COLUMNS <= _columns(conn)
+
+
+class TestBackendDispatch:
+    """get_connection() picks Postgres for postgresql:// URLs and SQLite otherwise."""
+
+    class _FakePg:
+        def __init__(self, url):
+            self.url = url
+
+        def execute(self, sql, params=()):
+            return self
+
+    def _patch_pg(self, monkeypatch):
+        from applypilot import database
+
+        monkeypatch.setattr(database, "PgConnection", self._FakePg)
+        return database
+
+    def test_env_url_selects_postgres(self, monkeypatch):
+        database = self._patch_pg(monkeypatch)
+        url = "postgresql://applypilot:pw@127.0.0.1:5432/applypilot"
+        monkeypatch.setenv("APPLYPILOT_DATABASE_URL", url)
+        conn = database.get_connection()
+        try:
+            assert isinstance(conn, self._FakePg) and conn.url == url
+            assert database.get_connection() is conn  # cached per thread
+        finally:
+            database._local.connections.pop(url, None)
+
+    def test_explicit_path_wins_over_env(self, monkeypatch, tmp_path):
+        database = self._patch_pg(monkeypatch)
+        monkeypatch.setenv("APPLYPILOT_DATABASE_URL", "postgresql://u:p@127.0.0.1/db")
+        conn = database.get_connection(tmp_path / "x.db")
+        assert isinstance(conn, sqlite3.Connection)
+        assert database.backend_name(conn) == "sqlite"
+
+    def test_unset_env_uses_sqlite_db_path(self, monkeypatch):
+        from applypilot import database
+
+        monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)
+        assert database._resolve_target(None) == str(database.DB_PATH)
+
+    def test_sqlite_url(self, tmp_path):
+        from applypilot import database
+
+        assert database._resolve_target(f"sqlite:///{tmp_path}/a.db") == f"{tmp_path}/a.db"
+        conn = init_db(f"sqlite:///{tmp_path}/a.db")
+        assert "company" in _columns(conn)
+        assert (tmp_path / "a.db").exists()
+
+    def test_backend_name_postgres(self):
+        from applypilot.database import backend_name
+        from applypilot.db_pg import PgConnection
+
+        pg = PgConnection.__new__(PgConnection)
+        assert backend_name(pg) == "postgresql"
+
+    def test_table_columns_sqlite(self, tmp_path):
+        from applypilot.database import table_columns
+
+        conn = init_db(tmp_path / "t.db")
+        assert {"url", "fit_score", "company"} <= table_columns(conn)

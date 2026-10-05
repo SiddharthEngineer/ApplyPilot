@@ -10,7 +10,6 @@ JobSpy results.
 import html
 import logging
 import re
-import sqlite3
 from datetime import UTC, datetime
 
 import httpx
@@ -18,7 +17,7 @@ import yaml
 from bs4 import BeautifulSoup
 
 from applypilot import config
-from applypilot.database import init_db
+from applypilot.database import Connection, IntegrityError, init_db
 from applypilot.discovery.jobspy import _load_location_config, _location_ok
 
 log = logging.getLogger(__name__)
@@ -162,7 +161,7 @@ def title_matches(title: str, queries: list[str]) -> bool:
     return any(q.split() and all(_word_re(w).search(t) for w in q.lower().split()) for q in queries)
 
 
-def store_ats_jobs(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[int, int]:
+def store_ats_jobs(conn: Connection, jobs: list[dict]) -> tuple[int, int]:
     """Insert jobs, skipping URLs already in the DB. Returns (new, existing)."""
     now = datetime.now(UTC).isoformat()
     new = existing = 0
@@ -177,7 +176,7 @@ def store_ats_jobs(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[int, int
                  now if j.get("full_description") else None, j["site"]),
             )
             new += 1
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             existing += 1
     conn.commit()
     return new, existing
@@ -188,7 +187,7 @@ def run_ats_discovery(
     accept_locs: list[str] | None = None,
     reject_locs: list[str] | None = None,
     boards: list[dict] | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn: Connection | None = None,
 ) -> dict:
     """Fetch every configured board, keep jobs whose title matches a query and whose
     location passes the filter, and store them. One failing board doesn't stop the rest.

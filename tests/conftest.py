@@ -78,6 +78,60 @@ def _block_network(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True)
+def _no_user_database_url(monkeypatch: pytest.MonkeyPatch):
+    """Unit tests never use the developer's Postgres job store (APPLYPILOT_DATABASE_URL from a shell or .env).
+
+    Tests that want Postgres use the `pg_db` / `db_target` fixtures (APPLYPILOT_TEST_DATABASE_URL).
+    """
+    monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)
+
+
+def _test_database_url() -> str | None:
+    return os.environ.get("APPLYPILOT_TEST_DATABASE_URL") or None
+
+
+def _reset_pg_schema(url: str) -> None:
+    from applypilot.db_pg import PgConnection
+
+    conn = PgConnection(url)
+    try:
+        conn.execute("DROP TABLE IF EXISTS jobs")
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def pg_db():
+    """A fresh `jobs` table in APPLYPILOT_TEST_DATABASE_URL (a throwaway DB such as applypilot_test).
+
+    Yields the URL; `init_db(url)` / `get_connection(url)` open it. Skips when the variable is unset.
+    """
+    url = _test_database_url()
+    if not url:
+        pytest.skip("APPLYPILOT_TEST_DATABASE_URL not set (Postgres test tier)")
+    pytest.importorskip("psycopg")
+    from applypilot.database import close_connection
+
+    close_connection(url)
+    _reset_pg_schema(url)
+    yield url
+    close_connection(url)
+
+
+@pytest.fixture
+def db_target(request: pytest.FixtureRequest, tmp_path):
+    """A database target for backend-parametrized tests: a temp SQLite path, or the Postgres test URL.
+
+    Use with ``@pytest.mark.parametrize("db_target", ["sqlite", pytest.param("pg", marks=pytest.mark.pg)],
+    indirect=True)``.
+    """
+    if request.param == "pg":
+        yield request.getfixturevalue("pg_db")
+    else:
+        yield tmp_path / "jobs.db"
+
+
+@pytest.fixture(autouse=True)
 def _isolate_env_file(request: pytest.FixtureRequest):
     """Keep load_env() away from the repo-root .env (its CWD fallback) in unit tests.
 

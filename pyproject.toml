@@ -32,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1"]
 drive = ["google-api-python-client>=2.0", "google-auth-oauthlib>=1.0"]
+postgres = ["psycopg[binary]>=3.2"]
 
 [project.scripts]
 applypilot = "applypilot.cli:app"
@@ -60,4 +61,5 @@ markers = [
     "live: real network/Playwright tests (requires --run-live)",
     "llm: real Gemini/API calls (requires --run-llm)",
     "expensive: live or llm tests (requires --run-live or --run-llm)",
+    "pg: Postgres backend tests (require APPLYPILOT_TEST_DATABASE_URL; skipped without it)",
 ]

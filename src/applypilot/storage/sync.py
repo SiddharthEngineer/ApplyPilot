@@ -8,11 +8,10 @@ moved PDF, ensure_local_pdf() downloads it back to its original path.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from applypilot.database import get_connection
+from applypilot.database import Connection, get_connection
 from applypilot.storage.drive import DriveClient, DriveNotConfigured, file_md5
 from applypilot.storage.drive_layout import KINDS, drive_target
 
@@ -27,7 +26,7 @@ def local_pdf(job: dict, kind: str) -> Path | None:
     return Path(path).with_suffix(".pdf") if path else None
 
 
-def sync_job(conn: sqlite3.Connection, client: DriveClient, job: dict, keep_local: bool = False) -> dict:
+def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool = False) -> dict:
     """Upload this job's local PDFs, save their links, and delete the local copies once verified."""
     counts = {"uploaded": 0, "updated": 0, "moved": 0, "errors": 0}
     for kind in KINDS:
@@ -54,7 +53,7 @@ def sync_job(conn: sqlite3.Connection, client: DriveClient, job: dict, keep_loca
     return counts
 
 
-def _jobs_with_files(conn: sqlite3.Connection) -> list[dict]:
+def _jobs_with_files(conn: Connection) -> list[dict]:
     cur = conn.execute(
         "SELECT * FROM jobs WHERE tailored_resume_path IS NOT NULL "
         "OR (cover_letter_path IS NOT NULL AND cover_letter_path != '') "
@@ -64,7 +63,7 @@ def _jobs_with_files(conn: sqlite3.Connection) -> list[dict]:
     return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
-def run_drive_sync(conn: sqlite3.Connection | None = None, client: DriveClient | None = None,
+def run_drive_sync(conn: Connection | None = None, client: DriveClient | None = None,
                    limit: int | None = None, keep_local: bool = False) -> dict:
     """Move every local tailored resume and cover letter PDF to Drive.
 
@@ -104,7 +103,7 @@ def run_drive_sync(conn: sqlite3.Connection | None = None, client: DriveClient |
     return totals
 
 
-def moved_pdf_paths(conn: sqlite3.Connection | None = None) -> set[Path]:
+def moved_pdf_paths(conn: Connection | None = None) -> set[Path]:
     """Local PDF paths whose files now live in Drive, so the pdf stage must not rebuild them."""
     conn = conn or get_connection()
     moved: set[Path] = set()

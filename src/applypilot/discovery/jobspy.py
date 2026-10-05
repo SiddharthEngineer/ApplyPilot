@@ -10,7 +10,6 @@ search configuration YAML (searches.yaml) rather than being hardcoded.
 import logging
 import os
 import re
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -20,7 +19,7 @@ import pandas as pd
 from jobspy import scrape_jobs
 
 from applypilot import config
-from applypilot.database import get_connection, init_db, store_jobs
+from applypilot.database import Connection, IntegrityError, get_connection, init_db, store_jobs
 
 log = logging.getLogger(__name__)
 
@@ -307,7 +306,7 @@ def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> 
 
 # -- DB storage (JobSpy DataFrame -> SQLite) ---------------------------------
 
-def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tuple[int, int]:
+def store_jobspy_results(conn: Connection, df, source_label: str) -> tuple[int, int]:
     """Store JobSpy DataFrame results into the DB. Returns (new, existing)."""
     now = datetime.now(timezone.utc).isoformat()
     new = 0
@@ -365,7 +364,7 @@ def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tup
                  full_description, apply_url, detail_scraped_at, company),
             )
             new += 1
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             existing += 1
 
     conn.commit()
@@ -478,7 +477,7 @@ def search_jobs(
     hours_old: int = 72,
     proxy: str | None = None,
     country_indeed: str = "usa",
-    conn: sqlite3.Connection | None = None,
+    conn: Connection | None = None,
 ) -> dict:
     """Run a single job search via JobSpy and store results in DB."""
     if sites is None:
