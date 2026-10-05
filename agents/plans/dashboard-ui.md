@@ -1,6 +1,6 @@
 # Plan: Dashboard UI (React + Vite)
 **Started:** 2026-10-03
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-05)
 
 ## Goal
 This is the browser front end for the job dashboard, served by `applypilot serve` at `/app/`. A filterable, sortable jobs table is
@@ -74,7 +74,7 @@ All state is synced to the URL query string through `useQueryState`, and the pag
 - Vitest, with mocked `api.ts`, checks section rendering with and without `details`, the submit flow with the default and an edited date, and
   that the buttons are disabled while a task runs.
 - On the VPS: a manual click-through on one job (generate → in progress → submit → rejected) is recorded in the Historical Record.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ## Implementation Order
 ```
@@ -94,3 +94,10 @@ T1 scaffold ─→ T2 table ─→ T3 filters
 - 2026-10-05: Task 1 done (VPS session 8). React 18 + TS + Vite 8, Vitest 5 + Testing Library; react-router-dom 7 (6.x has open advisories, GHSA-wrjc-x8rr-h8h6). `serve` now defaults to the packaged bundle in `web/static` when `APPLYPILOT_WEB_DIR` is unset. Checked live: `/app/`, `/app/jobs/x` (SPA fallback) and the JS asset return 200.
 - 2026-10-05: Task 2 done. `useQueryState.ts` (URL ⇄ query parse/serialize) landed here rather than in Task 3, because sort and page already live in the URL. Sorting: the first click on a header sorts descending, the second ascending. The table has `min-width: 900px` inside an `overflow-x: auto` container. Vitest: 12 passed.
 - 2026-10-05: Task 3 done. The status filter is single-select (a segmented control, matching the brief). Role is a checkbox dropdown that lists all 11 categories with counts. Location and search are both debounced (300 ms), and location suggestions come from the facets' top 30. Fit score uses 1–10 selects, so invalid values can't be entered. Clear keeps the sort, and any filter change resets to page 1. Vitest: 20 passed.
+- 2026-10-05: Task 4 done. Vitest: 30 passed. When `details` exists, the full posting is a collapsible card. Notes save on blur only when they changed. While a task is queued or running, the three generate buttons are disabled.
+- 2026-10-05: **Live click-through on the VPS** (headless Chromium, `applypilot serve` on Postgres): Snowflake "Senior Data Scientist - Product" (`d3ec9f25b891`).
+  - Generate both: the status went Active → In progress and the buttons were disabled. It finished in 33 s, and the Drive folder, resume and cover letter links appeared.
+  - Mark submitted defaulted to 2026-10-05, then Rejected. History: Active → In progress (generate) → Submitted → Rejected.
+  - Afterwards the status was reset to Active with the API. The generated files and Drive links were kept.
+- 2026-10-05: Success criteria: 1 ✅ (build + Vitest). 2 ✅ (badges and every filter, verified by Vitest plus screenshots against the live DB). 3 ✅ (URL state). 4 ✅ (live). 5 ✅ (at 375 px the page `scrollWidth` is 375 and the table scrolls inside its container, 1007 px wide in a 341 px box).
+

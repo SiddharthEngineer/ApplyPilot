@@ -131,33 +131,39 @@ export default function Filters({ query, facets, onChange }: Props) {
       <div className="filter-row">
         <fieldset className="range">
           <legend>Found</legend>
-          <input type="date" aria-label="Found from" value={query.found_from ?? ''}
-            onChange={(e) => onChange({ found_from: e.target.value || undefined })} />
-          <span>–</span>
-          <input type="date" aria-label="Found to" value={query.found_to ?? ''}
-            onChange={(e) => onChange({ found_to: e.target.value || undefined })} />
+          <div className="range-inputs">
+            <input type="date" aria-label="Found from" value={query.found_from ?? ''}
+              onChange={(e) => onChange({ found_from: e.target.value || undefined })} />
+            <span>–</span>
+            <input type="date" aria-label="Found to" value={query.found_to ?? ''}
+              onChange={(e) => onChange({ found_to: e.target.value || undefined })} />
+          </div>
         </fieldset>
         <fieldset className="range">
           <legend>Due</legend>
-          <input type="date" aria-label="Due from" value={query.due_from ?? ''}
-            onChange={(e) => onChange({ due_from: e.target.value || undefined })} />
-          <span>–</span>
-          <input type="date" aria-label="Due to" value={query.due_to ?? ''}
-            onChange={(e) => onChange({ due_to: e.target.value || undefined })} />
+          <div className="range-inputs">
+            <input type="date" aria-label="Due from" value={query.due_from ?? ''}
+              onChange={(e) => onChange({ due_from: e.target.value || undefined })} />
+            <span>–</span>
+            <input type="date" aria-label="Due to" value={query.due_to ?? ''}
+              onChange={(e) => onChange({ due_to: e.target.value || undefined })} />
+          </div>
         </fieldset>
         <fieldset className="range">
           <legend>Fit score</legend>
-          <select aria-label="Fit score min" value={query.score_min ?? ''}
-            onChange={(e) => onChange({ score_min: e.target.value ? Number(e.target.value) : undefined })}>
-            <option value="">Any</option>
-            {SCORES.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <span>–</span>
-          <select aria-label="Fit score max" value={query.score_max ?? ''}
-            onChange={(e) => onChange({ score_max: e.target.value ? Number(e.target.value) : undefined })}>
-            <option value="">Any</option>
-            {SCORES.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
+          <div className="range-inputs">
+            <select aria-label="Fit score min" value={query.score_min ?? ''}
+              onChange={(e) => onChange({ score_min: e.target.value ? Number(e.target.value) : undefined })}>
+              <option value="">Any</option>
+              {SCORES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <span>–</span>
+            <select aria-label="Fit score max" value={query.score_max ?? ''}
+              onChange={(e) => onChange({ score_max: e.target.value ? Number(e.target.value) : undefined })}>
+              <option value="">Any</option>
+              {SCORES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
         </fieldset>
         <button type="button" className="clear" disabled={!hasFilters} onClick={() => onChange(null)}>
           Clear filters
