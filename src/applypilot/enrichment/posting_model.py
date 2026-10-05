@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field, fields
 
 # Bump whenever the schema or the extraction prompt changes: rows with an older
 # extract_version are picked up again by the extract stage.
-EXTRACT_VERSION = 1
+EXTRACT_VERSION = 3  # 2: title-first categories, no inferred skills/work mode, exact pay figures; 3: "Remote" is not a city
 
 ROLE_CATEGORIES = (
     "data_science", "data_engineering", "ml_ai_engineering", "data_analytics_bi",
@@ -101,7 +101,8 @@ class JobPosting:
                 continue
             raw = data[f.name]
             if f.name == "locations":
-                out.locations = [_location(x) for x in raw or [] if isinstance(x, dict)]
+                locs = [_location(x) for x in raw or [] if isinstance(x, dict)]
+                out.locations = [loc for loc in locs if loc.city or loc.state or loc.country]
             elif f.name in ENUMS:
                 value = _enum(f.name, raw)
                 # salary_period is optional: keep None when the posting has no salary.
@@ -161,8 +162,17 @@ def _enum(name: str, value) -> str:
     return "other" if name == "role_category" else "unknown"
 
 
+_NOT_A_PLACE = re.compile(r"^(?:remote|virtual|anywhere|hybrid|on-?site|n/?a|various|multiple locations?)$", re.IGNORECASE)
+
+
+def _place(value) -> str | None:
+    text = _str(value)
+    return None if text is None or _NOT_A_PLACE.match(text) else text
+
+
 def _location(data: dict) -> Location:
-    return Location(city=_str(data.get("city")), state=_str(data.get("state")), country=_str(data.get("country")))
+    """A Location, with work-mode words ("Remote") dropped: they aren't places."""
+    return Location(city=_place(data.get("city")), state=_place(data.get("state")), country=_place(data.get("country")))
 
 
 # ── Gemini responseSchema ────────────────────────────────────────────────

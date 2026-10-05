@@ -107,6 +107,11 @@ class TestFromDict:
         assert p.locations == [Location("X", None, None)]
         assert p.summary == "" and p.company is None
 
+    def test_remote_is_not_a_city(self):
+        p = JobPosting.from_dict({"locations": [{"city": "Remote", "state": None, "country": "US"},
+                                                {"city": "remote", "state": None, "country": None}]})
+        assert p.locations == [Location(None, None, "US")]
+
     def test_non_object_raises(self):
         import pytest
         with pytest.raises(ValueError):

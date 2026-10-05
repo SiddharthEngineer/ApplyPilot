@@ -27,9 +27,11 @@ _ROLE_HINTS = {
     "research_science": "research scientist/engineer, applied scientist, PhD research roles",
     "product_program_management": "product, program, project or technical program manager",
     "quant_finance": "quantitative researcher/developer/analyst, trading",
-    "hardware_electrical": "hardware, electrical, chip/ASIC/FPGA, photonics, embedded/firmware, RF",
+    "hardware_electrical": "hardware, electrical, chip/ASIC/FPGA, photonics, embedded/firmware, RF, "
+                           "semiconductor fab/process/yield/metrology engineering",
     "it_infra_devops": "DevOps, SRE, cloud/infra/platform/network/security engineer, sysadmin, IT",
-    "other": "sales, customer success, operations, consulting, non-technical, anything else",
+    "other": "sales, customer success, operations, consultants, implementation/delivery managers, "
+             "non-technical, anything else",
 }
 
 
@@ -49,8 +51,13 @@ CORE RULE: extract, never infer. If the posting doesn't state something, use nul
 Never invent a company, salary, date, skill, or requirement. Copy names, numbers and tools as written.
 Use both the metadata block and the description; the metadata location and salary are reliable.
 
-ROLE CATEGORY (role_category): decide from the job title first, the responsibilities second.
+ROLE CATEGORY (role_category): the job family the TITLE names; responsibilities only break ties.
 {role_lines}
+  A title that says Software Engineer / Developer is software_engineering unless the title itself names a
+  specialty ("Software Engineer, Machine Learning" -> ml_ai_engineering, "Software Engineer, Infrastructure"
+  -> it_infra_devops, "Software Engineer, Data Platform" -> data_engineering). A team name in the title
+  ("Software Engineer, Host Assurance", "..., Workload Enablement") is not a specialty. Only when the title
+  is generic ("Systems Engineer", "Engineer", "Specialist") decide from the responsibilities.
 
 ENUMS (use exactly these values):
 - role_category: {' | '.join(ROLE_CATEGORIES)}
@@ -68,10 +75,13 @@ FIELD RULES
   part_time, full_time. unknown when the posting doesn't say.
 - work_mode: from explicit wording or the location string. "remote", "work from anywhere", "Remote - USA" ->
   remote. A required share of office time (days per week, a percentage) -> hybrid, even when the location
-  says remote-friendly. "on-site", "in office 5 days", "not remote" -> onsite. Nothing explicit -> unknown.
+  says remote-friendly. "on-site", "in office 5 days", "not remote" -> onsite. Nothing explicit -> unknown:
+  an office address, a shift schedule or a city alone does not make a job onsite.
 - locations: each listed place as city / state / country. US states as 2-letter codes, the US as "US".
   Leave out "Remote" itself; remote_region holds where a remote worker may live ("US", "EMEA", "Canada").
-- salary_min / salary_max: base pay as plain numbers (no commas, "$120K" -> 120000). If several base-pay
+- salary_min / salary_max: base pay as plain numbers (no commas, "$120K" -> 120000). Use the exact figures
+  from the description when it has them ("$38.07 - $56.73 per hour" -> 38.07 and 56.73); the metadata
+  salary column is rounded and only a fallback. If several base-pay
   ranges are given (by location or level), use the lowest minimum and the highest maximum. A single figure
   goes in both. Exclude equity, bonus and on-target-earnings extras unless that is the only figure.
   salary_currency as an ISO code ("USD"); salary_period: year, month or hour. All null with no pay info.
@@ -87,6 +97,8 @@ FIELD RULES
   preferred_qualifications. Leave out EEO, legal, privacy, benefits and application-process text.
 - skills_required / skills_preferred: concrete tools, languages, frameworks and methods named in the
   required / preferred qualifications ("Python", "PyTorch", "SQL", "Kubernetes"). One per item, no duplicates.
+  Each skill must appear word for word in the posting. Never add a skill the text only implies
+  ("integrations" is not "API"; "patient data" is not "HIPAA").
 - education_level: the minimum degree required (alternatives like "Bachelor's + 7 years or PhD" -> the
   lowest degree). education_fields: the fields named ("Computer Science").
 - years_experience_min / years_experience_max: from the required qualifications only; with degree-dependent
