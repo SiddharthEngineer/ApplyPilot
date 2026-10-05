@@ -1,0 +1,12 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "research_science",
+  "work_mode": "unknown",
+  "seniority": "entry",
+  "salary_min": 168000,
+  "salary_max": 264500,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "application_deadline": null,
+  "education_level": "phd"
+}

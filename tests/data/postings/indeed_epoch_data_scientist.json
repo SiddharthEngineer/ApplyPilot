@@ -1,0 +1,10 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "data_science",
+  "work_mode": "remote",
+  "employment_type": "contract",
+  "salary_min": 30,
+  "salary_max": 40,
+  "salary_currency": "USD",
+  "salary_period": "hour"
+}

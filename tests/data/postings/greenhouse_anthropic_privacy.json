@@ -1,0 +1,12 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "software_engineering",
+  "work_mode": "hybrid",
+  "seniority": "staff_principal",
+  "salary_min": 405000,
+  "salary_max": 485000,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "visa_sponsorship": "yes",
+  "education_level": "bachelors"
+}

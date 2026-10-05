@@ -1,0 +1,10 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "ml_ai_engineering",
+  "work_mode": "hybrid",
+  "salary_min": 91000,
+  "salary_max": 130000,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "years_experience_min": 5
+}

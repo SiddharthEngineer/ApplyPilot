@@ -1,0 +1,11 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "software_engineering",
+  "work_mode": "remote",
+  "seniority": "staff_principal",
+  "salary_min": 253895,
+  "salary_max": 298700,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "years_experience_min": 12
+}

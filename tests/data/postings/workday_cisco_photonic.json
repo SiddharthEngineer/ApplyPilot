@@ -1,0 +1,12 @@
+{
+  "_note": "Hand-checked expected values for the fields listed; other fields are not checked.",
+  "role_category": "hardware_electrical",
+  "work_mode": "hybrid",
+  "salary_min": 136500,
+  "salary_max": 259100,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "application_deadline": "2026-08-24",
+  "education_level": "bachelors",
+  "years_experience_min": 7
+}

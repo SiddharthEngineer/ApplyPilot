@@ -1,0 +1,82 @@
+**Req ID:**
+387360
+  
+  
+NTT DATA strives to hire exceptional, innovative and passionate individuals who want to grow with us. If you want to be part of an inclusive, adaptable, and forward-thinking organization, apply now.
+  
+  
+We are currently seeking a Business Consultant - AI/ML Engineer to join our team in Chicago, Illinois (US-IL), United States (US).
+  
+  
+**Job Title:**
+Business Consultant – AI/ML Engineer
+  
+  
+**Location:**
+Atlanta/Chicago (Hybrid – Onsite)
+  
+  
+**Employment Type:**
+Contract/Permanent
+  
+  
+**Role Summary**
+We are seeking an experienced
+**Business Consultant – AI/ML Engineer**
+to design, develop, and deploy scalable Artificial Intelligence and Machine Learning solutions. The ideal candidate should have strong hands-on experience with Python, machine learning frameworks, data processing, and cloud-based AI/ML services.
+  
+  
+The role will collaborate with data scientists, data engineers, application developers, and business stakeholders to build production-ready ML solutions and integrate AI capabilities into enterprise applications.
+  
+  
+**Day To Day Job Duties**
+
+* Design, develop, train, and deploy Machine Learning models for enterprise use cases.
+* Develop data preprocessing, feature engineering, model training, and evaluation pipelines.
+* Build and integrate AI/ML services with enterprise applications using APIs and Microservices.
+* Evaluate ML algorithms and optimize models for accuracy, performance, and scalability.
+* Develop automated ML pipelines for model training, testing, deployment, and monitoring.
+* Collaborate with Data Scientists, Data Engineers, and business teams to translate requirements into AI/ML solutions.
+* Implement MLOps practices for model versioning, deployment, monitoring, and lifecycle management.
+* Work with structured and unstructured datasets from multiple sources.
+* Monitor production models and address model performance, drift, and data-quality issues.
+* Participate in code reviews, technical design discussions, and Agile delivery activities.
+
+**Basic Qualifications**
+
+* 5+ years of experience in Python development, Data Science, or Machine Learning engineering.
+* 3+ years of experience developing ML solutions using Scikit-learn, TensorFlow, PyTorch, or similar frameworks.
+* 3+ years of experience with data processing, feature engineering, SQL, and model development.
+* 2+ years of experience deploying AI/ML solutions on AWS, Azure, or Google Cloud Platform.
+
+**Nice to Have**
+
+* Experience with Generative AI, Large Language Models (LLMs), and Agentic AI.
+* Knowledge of RAG, embeddings, vector databases, and semantic search.
+* Experience with LLM frameworks such as LangChain, LlamaIndex, or similar technologies.
+* Experience with Azure OpenAI, Amazon Bedrock, Vertex AI, or similar AI platforms.
+* Knowledge of MLOps tools and model lifecycle management.
+* Experience with Docker, Kubernetes, and CI/CD pipelines.
+* Familiarity with Spark, Databricks, Snowflake, or other enterprise data platforms.
+* Understanding of responsible AI, model governance, security, and data privacy.
+* Experience developing AI solutions within Banking, Financial Services, Healthcare, Retail, or other enterprise domains.
+* Strong analytical, problem-solving, communication, and stakeholder management skills.
+
+NTT DATA provides a reasonable range of compensation for U.S.-based positions. The starting pay range for this role if in Atlanta, GA is $91,000-115,000 and if in Chicago, IL then it is 100,000-130,000. Actual compensation will depend on a number of factors, including the candidate’s relevant experience, technical skills, and other qualifications.
+  
+  
+This position may also be eligible for incentive compensation based on individual and/or company performance.
+  
+  
+This position is eligible for company benefits including medical, dental, and vision insurance with an employer contribution, flexible spending or health savings account, life and AD&D insurance, short and long term disability coverage, paid time off, employee assistance, participation in a 401k program with company match, and additional voluntary or legally-required benefits.
+  
+  
+**About NTT DATA**
+NTT DATA is a $30 billion business and technology services leader, serving 75% of the Fortune Global 100. We are committed to accelerating client success and positively impacting society through responsible innovation. We are one of the world's leading AI and digital infrastructure providers, with unmatched capabilities in enterprise-scale AI, cloud, security, connectivity, data centers and application services. our consulting and Industry solutions help organizations and society move confidently and sustainably into the digital future. As a Global Top Employer, we have experts in more than 50 countries. We also offer clients access to a robust ecosystem of innovation centers as well as established and start-up partners. NTT DATA is a part of NTT Group, which invests over $3 billion each year in R&D.
+  
+  
+Whenever possible, we hire locally to NTT DATA offices or client sites. This ensures we can provide timely and effective support tailored to each client’s needs. While many positions offer remote or hybrid work options, these arrangements are subject to change based on client requirements. For employees near an NTT DATA office or client site, in-office attendance may be required for meetings or events, depending on business needs. At NTT DATA, we are committed to staying flexible and meeting the evolving needs of both our clients and employees. NTT DATA recruiters will never ask for payment or banking information and will only use @nttdata.com, @nttdatafed.com and @talent.nttdataservices.com email addresses. If you are requested to provide payment or disclose banking information, please submit a contact us form, https://us.nttdata.com/en/contact-us.
+  
+  
+***NTT DATA endeavors to make https://us.nttdata.com accessible to any and all users. If you would like to contact us regarding the accessibility of our website or need assistance completing the application process, please contact us at https://us.nttdata.com/en/contact-us.***
+***This contact information is for accommodation requests only and cannot be used to inquire about the status of applications. NTT DATA is an equal opportunity employer. Qualified applicants will receive consideration for employment without regard to race, color, religion, sex, sexual orientation, gender identity, national origin, disability or protected veteran status. For our EEO Policy Statement, please click here. If you'd like more information on your EEO rights under the law, please click here. For Pay Transparency information, please click here.***
