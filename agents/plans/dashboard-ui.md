@@ -56,7 +56,7 @@ Pagination is server-side (50 per page) and shows the total count. Loading, empt
 
 All state is synced to the URL query string through `useQueryState`, and the page refetches when it changes.
 **Acceptance:** Vitest checks that each control writes the expected query param and that loading a URL with params restores the controls.
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-05)
 
 ### Task 4: Job detail page and actions
 **Runs:** cloud (code + tests); local (click-through on the VPS)
@@ -93,3 +93,4 @@ T1 scaffold ─→ T2 table ─→ T3 filters
 - 2026-10-03: Plan created.
 - 2026-10-05: Task 1 done (VPS session 8). React 18 + TS + Vite 8, Vitest 5 + Testing Library; react-router-dom 7 (6.x has open advisories, GHSA-wrjc-x8rr-h8h6). `serve` now defaults to the packaged bundle in `web/static` when `APPLYPILOT_WEB_DIR` is unset. Checked live: `/app/`, `/app/jobs/x` (SPA fallback) and the JS asset return 200.
 - 2026-10-05: Task 2 done. `useQueryState.ts` (URL ⇄ query parse/serialize) landed here rather than in Task 3, because sort and page already live in the URL. Sorting: the first click on a header sorts descending, the second ascending. The table has `min-width: 900px` inside an `overflow-x: auto` container. Vitest: 12 passed.
+- 2026-10-05: Task 3 done. The status filter is single-select (a segmented control, matching the brief). Role is a checkbox dropdown that lists all 11 categories with counts. Location and search are both debounced (300 ms), and location suggestions come from the facets' top 30. Fit score uses 1–10 selects, so invalid values can't be entered. Clear keeps the sort, and any filter change resets to page 1. Vitest: 20 passed.

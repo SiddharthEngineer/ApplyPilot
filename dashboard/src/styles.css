@@ -98,3 +98,34 @@ button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(
 .sort-indicator { font-size: 10px; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0; }
 .loading { opacity: 0.6; transition: opacity 0.15s; }
+
+.filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.segmented { display: flex; flex-wrap: wrap; gap: 4px; }
+.segmented button { border-radius: 999px; padding: 4px 12px; }
+.segmented button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.segmented.small button { padding: 4px 10px; font-size: 13px; }
+.count { margin-left: 6px; font-size: 12px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.field.grow { flex: 1 1 220px; }
+.field input, .range input, .range select, textarea {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; color: var(--text); font-size: 14px;
+}
+.field input { min-width: 0; }
+.range { display: flex; align-items: center; gap: 6px; border: 0; padding: 0; margin: 0; }
+.range legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 2px; float: left; width: 100%; }
+.dropdown { position: relative; }
+.dropdown summary {
+  list-style: none; cursor: pointer; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; color: var(--text); font-size: 14px; margin-top: 16px;
+}
+.dropdown summary::-webkit-details-marker { display: none; }
+.dropdown summary::after { content: ' ▾'; color: var(--muted); }
+.dropdown-panel {
+  position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; min-width: 240px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+}
+.check { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--text); font-size: 14px; cursor: pointer; border-radius: 4px; }
+.check:hover { background: var(--surface-2); }
+.check .count { margin-left: auto; }
+.clear { margin-left: auto; }

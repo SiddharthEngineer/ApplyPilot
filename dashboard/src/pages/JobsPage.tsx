@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { listJobs } from '../api';
+import { getFacets, listJobs } from '../api';
+import Filters from '../components/Filters';
 import JobsTable from '../components/JobsTable';
-import type { JobList } from '../types';
+import type { Facets, JobList } from '../types';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
 
 export default function JobsPage() {
@@ -9,7 +10,14 @@ export default function JobsPage() {
   const [data, setData] = useState<JobList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [facets, setFacets] = useState<Facets | null>(null);
   const queryKey = JSON.stringify(query);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    getFacets(ctrl.signal).then(setFacets).catch(() => {}); // counts are optional
+    return () => ctrl.abort();
+  }, []);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -44,6 +52,7 @@ export default function JobsPage() {
           </span>
         )}
       </div>
+      <Filters query={query} facets={facets} onChange={update} />
       {error ? (
         <p className="notice error" role="alert">Couldn't load jobs: {error}</p>
       ) : !data && loading ? (
