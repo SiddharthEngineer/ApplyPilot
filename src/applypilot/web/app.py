@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -21,7 +22,7 @@ from pydantic import BaseModel
 
 from applypilot import __version__, tracking
 from applypilot.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
-from applypilot.web import queries
+from applypilot.web import queries, tasks
 
 PREFIX = "/app"
 CSRF_HEADER = "X-ApplyPilot"
@@ -164,20 +165,73 @@ def patch_job(key: str, body: JobPatch, request: Request) -> dict:
     return job_detail(conn, job_by_key(conn, key))
 
 
+class GenerateRequest(BaseModel):
+    resume: bool = True
+    cover: bool = False
+
+
+@api.post("/jobs/{key}/generate")
+def generate(key: str, body: GenerateRequest, request: Request) -> dict:
+    """Queue resume and/or cover-letter generation for one job. Poll GET /app/api/tasks/{id}."""
+    if not (body.resume or body.cover):
+        raise HTTPException(status_code=422, detail="Choose a resume, a cover letter, or both")
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    kind = "both" if body.resume and body.cover else ("resume" if body.resume else "cover")
+    task = tasks.enqueue(conn, job["url"], kind)
+    runner = request.app.state.runner
+    if runner:
+        runner.notify()
+    return {**task, "key": key}
+
+
+@api.get("/tasks/{task_id}")
+def get_task(task_id: str, request: Request) -> dict:
+    conn = db_conn(request)
+    task = tasks.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    row = conn.execute("SELECT job_key FROM jobs WHERE url = ?", (task["url"],)).fetchone()
+    return {**task, "key": row[0] if row else None}
+
+
+@api.get("/jobs/{key}/tasks")
+def list_job_tasks(key: str, request: Request) -> list[dict]:
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    return [{**t, "key": key} for t in tasks.job_tasks(conn, job["url"])]
+
+
 def _default_static_dir() -> Path | None:
     value = os.environ.get("APPLYPILOT_WEB_DIR")
     return Path(value) if value else None
 
 
-def create_app(static_dir: Path | str | None = None, db: Path | str | None = None) -> FastAPI:
+def create_app(static_dir: Path | str | None = None, db: Path | str | None = None,
+               generate: tasks.Generator | None = None, run_tasks: bool = True) -> FastAPI:
     """The dashboard app.
 
     static_dir: the built UI (default: $APPLYPILOT_WEB_DIR); without it only the API is served.
     db: a SQLite path or database URL (default: APPLYPILOT_DATABASE_URL, else the SQLite DB_PATH).
+    generate: the generation function for queued tasks (default: real tailoring/cover/Drive, which uses the
+        configured database, so pass db=None with it). run_tasks=False queues tasks without running them.
     """
-    app = FastAPI(title="ApplyPilot dashboard", version=__version__,
+    runner = tasks.TaskRunner(db, generate) if run_tasks else None
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if runner:
+            runner.start()
+        try:
+            yield
+        finally:
+            if runner:
+                runner.stop()
+
+    app = FastAPI(title="ApplyPilot dashboard", version=__version__, lifespan=lifespan,
                   docs_url=f"{PREFIX}/api/docs", openapi_url=f"{PREFIX}/api/openapi.json", redoc_url=None)
     app.state.db = db
+    app.state.runner = runner
     init_db(db)
 
     @app.middleware("http")

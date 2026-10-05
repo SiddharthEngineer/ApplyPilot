@@ -201,6 +201,14 @@ def _ensure_tables(conn: Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_status_events_url ON status_events (url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_job_key ON jobs (job_key)")
+    # Dashboard generation queue (applypilot.web.tasks): kind resume|cover|both, state queued|running|done|error.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dashboard_tasks ("
+        "id TEXT PRIMARY KEY, url TEXT, kind TEXT, state TEXT, created_at TEXT, started_at TEXT, "
+        "finished_at TEXT, error TEXT)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_url ON dashboard_tasks (url)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_state ON dashboard_tasks (state)")
     conn.commit()
 
 
