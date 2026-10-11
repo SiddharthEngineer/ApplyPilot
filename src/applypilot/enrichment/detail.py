@@ -21,9 +21,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-from applypilot import config
-from applypilot.config import DB_PATH
-from applypilot.database import get_connection, init_db, ensure_columns, Connection, IntegrityError
+from applypilot.database import init_db, Connection, IntegrityError
 from applypilot.llm import get_client
 
 log = logging.getLogger(__name__)
@@ -780,76 +778,6 @@ def _run_detail_scraper(
         log.info("LLM calls: %d/%d (%.0f%% saved)", llm_calls, total, savings)
 
     return total_stats
-
-
-# -- Streaming detail scraper (for sequential pipeline) ----------------------
-
-def stream_detail(
-    upstream_done,
-    my_done,
-    proxy_str: str | None = None,
-    poll_interval: float = 5.0,
-) -> None:
-    """Streaming detail scraper: polls DB for un-scraped jobs, scrapes sites sequentially.
-
-    Args:
-        upstream_done: Event set when discover+extract done. None = run once.
-        my_done: Event to set when this stage completes.
-        proxy_str: Proxy in host:port:user:pass format.
-        poll_interval: Seconds to sleep when no pending jobs found.
-    """
-    if proxy_str:
-        set_proxy(proxy_str)
-
-    conn = init_db()
-
-    url_stats = resolve_all_urls(conn)
-    log.info("URL resolution: %d resolved, %d absolute",
-             url_stats['resolved'], url_stats['already_absolute'])
-
-    total_ok = 0
-    total_err = 0
-    t0 = time.time()
-
-    try:
-        while True:
-            skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
-            rows = conn.execute(
-                "SELECT url, title, site FROM jobs "
-                f"WHERE detail_scraped_at IS NULL AND {skip_filter} "
-                "ORDER BY site LIMIT 200"
-            ).fetchall()
-
-            if rows:
-                site_jobs: dict[str, list[tuple]] = {}
-                for row in rows:
-                    url, title, site = row[0], row[1], row[2]
-                    site_jobs.setdefault(site, []).append((url, title))
-
-                for site, jobs in site_jobs.items():
-                    delay = SITE_DELAYS.get(site, 2.0)
-                    log.info("%s: %d jobs (delay=%.1fs)", site, len(jobs), delay)
-
-                    try:
-                        stats = scrape_site_batch(conn, site, jobs, delay=delay)
-                        total_ok += stats["ok"] + stats["partial"]
-                        total_err += stats["error"]
-                        log.info("%s: %d ok, %d partial, %d error",
-                                 site, stats['ok'], stats['partial'], stats['error'])
-                    except Exception as e:
-                        log.error("%s: CRASHED: %s", site, e)
-
-            upstream_finished = upstream_done is None or upstream_done.is_set()
-            if upstream_finished and not rows:
-                break
-            if not rows:
-                time.sleep(poll_interval)
-    finally:
-        elapsed = time.time() - t0
-        if total_ok or total_err:
-            log.info("DONE: %d ok, %d errors in %.1fs", total_ok, total_err, elapsed)
-        conn.close()
-        my_done.set()
 
 
 # -- Public entry point ------------------------------------------------------

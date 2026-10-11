@@ -19,10 +19,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
-import httpx
 import yaml
 from bs4 import BeautifulSoup
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -30,7 +28,7 @@ from playwright.sync_api import sync_playwright
 
 from applypilot import config
 from applypilot.config import CONFIG_DIR
-from applypilot.database import get_connection, init_db, store_jobs, get_stats, Connection, IntegrityError
+from applypilot.database import init_db, get_stats, Connection, IntegrityError
 from applypilot.llm import LLMStopRun, get_discovery_client
 
 log = logging.getLogger(__name__)
@@ -768,25 +766,6 @@ _UTILITY_CLASS_RE = re.compile(
     r"sc-[a-f0-9]+-\d+"
     r")$"
 )
-
-
-def clean_card_html(html: str) -> str:
-    """Strip layout noise from card HTML, keep only what the LLM needs for selectors."""
-    soup = BeautifulSoup(html, "html.parser")
-
-    for tag in soup.find_all(True):
-        new_attrs: dict = {}
-        for attr, val in list(tag.attrs.items()):
-            if attr in _ALLOWED_ATTRS or any(attr.startswith(p) for p in _ALLOWED_PREFIXES):
-                new_attrs[attr] = val
-            elif attr == "class":
-                classes = val if isinstance(val, list) else val.split()
-                kept = [c for c in classes if not _UTILITY_CLASS_RE.match(c)]
-                if kept:
-                    new_attrs["class"] = kept
-        tag.attrs = new_attrs
-
-    return str(soup)
 
 
 def clean_page_html(html: str, max_chars: int = 150_000) -> str:

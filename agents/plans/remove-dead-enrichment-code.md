@@ -1,5 +1,5 @@
 # Plan: Remove dead discovery/enrichment code (PIV smoke test)
-**Status:** ❌ Not started
+**Status:** 🚧 In progress (Task 1 done, Task 2 waiting on the user)
 **Risk:** low (deletes unreferenced code, behavior unchanged)
 
 ## Goal
@@ -25,7 +25,7 @@ less noise. This is also the first end-to-end test of the unattended PIV loop, i
 remove the F401 imports listed above, except the ones the gotcha says to keep.
 **Validate:** `.venv/bin/ruff check --select F401 src/applypilot/discovery/smartextract.py src/applypilot/enrichment/detail.py` → no findings
 (or only the imports kept on purpose); `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-11 (commit `refactor(remove-dead-enrichment-code): Task 1`). No imports needed keeping. `detail.set_proxy` is now uncalled but kept: it's a public hook, and removing it would also strand the `_PROXY_CONFIG` path.
 
 ### Task 2: Ask the user about the duplicate `_now()` helpers
 **Runs:** unattended (requires one inbox question; this is deliberate, to test the reply path)
