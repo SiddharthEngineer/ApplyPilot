@@ -1,6 +1,6 @@
 # Plan: Serve the Dashboard from engineerfamily
 **Started:** 2026-10-03
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (verified live 2026-10-11)
 
 ## Goal
 The dashboard goes live at `https://applypilot.engineerfamily.net/app/`, behind a password. The ApplyPilot repo owns the code and its
@@ -58,7 +58,7 @@ docker-compose.base.yml -f docker-compose.prod.yml up -d --build applypilot`. Do
 **Acceptance:**
 - `docker compose ... config` is valid.
 - After the Task 4 deploy: the `engineerfamily-applypilot-1` container is healthy, and `docker exec engineerfamily-applypilot-1 curl -s localhost:8000/app/api/health` reports postgresql.
-**Status:** 🟡 Code done (2026-10-05), deploy pending (user)
+**Status:** ✅ Complete (deployed by the user; verified 2026-10-11)
 
 ### Task 3: nginx route with basic auth
 **Runs:** local (VPS; cross-repo: engineerfamily, see `BUILD_AGENT.md` §0)
@@ -84,7 +84,7 @@ untracked): user `applypilot`, a random password from `openssl rand -base64 18`,
 `docker run --rm httpd:alpine htpasswd -nbB applypilot "$PW" > /srv/engineerfamily/services/nginx/.htpasswd-applypilot`. Then
 save the plain password to `/home/dev/applypilot-dashboard-credentials.txt` (mode 600). Tell the user where it is in MORNING.md, but never put the password itself there.
 **Acceptance:** `docker exec engineerfamily-nginx-1 nginx -t` passes after `make up`, and success criteria 1–3 pass.
-**Status:** 🟡 Code done (2026-10-05), deploy pending (user)
+**Status:** ✅ Complete (deployed by the user; verified 2026-10-11)
 
 ### Task 4: Deploy to prod and verify
 **Runs:** local (VPS)
@@ -93,7 +93,7 @@ save the plain password to `/home/dev/applypilot-dashboard-credentials.txt` (mod
 before deploying, because the nginx mount needs it to exist. Commit engineerfamily on `main`, push, and deploy (BUILD_AGENT §0: fast-forward `prod`, `make up`). Then run success criteria 1–5, including one
 real generation from the browser UI (or with `curl` and the header), and record the results.
 **Acceptance:** Success criteria 1–5 are recorded in the Historical Record, and MORNING.md has the URL, where the credentials file is, and how to redeploy (`make applypilot-up`).
-**Status:** ⏸ Blocked (2026-10-05): the agent's prod deploy (`make up`) was denied by the session's permission classifier; the user runs it (MORNING.md)
+**Status:** ✅ Complete (user deployed; `/app/` returns 401 behind basic auth, container healthy, 2026-10-11)
 
 ## Implementation Order
 ```

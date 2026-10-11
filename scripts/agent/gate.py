@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Risk gate: may this branch merge to trunk without human review?
+
+Usage: python scripts/agent/gate.py <plan.md> [--base origin/trunk]
+
+The plan declares `**Risk:** low` or `**Risk:** review` (set with the user in /plan). A `low` plan still goes to
+review if the diff touches a high-risk path, is larger than the budget, or weakens tests. Prints JSON
+{"tier": "low"|"review", "reasons": [...]} and exits 0 for low, 1 for review, 2 on usage errors.
+Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Any change here needs a human, whatever the plan says.
+HIGH_RISK = [
+    "Dockerfile",
+    ".dockerignore",
+    "pyproject.toml",
+    ".github/*",
+    ".claude/settings.json",
+    "scripts/agent/*",
+    "scripts/validate.sh",
+    "src/applypilot/apply/*",  # submits real applications
+    "src/applypilot/database.py",
+    "src/applypilot/db_pg.py",
+    "src/applypilot/migrate.py",
+    "src/applypilot/config.py",
+    "src/applypilot/web/*",
+    "dashboard/*",
+    "*password*",
+    "*credential*",
+    "*secret*",
+]
+# Changed lines outside docs and tests that a low-risk change may have.
+CODE_LINE_BUDGET = 250
+DOC_OR_TEST = ["*.md", "agents/*", ".claude/commands/*", ".claude/agents/*", "tests/*"]
+
+# Lines in a diff of tests/ that mean a test was weakened rather than added.
+WEAKENING = [
+    (r"^-\s*def test_", "removes a test function"),
+    (r"^-\s*assert\b", "removes an assert"),
+    (r"^\+.*pytest\.mark\.(skip|xfail)", "adds a skip/xfail marker"),
+    (r"^\+.*pytest\.skip\(", "adds pytest.skip()"),
+]
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def matches(path: str, patterns: list[str]) -> bool:
+    return any(fnmatch.fnmatch(path, p) for p in patterns)
+
+
+def declared_risk(plan: Path) -> str | None:
+    m = re.search(r"^\*\*Risk:\*\*\s*(low|review)\b", plan.read_text(), re.MULTILINE | re.IGNORECASE)
+    return m.group(1).lower() if m else None
+
+
+def evaluate(plan: Path, base: str) -> dict:
+    reasons: list[str] = []
+    risk = declared_risk(plan)
+    if risk != "low":
+        reasons.append(f"plan declares risk {risk or 'missing'}")
+
+    merge_base = git("merge-base", base, "HEAD").strip()
+    code_lines = 0
+    for line in git("diff", "--numstat", merge_base, "HEAD").splitlines():
+        added, deleted, path = line.split("\t", 2)
+        if matches(path, HIGH_RISK):
+            reasons.append(f"touches high-risk path {path}")
+        if not matches(path, DOC_OR_TEST) and added != "-":
+            code_lines += int(added) + int(deleted)
+    if code_lines > CODE_LINE_BUDGET:
+        reasons.append(f"{code_lines} changed code lines > budget {CODE_LINE_BUDGET}")
+
+    test_diff = git("diff", "-U0", merge_base, "HEAD", "--", "tests/")
+    for pattern, why in WEAKENING:
+        if re.search(pattern, test_diff, re.MULTILINE):
+            reasons.append(f"test diff {why}")
+
+    return {"tier": "review" if reasons else "low", "reasons": reasons, "code_lines": code_lines}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("plan", type=Path)
+    parser.add_argument("--base", default="origin/trunk")
+    args = parser.parse_args()
+    if not args.plan.is_file():
+        print(f"no such plan: {args.plan}", file=sys.stderr)
+        return 2
+    result = evaluate(args.plan, args.base)
+    print(json.dumps(result, indent=2))
+    return 0 if result["tier"] == "low" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

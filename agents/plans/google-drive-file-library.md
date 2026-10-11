@@ -1,6 +1,7 @@
 # Plan: Google Drive File Library
 **Started:** 2026-10-02
 **Status:** 🔄 In Progress
+**Risk:** review (OAuth setup and moving real files)
 
 ## Goal
 Tailored resume and cover letter PDFs are moved to the user's Google Drive, filed as

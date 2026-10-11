@@ -1,4 +1,4 @@
-# ApplyPilot dashboard (`applypilot serve`), deployed by the engineerfamily stack (agents/plans/dashboard-deploy.md).
+# ApplyPilot dashboard (`applypilot serve`), deployed by the engineerfamily stack (agents/plans/done/dashboard-deploy.md).
 # No secrets or user data in the image: ~/.applypilot and the .env are mounted at runtime.
 # Keep the tag in step with the playwright version in the VPS .venv, so the bundled Chromium matches.
 FROM mcr.microsoft.com/playwright/python:v1.63.0-noble

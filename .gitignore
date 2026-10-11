@@ -41,8 +41,9 @@ Thumbs.db
 tests/fixtures/*.pkl
 tests/fixtures/*.json
 
-# Claude Code
-.claude/
+# Claude Code: commands/skills/agents are shared; machine-local settings are not
+.claude/settings.local.json
+.claude/worktrees/
 
 # OpenCode
 .opencode/

@@ -64,3 +64,13 @@ def test_local_tasks_pending():
 def test_real_plan_has_five_criteria():
     plan = Path(__file__).resolve().parent.parent / "agents" / "plans" / "test-tiers-and-qc.md"
     assert len(qc.parse_success_criteria(plan.read_text(encoding="utf-8"))) == 5
+
+
+def test_parse_human_test_steps_current_template():
+    plan = "# Plan\n\n## Human test steps (preprod)\n1. Open /app/.\n2. Click Generate.\n\n## Decisions\n1. x\n"
+    assert qc.parse_success_criteria(plan) == ["Open /app/.", "Click Generate."]
+
+
+def test_interactive_tasks_are_pending_for_the_user():
+    tasks = [{"title": "Task 1", "runs": "interactive (prod)", "status": "❌"}, {"title": "Task 2", "runs": "unattended", "status": "❌"}]
+    assert [t["title"] for t in qc.local_tasks_pending(tasks)] == ["Task 1"]

@@ -1,10 +1,10 @@
 # Plan: Test Tiers + Morning QC
 **Started:** 2026-10-01
 **Status:** 🟡 Code done, M6 capture pending
+**Risk:** low (test data only)
 
 ## Goal
-Plans are implemented unattended by a nightly Claude Code cloud routine (see `agents/BUILD_AGENT.md`) and
-reviewed by the user the next morning. That only works if the automated gate is trustworthy. Today:
+Plans are implemented by unattended agents and reviewed by the user afterwards. That only works if the automated gate is trustworthy. Today:
 - `pytest tests/` **hangs for 15+ minutes**. `tests/test_pipeline.py` calls `_run_discover()` with only JobSpy mocked, so it runs the real Workday crawl (48 employers) and SmartExtract over the network. Without that file the suite takes 16s (366 passed, 15 skipped).
 - Nothing stops a unit test from touching the network or the real `~/.applypilot` directory.
 - `.github/workflows/ci.yml` only runs on `workflow_dispatch` and doesn't install `python-jobspy`, so it can't pass.
