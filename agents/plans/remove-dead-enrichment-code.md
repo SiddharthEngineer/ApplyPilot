@@ -34,7 +34,7 @@ remove the F401 imports listed above, except the ones the gotcha says to keep.
 from `applypilot.tracking`; (B) leave both as they are. Recommend A. Once the answer arrives in the queue notes, do what it says.
 If the answer is A, rename nothing else and keep the patch to a few lines.
 **Validate:** `grep -n "def _now" src/applypilot/tracking.py src/applypilot/web/tasks.py` matches the chosen option; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-11 (commit `refactor(remove-dead-enrichment-code): Task 2`). User chose A: `web/tasks.py` now imports `_now` from `applypilot.tracking`.
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.

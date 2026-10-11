@@ -17,6 +17,7 @@ from pathlib import Path
 from applypilot import tracking
 from applypilot.database import Connection, get_connection
 from applypilot.llm import LLMOverloaded, LLMQuotaExhausted, LLMStopRun
+from applypilot.tracking import _now
 
 log = logging.getLogger(__name__)
 
@@ -31,10 +32,6 @@ Generator = Callable[[str, str], None]
 
 class GenerationFailed(RuntimeError):
     """The stage ran but produced nothing for this job (the message says why)."""
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def task_dict(row) -> dict:
