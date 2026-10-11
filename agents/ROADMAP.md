@@ -13,6 +13,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R6 | Google Drive file library: Google setup and the first move of existing files (M8) | [google-drive-file-library](plans/google-drive-file-library.md) | review | 🟡 | none |
 | R12 | VPS layout migration: dev clones in `~/src`, pinned prod/preprod checkouts, preprod ApplyPilot service | [vps-layout-migration](plans/vps-layout-migration.md) | review | ⏳ | none |
 | R13 | Code health cleanup from the 2026-10-11 audit (needs `/plan` refinement first) | [code-health-cleanup](plans/code-health-cleanup.md) | low | ⏳ | none |
+| R14 | Remove dead discovery/enrichment code (first unattended PIV smoke test) | [remove-dead-enrichment-code](plans/remove-dead-enrichment-code.md) | low | ⏳ | none |
 
 ## Manual steps (you)
 
