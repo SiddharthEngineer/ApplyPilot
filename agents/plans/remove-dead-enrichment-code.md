@@ -1,5 +1,5 @@
 # Plan: Remove dead discovery/enrichment code (PIV smoke test)
-**Status:** 🚧 In progress (Task 1 done, Task 2 waiting on the user)
+**Status:** ✅ All tasks done 2026-10-11 (PR open; `gate.py` returns `review`, not `low`, because option A touches the high-risk path `web/tasks.py`)
 **Risk:** low (deletes unreferenced code, behavior unchanged)
 
 ## Goal
