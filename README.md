@@ -325,11 +325,8 @@ ApplyPilot/
 │   ├── cover/            # Stage 5: cover letter generation
 │   ├── apply/            # Stage 6: browser automation
 │   └── utils/            # Shared utilities
-├── agents/               # Agent plans, state, and queue
-│   ├── BUILD_AGENT.md    # Build agent prompt
-│   ├── STATE.md          # Current implementation state
-│   ├── ROADMAP.md        # Single tracker for planned work
-│   └── plans/            # Individual plan files
+├── agents/               # AI-agent workflow: ROADMAP.md, DEPLOY.md, plans/ (done/ = archive)
+├── .claude/commands/     # PIV slash commands: /plan /implement /validate /ship /rca /schedule-build
 ├── scripts/              # Automation scripts
 ├── config/               # Default configuration files
 ├── tests/                # Test suite
@@ -395,7 +392,7 @@ ruff format src/             # Format code
 2. For new features, open an issue first to discuss
 3. Fork and create a feature branch from `main`
 4. Write code with type hints, docstrings, and tests
-5. Update `CHANGELOG.md` under `[Unreleased]`
+5. Run `scripts/validate.sh --full`
 6. Submit a PR — one feature per PR, CI must pass
 
 **Adding a Workday employer:** Add an entry to `config/employers.yaml`, test with `applypilot discover --employer "Name"`, submit PR.
@@ -411,23 +408,20 @@ ruff format src/             # Format code
 
 Each backend has its own command builder, MCP config generator, and output parser in `apply/launcher.py`. The prompt in `apply/prompt.py` uses backend-agnostic tool names and works with both. When adding new MCP tools or changing permissions, update **both** backend paths.
 
-### Planned Work & Nightly Builds
+### Planned Work & AI Agents
 
-All planned work is tracked in [`agents/ROADMAP.md`](agents/ROADMAP.md), with one plan per initiative in
-`agents/plans/`. A Claude Code cloud routine ("ApplyPilot nightly build", managed at
-[claude.ai/code/routines](https://claude.ai/code/routines) or with `/schedule` in the CLI) works through tasks **until nothing is runnable or its usage limit is reached**,
-following `agents/BUILD_AGENT.md`. It pushes to `claude/plan-<slug>` and keeps a draft PR updated.
-
-Each morning:
+Planned work is tracked in [`agents/ROADMAP.md`](agents/ROADMAP.md), with one plan per change in `agents/plans/`.
+Changes follow a Plan → Implement → Validate loop driven by the Claude Code commands in `.claude/commands/`
+(see [`AGENTS.md`](AGENTS.md)). Every change runs through one gate:
 
 ```bash
-git fetch origin && git switch claude/plan-<slug>
-python scripts/qc.py <slug>        # unit + live + LLM tiers, then prints the plan's checklist
+scripts/validate.sh          # ruff + hermetic pytest
+scripts/validate.sh --full   # + dashboard tests/build + docker build
 ```
 
-Do any tasks marked `Runs: local` on that branch, then merge the PR when the plan (or a stable part of it) is done.
-Later plans are stacked on earlier unmerged plan branches, so merge PRs bottom-first with "Create a merge commit". Cloud runs install
-dependencies with `scripts/cloud_setup.sh` and run only hermetic unit tests. Live and LLM tests run locally.
+Plans can also be queued for unattended runs on a server (`/schedule-build`). The runner implements them in a git
+worktree, validates them, and either auto-merges a low-risk change or opens a PR for review. See
+[`scripts/agent/README.md`](scripts/agent/README.md).
 
 ---
 

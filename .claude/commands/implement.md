@@ -1,0 +1,44 @@
+---
+description: Implement a plan task by task, validating after each (PIV steps 2–3)
+argument-hint: <agents/plans/<slug>.md> [--unattended]
+---
+
+# Implement $ARGUMENTS
+
+## 0. Orient (keep it cheap)
+- Read the plan in full. Read only the files its **Context** and **Files** name, plus whatever you discover you need.
+- `git status && git log --oneline -10`. If commits for some tasks already exist (a previous attempt), continue from
+  the first task that isn't done, and don't redo work.
+- First run in a fresh worktree: `scripts/validate.sh --setup` (creates `.venv`). After that: `scripts/validate.sh`.
+
+## 1. Each task, in order
+1. Implement exactly what the task says, mirroring the patterns it cites. If the plan is wrong or ambiguous, see §3.
+2. Run the task's **Validate** command, then `scripts/validate.sh`. Fix until both pass. Show the real output.
+   Never weaken a test, add a skip, or delete an assert to get to green.
+3. Commit (`<type>(<slug>): Task N <title>`), and set the task's **Status** to ✅ with the date and commit in the same commit.
+- Skip `Runs: interactive` tasks when unattended, and list them in the PR under "Left for you".
+
+## 2. Finish
+1. `scripts/validate.sh --full`, plus every command in the plan's **Validation** section. All must pass.
+2. Self-review: run the `/code-review` skill on the branch diff and fix anything real it finds, then re-validate.
+3. Set the plan's **Status** (✅ if every task is done) and the ROADMAP row. Commit.
+4. Ship:
+   - **Interactive:** run `/ship`.
+   - **Unattended** (`--unattended`): `git push -u origin HEAD`, then `gh pr create --repo SiddharthEngineer/ApplyPilot --base trunk`
+     with a body that follows `.github/pull_request_template.md` (copy the plan's Human test steps verbatim). Don't merge;
+     the runner decides that with `scripts/agent/gate.py`. Then write the result file (§4).
+
+## 3. When you're stuck (unattended)
+You get at most 2 attempts per plan, and each one is time-boxed. Don't loop on the same failure.
+- **Need a decision from the user:** write the question (context, options, your recommendation) to a temp file, then run
+  `python3 scripts/agent/inbox.py ask <slug> --title "<one line>" --body-file <file>`. Commit and push the work done so far
+  (`git push -u origin HEAD`), write the result file with `"status": "question"`, and stop.
+- **Blocked by the environment** (a broken dependency, missing access, or the same validation failure after 3 genuinely different fixes):
+  push what you have, write `"status": "blocked"` with a precise summary, and stop.
+- Never put secrets, personal data or job data in an issue, PR, commit or the result file.
+
+## 4. Result file (unattended only)
+Write JSON to the path given in the prompt (`$AGENT_RESULT_FILE`) as your **last** action:
+`{"status": "ready" | "question" | "blocked", "pr": <number or null>, "branch": "<branch>", "summary": "<2–3 sentences>"}`
+`ready` means: all runnable tasks are done, `--full` validation passes, and the PR is open. The runner re-runs validation
+itself, so a false `ready` just costs an attempt.

@@ -6,7 +6,8 @@ Usage: python scripts/qc.py <plan-slug> [--skip-live] [--skip-llm]
 1. Unit tier:  pytest tests/ -q
 2. Live tier:  pytest -m live --run-live -q   (unless --skip-live)
 3. LLM tier:   pytest -m llm --run-llm -q     (unless --skip-llm)
-4. Prints agents/plans/<slug>.md Success Criteria as checkboxes, plus unfinished tasks that run locally.
+4. Prints agents/plans/<slug>.md Human test steps (or Success Criteria in older plans) as checkboxes, plus unfinished
+   tasks that need you (`Runs: interactive`, or `local` in older plans).
 
 Exits non-zero if any pytest tier failed. Standard library only.
 """
@@ -27,8 +28,10 @@ _PYTEST_OK = {0, 5}
 
 
 def parse_success_criteria(text: str) -> list[str]:
-    """Return the numbered items under `## Success Criteria`."""
-    match = re.search(r"^## Success Criteria\s*$(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    """Return the numbered items under `## Human test steps` (current template) or `## Success Criteria` (older plans)."""
+    match = re.search(
+        r"^## (?:Human test steps[^\n]*|Success Criteria)\s*$(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL
+    )
     if not match:
         return []
     return [m.group(1).strip() for m in re.finditer(r"^\s*\d+\.\s+(.+)$", match.group(1), re.MULTILINE)]
@@ -50,8 +53,8 @@ def parse_tasks(text: str) -> list[dict[str, str]]:
 
 
 def local_tasks_pending(tasks: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Tasks whose Runs line mentions `local` and whose status isn't ✅."""
-    return [t for t in tasks if "local" in t["runs"] and not t["status"].startswith("✅")]
+    """Tasks whose Runs line mentions `interactive` (or `local`, older plans) and whose status isn't ✅."""
+    return [t for t in tasks if ("local" in t["runs"] or "interactive" in t["runs"]) and not t["status"].startswith("✅")]
 
 
 def run_tier(name: str, args: list[str]) -> bool:
@@ -82,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         results["llm"] = run_tier("llm", [py, "-m", "pytest", "tests/", "-m", "llm", "--run-llm", "-q"])
 
     text = plan_path.read_text(encoding="utf-8")
-    print(f"\n## Success Criteria ({args.slug})")
+    print(f"\n## Checks for you ({args.slug})")
     for item in parse_success_criteria(text):
         print(f"- [ ] {item}")
 

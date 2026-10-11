@@ -1,18 +1,27 @@
-# AGENTS.md — Dispatcher (auto-loaded every session)
+# AGENTS.md (auto-loaded every session; keep it short)
 
-## Global (all agents)
-- `agents/ROADMAP.md` is the single tracker for planned work: order, status, dependencies, manual steps.
-- Don't mark `agents/plans/*.md` tasks complete until acceptance criteria are verified.
-- End of session: update plan → `agents/ROADMAP.md` → `agents/STATE.md` → `agents/CHANGELOG.md` → run tests → commit.
-- This repo is a public fork (`origin` = SiddharthEngineer/ApplyPilot). PRs go to `origin` with `--repo SiddharthEngineer/ApplyPilot`, never to `upstream`. Never commit personal data.
+ApplyPilot: a Python 3.11+ job-application pipeline (discover → enrich → extract → score → tailor → cover → apply), with a
+FastAPI + React dashboard (`applypilot serve`, `dashboard/`, built bundle committed in `src/applypilot/web/static`).
+Data lives in Postgres (`APPLYPILOT_DATABASE_URL`) or SQLite under `~/.applypilot`. LLM calls use the Gemini free tier (`llm.py`).
 
-## Planning Agent → `agents/PLAN_AGENT.md`
-Produce `agents/plans/<slug>.md` (kebab-case) and add it to `agents/ROADMAP.md`. Follow its template + rules.
+## Map
+- `src/applypilot/`: `cli.py` (Typer entry), `pipeline.py`, stage packages (`discovery/`, `enrichment/`, `scoring/`, `apply/`),
+  `database.py`/`db_pg.py`, `web/` (API), `wizard/` (init).
+- `tests/`: hermetic by default (`conftest.py` blocks network). Opt-in tiers: `-m live --run-live`, `-m llm --run-llm`, `pg`.
+- `agents/ROADMAP.md`: the only status tracker. `agents/plans/<slug>.md`: one spec per change (`done/` holds the archive).
+- `agents/DEPLOY.md`: the prod/preprod layout and how deploys work. `scripts/agent/`: the unattended runner.
 
-## Build Agent → `agents/BUILD_AGENT.md`
-Implement runnable tasks from `agents/plans/**` one at a time, testing and pushing after each. Normally this runs as the
-nightly Claude Code cloud routine "ApplyPilot nightly build" (claude.ai/code/routines), which keeps going until nothing is
-runnable or its usage limit ends the session, using stacked `claude/plan-<slug>` branches and draft PRs for morning review. Follow its checklist.
+## Validate (run before claiming anything works)
+`scripts/validate.sh` (ruff + pytest, ~45s) · `--full` (+ dashboard tests/build + docker build) · `--setup` in a new worktree.
 
-## New role → `agents/<ROLE>_AGENT.md`
-Add `## <Role> Agent → agents/<ROLE>_AGENT.md` above. Don't duplicate global rules.
+## PIV loop (commands in `.claude/commands/`)
+`/plan` (always with the user; sets risk) → `/implement <plan>` or `/schedule-build <slug>` (unattended on the VPS)
+→ `/validate` → `/ship` (risk gate: auto-merge low, else PR on preprod). Bugs start with `/rca`.
+
+## Rules
+- Public fork (`origin` = SiddharthEngineer/ApplyPilot). PRs go to `origin` only (`--repo SiddharthEngineer/ApplyPilot`), never `upstream`.
+- Never commit personal data (`personal/`, `~/.applypilot`, `.env`, resume or profile content, DB rows). Never print secrets; hand secret steps to the user.
+- Work on a branch, never directly on `trunk`, except for plan/ROADMAP commits made in `/plan`.
+- Never weaken tests to get to green. Never run `applypilot apply` (it submits real applications) unless the user asks.
+- Prod deploys are the user's call (`agents/DEPLOY.md`). Never `chown`, force-push, drop volumes or databases, or run as root.
+- When a plan task finishes: set its Status in the plan and the ROADMAP row. Git history and PRs are the changelog.
