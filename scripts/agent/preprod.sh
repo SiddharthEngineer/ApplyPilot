@@ -70,7 +70,7 @@ cmd_status() {
 
 cmd_deploy() {
     local pr=$1 cur slug
-    configured || { echo "preprod not configured (agents/plans/vps-layout-migration.md)"; return 3; }
+    configured || { echo "preprod not configured (agents/DEPLOY.md, Preprod section)"; return 3; }
     cur=$(holder)
     if [ -n "$cur" ] && [ "$cur" != "$pr" ]; then echo "preprod busy: PR #$cur"; return 4; fi
     printf '%s\t%s\t%s\n' "$pr" "$(gh pr view "$pr" --repo "$GH_REPO" --json headRefOid -q .headRefOid)" "$(date -u +%FT%TZ)" > "$LOCK"

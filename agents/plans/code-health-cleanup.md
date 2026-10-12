@@ -1,5 +1,5 @@
 # Plan: Code health cleanup (from the 2026-10-11 repo audit)
-**Status:** ⏸ Blocked 2026-10-12: Tasks 1-5 done, 6 and 8 partly; the unattended agent cannot write `.github/` or `scripts/agent/` (Task 7, the CI step of Task 6, `preprod.sh:73`)
+**Status:** ✅ Complete (2026-10-12). The agent did Tasks 1-5 and most of 6 and 8; an interactive session finished the `.github/` and `scripts/agent/` parts (its permissions deny those paths).
 **Risk:** review (touches `pyproject.toml`, `.github/`, `scripts/validate.sh`, `scripts/agent/preprod.sh` and `src/applypilot/apply/*`; one PR on preprod, user decision 2026-10-12)
 
 ## Goal
@@ -112,7 +112,7 @@ Leave `README.md:28` and the `Dockerfile` alone (see Context).
 **Validate:** `grep -rn "python-jobspy" pyproject.toml scripts/validate.sh .github/workflows/ci.yml README.md` → the pin appears only in `pyproject.toml`
 (README may keep the "Older installs" note); in a scratch venv, `uv venv -q /tmp/jp && uv pip install -q --python /tmp/jp/bin/python -e ".[jobspy]" && /tmp/jp/bin/python -c "import jobspy"`
 → exits 0 (use the scratch dir your session allows if `/tmp` is not writable); `scripts/validate.sh` → ALL PASS.
-**Status:** 🚧 2026-10-12: extra, `validate.sh`, README done (this commit). The CI Install step is not changed: the unattended agent's permissions deny edits under `.github/`. Needed in `.github/workflows/ci.yml`: comment `# Same as scripts/validate.sh --setup. The jobspy extra pins python-jobspy (pyproject.toml).` and `uv pip install -e ".[dev,web,jobspy]"`.
+**Status:** ✅ 2026-10-12: extra, `validate.sh`, README (agent); CI Install step (interactive session).
 
 ### Task 7: Dashboard job in CI
 **Runs:** unattended
@@ -125,7 +125,7 @@ Keep the existing `test` job as it is.
 `scripts/validate.sh --full` → ALL PASS (proves the local bundle is current). On the PR, both CI jobs must be green before you write `ready`
 (`gh pr checks <n> --repo SiddharthEngineer/ApplyPilot --watch` if your permissions allow it; otherwise say in the PR that the dashboard job is unverified).
 If only the bundle check fails in CI while it passes locally on a clean tree (a non-deterministic build), drop that one step, keep test and build, and explain it in the PR.
-**Status:** ⛔ 2026-10-12: blocked, the unattended agent's permissions deny edits under `.github/`. Needs a session that can write `.github/workflows/ci.yml`.
+**Status:** ✅ 2026-10-12 (interactive session): `dashboard` job with Node 22, npm test, build and the committed-bundle check.
 
 ### Task 8: Say which "dashboard" is which, and fix two stale plan paths
 **Runs:** unattended
@@ -134,7 +134,7 @@ If only the bundle check fails in CI while it passes locally on a clean tree (a 
 Point both messages at `agents/DEPLOY.md` (the preprod section) instead. Change only those message strings. Then, in AGENTS.md, add one line in the Map section: `apply/dashboard.py` = Rich TUI during `apply`; `view.py` = static HTML report; `web/` + `dashboard/` = the React
 app served at `/app/`. Keep AGENTS.md short (it's loaded every session): one line, no new section.
 **Validate:** `grep -n "view.py" AGENTS.md` → the new line; `grep -rn "vps-layout-migration" scripts` → no output; `scripts/validate.sh` → ALL PASS.
-**Status:** 🚧 2026-10-12: AGENTS.md line and `scripts/validate.sh` message done (this commit). `scripts/agent/preprod.sh:73` is not changed: the unattended agent's permissions deny edits under `scripts/agent/`. Needed: `(agents/plans/vps-layout-migration.md)` → `(agents/DEPLOY.md, Preprod section)`.
+**Status:** ✅ 2026-10-12: AGENTS.md line and `validate.sh` message (agent); `preprod.sh` message (interactive session).
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.
