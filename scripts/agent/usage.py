@@ -20,7 +20,6 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 PROBE_MODEL = os.environ.get("AGENT_USAGE_PROBE_MODEL", "claude-haiku-5-5")
 
@@ -45,7 +44,8 @@ def five_hour_window(lines: list[str]) -> tuple[float, int | None] | None:
 
 
 def probe() -> list[str]:
-    state = Path(os.environ.get("APPLYPILOT_AGENT_STATE", Path.home() / ".local/state/applypilot-agent"))
+    from buildqueue import STATE as state  # same directory
+
     state.mkdir(parents=True, exist_ok=True)
     out = subprocess.run(
         ["claude", "-p", "Reply with just: ok", "--model", PROBE_MODEL, "--max-turns", "1",

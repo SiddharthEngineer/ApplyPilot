@@ -9,7 +9,7 @@ Planning is always done **with the user**. Your output is one plan file that a f
 conversation can implement and validate on its own, unattended.
 
 ## 1. Understand (ask, don't assume)
-- If `$ARGUMENTS` is an issue number, read it: `gh issue view <n> --repo SiddharthEngineer/ApplyPilot`.
+- If `$ARGUMENTS` is an issue number, read it: `gh issue view <n> --repo SiddharthEngineer/Strelitzia`.
 - Search the code for the patterns you'll mirror and read only the files you need. Don't read old plans
   (`agents/plans/done/`) unless the user points you at one.
 - Ask the user questions (AskUserQuestion) until the goal, scope, edge cases and "done" are unambiguous.
@@ -51,7 +51,7 @@ One paragraph: the user-facing outcome.
 
 ## Validation
 - `scripts/validate.sh --full` passes.
-- Feature-specific commands with expected output (CLI runs against fixtures, `curl` against `applypilot serve`, …).
+- Feature-specific commands with expected output (CLI runs against fixtures, `curl` against `strelitzia serve`, …).
 
 ## Human test steps (preprod)
 Numbered steps the user follows on preprod: URL or command, what to click or run, what they should see. Write "None (low risk)" if not applicable.

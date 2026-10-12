@@ -24,7 +24,7 @@ argument-hint: <agents/plans/<slug>.md> [--unattended]
 3. Set the plan's **Status** (✅ if every task is done) and the ROADMAP row. Commit.
 4. Ship:
    - **Interactive:** run `/ship`.
-   - **Unattended** (`--unattended`): `git push -u origin HEAD`, then `gh pr create --repo SiddharthEngineer/ApplyPilot --base trunk`
+   - **Unattended** (`--unattended`): `git push -u origin HEAD`, then `gh pr create --repo SiddharthEngineer/Strelitzia --base trunk`
      with a body that follows `.github/pull_request_template.md` (copy the plan's Human test steps verbatim). Don't merge;
      the runner decides that with `scripts/agent/gate.py`. Then write the result file (§4).
 

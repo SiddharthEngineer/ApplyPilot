@@ -15,7 +15,7 @@ AGENT = Path(__file__).resolve().parent.parent / "scripts" / "agent"
 
 @pytest.fixture
 def q(tmp_path, monkeypatch):
-    monkeypatch.setenv("APPLYPILOT_AGENT_STATE", str(tmp_path / "state"))
+    monkeypatch.setenv("STRELITZIA_AGENT_STATE", str(tmp_path / "state"))
 
     def run(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(AGENT / "buildqueue.py"), *args], capture_output=True, text=True)
@@ -27,6 +27,25 @@ def q(tmp_path, monkeypatch):
 
     run.result = result
     return run
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_queue_uses_legacy_state_dir_until_migrated(tmp_path, legacy):
+    """Before the post-merge migration (M15) only ~/.local/state/applypilot-agent exists; the queue keeps using it."""
+    old, new = tmp_path / ".local/state/applypilot-agent", tmp_path / ".local/state/strelitzia-agent"
+    if legacy:
+        old.mkdir(parents=True)
+    env = {k: v for k, v in os.environ.items() if not k.endswith("_AGENT_STATE")}
+    env["HOME"] = str(tmp_path)
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(AGENT / "buildqueue.py"), *args], env=env, capture_output=True, text=True)
+
+    assert run("add", "old-item").returncode == 0
+    listed = run("list")
+    assert listed.returncode == 0 and "old-item" in listed.stdout
+    assert (old if legacy else new).joinpath("queue.json").exists()
+    assert not (new if legacy else old).exists()
 
 
 def test_empty_queue_has_nothing_next(q):
@@ -290,7 +309,7 @@ def preprod(tmp_path):
             git("-C", str(origin), "add", "-A")
             git("-C", str(origin), "commit", "-qm", "add seed")
         env = {k: v for k, v in os.environ.items() if not k.startswith("PREPROD_")}
-        env.update(HOME=str(tmp_path), APPLYPILOT_AGENT_STATE=str(tmp_path / "state"), PREPROD_APP_DIR=str(app),
+        env.update(HOME=str(tmp_path), STRELITZIA_AGENT_STATE=str(tmp_path / "state"), PREPROD_APP_DIR=str(app),
                    PREPROD_DEPLOY_CMD="true", PREPROD_HEALTH_URL="http://127.0.0.1:1/health")
         if seed_cmd is not None:
             env["PREPROD_SEED_CMD"] = seed_cmd.replace("MARKER", str(marker))

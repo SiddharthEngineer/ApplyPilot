@@ -7,7 +7,7 @@ Use this when you've finished a plan interactively. Unattended runs ship through
 
 1. Make sure the work is on a branch (not `trunk`): `git switch -c agent/<slug>` if needed.
 2. `scripts/validate.sh --full`. Stop if anything fails.
-3. Push the branch and open a PR to `trunk` on `SiddharthEngineer/ApplyPilot`, following `.github/pull_request_template.md`.
+3. Push the branch and open a PR to `trunk` on `SiddharthEngineer/Strelitzia`, following `.github/pull_request_template.md`.
    Copy the plan's **Human test steps** verbatim, and include the real validation output.
 4. `python3 scripts/agent/gate.py <plan>`. Show the user the JSON verdict.
    - `low`: ask the user whether to merge now: wait for green checks (`gh pr checks <n> --watch`), then
