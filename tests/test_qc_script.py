@@ -62,7 +62,7 @@ def test_local_tasks_pending():
 
 
 def test_real_plan_has_five_criteria():
-    plan = Path(__file__).resolve().parent.parent / "agents" / "plans" / "test-tiers-and-qc.md"
+    plan = Path(__file__).resolve().parent.parent / "agents" / "plans" / "done" / "test-tiers-and-qc.md"
     assert len(qc.parse_success_criteria(plan.read_text(encoding="utf-8"))) == 5
 
 
