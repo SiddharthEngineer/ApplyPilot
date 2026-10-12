@@ -23,16 +23,15 @@ Hourly cron → `run.sh`. It checks for due work with plain bash/Python and star
 3. Run `claude setup-token` and write `~/.config/applypilot-agent/env` (mode 600):
    ```bash
    export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-   AGENT_REPO=/srv/ApplyPilot            # dev clone the runner makes worktrees from
+   AGENT_REPO=/home/dev/src/ApplyPilot   # dev clone the runner makes worktrees from
    AGENT_INBOX_REPO=SiddharthEngineer/agent-inbox
    NTFY_TOPIC=applypilot-<random>
-   # Set these once preprod has an applypilot service (agents/plans/vps-layout-migration.md):
-   # PREPROD_APP_DIR=/srv/ApplyPilot-preprod
-   # PREPROD_DEPLOY_CMD="make -C /srv/engineerfamily-preprod applypilot-up"
-   # PREPROD_HEALTH_URL=http://127.0.0.1:8080/app/api/health
-   # PREPROD_NETRC=/home/dev/.config/applypilot-agent/preprod.netrc
+   PREPROD_APP_DIR=/srv/ApplyPilot-preprod
+   PREPROD_DEPLOY_CMD="make -C /srv/engineerfamily-preprod preprod-applypilot-up"
+   PREPROD_HEALTH_URL=http://127.0.0.1:8080/app/api/health
+   PREPROD_NETRC=/home/dev/.config/applypilot-agent/preprod.netrc   # mode 600: machine 127.0.0.1 login … password … (preprod basic auth)
    ```
-4. Install the cron line (`crontab -e`): `23 * * * * /srv/ApplyPilot/scripts/agent/run.sh`
+4. Install the cron line (`crontab -e`): `23 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh`
 
 ## Day to day
 - Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00]`). `/schedule-build list` shows the queue and the preprod holder.

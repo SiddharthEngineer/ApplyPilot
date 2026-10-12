@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cron entry point for unattended builds. Installed hourly in the `dev` crontab:
-#   23 * * * * /srv/ApplyPilot/scripts/agent/run.sh
+#   23 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh
 # Everything before `claude -p` is plain bash/Python, so an empty queue costs no Claude usage.
 #
 # 1. Upkeep: pick up your inbox replies, release/advance the preprod lock.
