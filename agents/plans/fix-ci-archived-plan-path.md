@@ -1,5 +1,5 @@
 # Plan: Fix CI (test reads an archived plan)
-**Status:** ❌ Not started
+**Status:** ✅ Done 2026-10-12 (fix landed on trunk in 2ef2c7b; trunk CI green, run 38318674104)
 **Risk:** low (one-line test path fix, `tests/` only)
 
 ## Goal
@@ -19,7 +19,7 @@ The "CI" workflow on `trunk` is green again. It has been red since `f5fae69` ("a
 **What:** In `test_real_plan_has_five_criteria`, change the path to `... / "agents" / "plans" / "done" / "test-tiers-and-qc.md"`.
 Keep the assertion as it is.
 **Validate:** `pytest tests/test_qc_script.py -q` → all pass; `scripts/validate.sh` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (already on trunk via 2ef2c7b; verified 7/7 pass, `--full` passes)
 
 ## Validation
 - `scripts/validate.sh` passes (ruff + full pytest).
