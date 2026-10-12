@@ -6,7 +6,7 @@
 # 1. Upkeep: pick up your inbox replies, release/advance the preprod lock.
 # 2. `buildqueue.py next` picks a due item (honours pause, optional daily cap, attempt limit) or we exit.
 #    Then usage.py checks the Claude "Current session" usage (one tiny Haiku probe): at or above
-#    AGENT_MAX_SESSION_USAGE (default 30%) the queue pauses until the 5-hour window resets.
+#    AGENT_MAX_SESSION_USAGE (default 70%) the queue pauses until the 5-hour window resets.
 # 3. The agent runs `/implement <plan> --unattended` in its own worktree on branch agent/<slug>, validates,
 #    pushes and opens a PR, then writes a result file. It cannot merge.
 # 4. This script decides the merge: gate.py (plan risk + diff checks) and green CI → rebase-merge;

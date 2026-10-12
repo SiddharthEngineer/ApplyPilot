@@ -6,7 +6,7 @@ Haiku prompt and reads the `rate_limit_event` that `claude -p --output-format st
 (`unifiedWindows.five_hour.utilization`, 0-1). run.sh calls it only when a queue item is due.
 
 Usage:
-  usage.py check     exit 0: below AGENT_MAX_SESSION_USAGE (percent, default 30; 0 disables the check)
+  usage.py check     exit 0: below AGENT_MAX_SESSION_USAGE (percent, default 70; 0 disables the check)
                      exit 10: at or above it; stdout's last line is the hours until the window resets
                      exit 11: usage unknown (probe failed); skip this tick
 Standard library only.
@@ -56,7 +56,7 @@ def probe() -> list[str]:
 
 
 def cmd_check() -> int:
-    limit = float(os.environ.get("AGENT_MAX_SESSION_USAGE", "30") or 0)
+    limit = float(os.environ.get("AGENT_MAX_SESSION_USAGE", "70") or 0)
     if limit <= 0:
         print("session usage check disabled")
         return 0
