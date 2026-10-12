@@ -2,7 +2,7 @@
 
 The effective status of a job, highest precedence first:
   rejected / heard_back  (user_status)
-  submitted              (user_status, or `applypilot apply` recorded apply_status='applied')
+  submitted              (user_status, or the removed auto-apply stage recorded apply_status='applied')
   in_progress            (user_status)
   inactive               (no user status and the deadline is before today)
   active                 (everything else, including jobs with no deadline)
@@ -61,7 +61,7 @@ def status_sql(today: str) -> str:
 
 
 def submitted_date(job: Mapping) -> str | None:
-    """When the application went in: submitted_at, else applied_at for jobs `applypilot apply` submitted."""
+    """When the application went in: submitted_at, else applied_at for jobs the removed auto-apply stage submitted."""
     value = job.get("submitted_at") or (job.get("applied_at") if job.get("apply_status") == "applied" else None)
     return value or None
 

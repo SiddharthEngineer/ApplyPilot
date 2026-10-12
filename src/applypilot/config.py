@@ -1,8 +1,6 @@
 """ApplyPilot configuration: paths, platform detection, user data."""
 
 import os
-import platform
-import shutil
 import stat
 from pathlib import Path
 
@@ -33,96 +31,13 @@ TAILORED_DIR = APP_DIR / "tailored_resumes"
 COVER_LETTER_DIR = APP_DIR / "cover_letters"
 LOG_DIR = APP_DIR / "logs"
 
-# Chrome worker isolation
-CHROME_WORKER_DIR = APP_DIR / "chrome-workers"
-APPLY_WORKER_DIR = APP_DIR / "apply-workers"
-
 # Package-shipped config (YAML registries)
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_DIR = PACKAGE_DIR / "config"
 
-# ---------------------------------------------------------------------------
-# ATS platform registry — used for site-specific passwords
-# ---------------------------------------------------------------------------
-
-SITE_PASSWORDS: dict[str, dict[str, str]] = {
-    "workday": {
-        "description": "Workday (used by TD, CIBC, RBC, BMO, NVIDIA, Netflix, etc.)",
-        "domain_pattern": "*.myworkdayjobs.com",
-    },
-    "greenhouse": {
-        "description": "Greenhouse (used by many tech startups)",
-        "domain_pattern": "boards.greenhouse.io",
-    },
-    "lever": {
-        "description": "Lever (used by many tech companies)",
-        "domain_pattern": "jobs.lever.co",
-    },
-    "ashby": {
-        "description": "Ashby (used by many startups)",
-        "domain_pattern": "jobs.ashbyhq.com",
-    },
-}
-
-
-def get_chrome_path() -> str:
-    """Auto-detect Chrome/Chromium executable path, cross-platform.
-
-    Override with CHROME_PATH environment variable.
-    """
-    env_path = os.environ.get("CHROME_PATH")
-    if env_path and Path(env_path).exists():
-        return env_path
-
-    system = platform.system()
-
-    if system == "Windows":
-        candidates = [
-            Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Google/Chrome/Application/chrome.exe",
-            Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Google/Chrome/Application/chrome.exe",
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
-        ]
-    elif system == "Darwin":
-        candidates = [
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
-        ]
-    else:  # Linux
-        candidates = []
-        for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
-            found = shutil.which(name)
-            if found:
-                candidates.append(Path(found))
-
-    for c in candidates:
-        if c and c.exists():
-            return str(c)
-
-    # Fall back to PATH search
-    for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium", "chrome"):
-        found = shutil.which(name)
-        if found:
-            return found
-
-    raise FileNotFoundError(
-        "Chrome/Chromium not found. Install Chrome or set CHROME_PATH environment variable."
-    )
-
-
-def get_chrome_user_data() -> Path:
-    """Default Chrome user data directory, cross-platform."""
-    system = platform.system()
-    if system == "Windows":
-        return Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-    else:
-        return Path.home() / ".config" / "google-chrome"
-
-
 def ensure_dirs():
     """Create all required directories."""
-    for d in [APP_DIR, TAILORED_DIR, COVER_LETTER_DIR, LOG_DIR, CHROME_WORKER_DIR, APPLY_WORKER_DIR]:
+    for d in [APP_DIR, TAILORED_DIR, COVER_LETTER_DIR, LOG_DIR]:
         d.mkdir(parents=True, exist_ok=True)
     # Owner-only permissions on the app directory
     try:
@@ -150,31 +65,13 @@ def drive_sync_enabled() -> bool:
 
 
 def load_profile() -> dict:
-    """Load user profile from ~/.applypilot/profile.json.
-
-    Migrates old profiles that have ``personal.password`` but no
-    ``site_passwords`` by copying the legacy password to
-    ``site_passwords.workday`` (the most common use case).
-    """
+    """Load user profile from ~/.applypilot/profile.json."""
     import json
     if not PROFILE_PATH.exists():
         raise FileNotFoundError(
             f"Profile not found at {PROFILE_PATH}. Run `applypilot init` first."
         )
-    profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-
-    # Backward-compat migration: personal.password -> site_passwords.workday
-    if "site_passwords" not in profile:
-        legacy_password = profile.get("personal", {}).get("password", "")
-        profile["site_passwords"] = {ats: "" for ats in SITE_PASSWORDS}
-        if legacy_password:
-            profile["site_passwords"]["workday"] = legacy_password
-        PROFILE_PATH.write_text(
-            json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        set_restricted_permissions(PROFILE_PATH)
-
-    return profile
+    return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
 
 
 def load_search_config() -> dict:
@@ -190,22 +87,12 @@ def load_search_config() -> dict:
 
 
 def load_sites_config() -> dict:
-    """Load sites.yaml configuration (sites list, manual_ats, blocked, etc.)."""
+    """Load sites.yaml configuration (sites list, blocked, base URLs)."""
     import yaml
     path = CONFIG_DIR / "sites.yaml"
     if not path.exists():
         return {}
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-
-def is_manual_ats(url: str | None) -> bool:
-    """Check if a URL routes through an ATS that requires manual application."""
-    if not url:
-        return False
-    sites_cfg = load_sites_config()
-    domains = sites_cfg.get("manual_ats", [])
-    url_lower = url.lower()
-    return any(domain in url_lower for domain in domains)
 
 
 def load_blocked_sites() -> tuple[set[str], list[str]]:
@@ -221,12 +108,6 @@ def load_blocked_sites() -> tuple[set[str], list[str]]:
     return sites, patterns
 
 
-def load_blocked_sso() -> list[str]:
-    """Load blocked SSO domains from sites.yaml."""
-    cfg = load_sites_config()
-    return cfg.get("blocked_sso", [])
-
-
 def load_base_urls() -> dict[str, str | None]:
     """Load site base URLs for URL resolution from sites.yaml."""
     cfg = load_sites_config()
@@ -239,11 +120,7 @@ def load_base_urls() -> dict[str, str | None]:
 
 DEFAULTS = {
     "min_score": 7,
-    "max_apply_attempts": 3,
     "max_tailor_attempts": 5,
-    "poll_interval": 60,
-    "apply_timeout": 300,
-    "viewport": "1280x900",
     "llm_rpm_limit": 12,
     "llm_discovery_model": "gemini-3.1-flash-lite",
 }
@@ -278,13 +155,11 @@ def load_env():
 TIER_LABELS = {
     1: "Discovery",
     2: "AI Scoring & Tailoring",
-    3: "Full Auto-Apply",
 }
 
 TIER_COMMANDS: dict[int, list[str]] = {
     1: ["init", "run discover", "run enrich", "status", "dashboard"],
     2: ["run score", "run tailor", "run cover", "run pdf", "run"],
-    3: ["apply"],
 }
 
 
@@ -293,26 +168,12 @@ def get_tier() -> int:
 
     Tier 1 (Discovery):            Python + pip
     Tier 2 (AI Scoring & Tailoring): + LLM API key
-    Tier 3 (Full Auto-Apply):       + (Claude Code CLI or OpenCode CLI) + Chrome
     """
     load_env()
 
     has_llm = any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
     if not has_llm:
         return 1
-
-    has_claude = shutil.which("claude") is not None
-    has_opencode = shutil.which("opencode") is not None
-    has_agent = has_claude or has_opencode
-
-    try:
-        get_chrome_path()
-        has_chrome = True
-    except FileNotFoundError:
-        has_chrome = False
-
-    if has_agent and has_chrome:
-        return 3
 
     return 2
 
@@ -321,7 +182,7 @@ def check_tier(required: int, feature: str) -> None:
     """Raise SystemExit with a clear message if the current tier is too low.
 
     Args:
-        required: Minimum tier needed (1, 2, or 3).
+        required: Minimum tier needed (1 or 2).
         feature: Human-readable description of the feature being gated.
     """
     current = get_tier()
@@ -334,18 +195,6 @@ def check_tier(required: int, feature: str) -> None:
     missing: list[str] = []
     if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
         missing.append("LLM API key — run [bold]applypilot init[/bold] or set GEMINI_API_KEY")
-    if required >= 3:
-        has_claude = shutil.which("claude") is not None
-        has_opencode = shutil.which("opencode") is not None
-        if not has_claude and not has_opencode:
-            missing.append(
-                "Agent CLI (one required) — install Claude Code from [bold]https://claude.ai/code[/bold]\n"
-                "                                  or install OpenCode from [bold]https://opencode.ai[/bold]"
-            )
-        try:
-            get_chrome_path()
-        except FileNotFoundError:
-            missing.append("Chrome/Chromium — install or set CHROME_PATH")
 
     _console.print(
         f"\n[red]'{feature}' requires {TIER_LABELS.get(required, f'Tier {required}')} (Tier {required}).[/red]\n"

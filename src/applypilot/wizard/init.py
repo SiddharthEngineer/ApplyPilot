@@ -26,7 +26,6 @@ from applypilot.config import (
     RESUME_PDF_PATH,
     RESUME_REFERENCE_PATH,
     SEARCH_CONFIG_PATH,
-    SITE_PASSWORDS,
     ensure_dirs,
     load_search_config,
     set_restricted_permissions,
@@ -206,39 +205,6 @@ def _setup_pdf_reference() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Site Passwords
-# ---------------------------------------------------------------------------
-
-
-def _setup_site_passwords(existing: dict[str, str] | None = None) -> dict[str, str]:
-    """Prompt for passwords per-ATS platform and return a site_passwords dict."""
-    console.print(
-        Panel(
-            "[bold]Site Passwords[/bold]\n"
-            "Different job sites use different ATS platforms, each with its own login.\n"
-            "Enter the password you use for each platform (leave blank if not applicable)."
-        )
-    )
-
-    sp = existing or {}
-    site_passwords: dict[str, str] = {}
-    for ats_key, ats_info in SITE_PASSWORDS.items():
-        site_passwords[ats_key] = Prompt.ask(
-            f"  {ats_info['description']}\n  Password",
-            password=True,
-            default=sp.get(ats_key, ""),
-        )
-
-    configured = [k for k, v in site_passwords.items() if v]
-    if configured:
-        console.print(f"[green]Configured passwords for: {', '.join(configured)}[/green]")
-    else:
-        console.print("[dim]No site passwords configured. You can add them later by editing profile.json.[/dim]")
-
-    return site_passwords
-
-
-# ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
 
@@ -290,9 +256,6 @@ def _setup_profile(existing: dict | None = None) -> dict:
         "portfolio_url": Prompt.ask("Portfolio URL (optional)", default=personal.get("portfolio_url", "")),
         "website_url": Prompt.ask("Personal website URL (optional)", default=personal.get("website_url", "")),
     }
-
-    # -- Site Passwords --
-    profile["site_passwords"] = _setup_site_passwords(existing=ex.get("site_passwords"))
 
     # -- Work Authorization --
     console.print("\n[bold cyan]Work Authorization[/bold cyan]")
@@ -615,65 +578,6 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Auto-Apply
-# ---------------------------------------------------------------------------
-
-
-def _setup_auto_apply() -> None:
-    """Configure autonomous job application (requires Claude Code or OpenCode CLI)."""
-    console.print(
-        Panel(
-            "[bold]Step 5: Auto-Apply (optional)[/bold]\n"
-            "ApplyPilot can autonomously fill and submit job applications\n"
-            "using Claude Code or OpenCode as the browser agent."
-        )
-    )
-
-    if not Confirm.ask("Enable autonomous job applications?", default=True):
-        console.print("[dim]You can apply manually using the tailored resumes ApplyPilot generates.[/dim]")
-        return
-
-    # Check for both CLIs
-    has_claude = shutil.which("claude") is not None
-    has_opencode = shutil.which("opencode") is not None
-
-    if has_claude and has_opencode:
-        console.print("[green]Both Claude Code and OpenCode CLI detected.[/green]")
-        console.print("[dim]You can choose which to use with --backend flag (default: claude).[/dim]")
-    elif has_claude:
-        console.print("[green]Claude Code CLI detected.[/green]")
-        console.print("[dim]OpenCode is also available as an alternative (https://opencode.ai).[/dim]")
-    elif has_opencode:
-        console.print("[green]OpenCode CLI detected.[/green]")
-    else:
-        console.print(
-            "[yellow]Neither Claude Code nor OpenCode CLI found on PATH.[/yellow]\n"
-            "Install Claude Code from: [bold]https://claude.ai/code[/bold]\n"
-            "Or install OpenCode from: [bold]https://opencode.ai[/bold]\n"
-            "Auto-apply won't work until one is installed."
-        )
-
-    # Optional: CapSolver for CAPTCHAs
-    console.print("\n[dim]Some job sites use CAPTCHAs. CapSolver can handle them automatically.[/dim]")
-    if Confirm.ask("Configure CapSolver API key? (optional)", default=False):
-        capsolver_key = Prompt.ask("CapSolver API key")
-        # Append to existing .env or create
-        if ENV_PATH.exists():
-            existing = ENV_PATH.read_text(encoding="utf-8")
-            if "CAPSOLVER_API_KEY" not in existing:
-                ENV_PATH.write_text(
-                    existing.rstrip() + f"\nCAPSOLVER_API_KEY={capsolver_key}\n",
-                    encoding="utf-8",
-                )
-        else:
-            ENV_PATH.write_text(f"# ApplyPilot configuration\nCAPSOLVER_API_KEY={capsolver_key}\n", encoding="utf-8")
-        set_restricted_permissions(ENV_PATH)
-        console.print("[green]CapSolver key saved.[/green]")
-    else:
-        console.print("[dim]Skipped. Add CAPSOLVER_API_KEY to .env later if needed.[/dim]")
-
-
-# ---------------------------------------------------------------------------
 # Main entry
 # ---------------------------------------------------------------------------
 
@@ -733,17 +637,13 @@ def run_wizard() -> None:
     _setup_ai_features(existing_env=existing_env)
     console.print()
 
-    # Step 5: Auto-apply (Claude Code detection)
-    _setup_auto_apply()
-    console.print()
-
     # Done — show tier status
     from applypilot.config import TIER_COMMANDS, TIER_LABELS, get_tier
 
     tier = get_tier()
 
     tier_lines: list[str] = []
-    for t in range(1, 4):
+    for t in sorted(TIER_LABELS):
         label = TIER_LABELS[t]
         cmds = ", ".join(f"[bold]{c}[/bold]" for c in TIER_COMMANDS[t])
         if t <= tier:
@@ -756,8 +656,6 @@ def run_wizard() -> None:
     unlock_hint = ""
     if tier == 1:
         unlock_hint = "\n[dim]To unlock Tier 2: configure an LLM API key (re-run [bold]applypilot init[/bold]).[/dim]"
-    elif tier == 2:
-        unlock_hint = "\n[dim]To unlock Tier 3: install Claude Code or OpenCode CLI + Chrome.[/dim]"
 
     console.print(
         Panel.fit(
