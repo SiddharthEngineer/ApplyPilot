@@ -18,6 +18,9 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
   usage from its `rate_limit_event`. At or above `AGENT_MAX_SESSION_USAGE` (default `70`, percent; `0` turns it off) the run
   doesn't start and the queue pauses until the window resets. If the usage can't be read, that tick is skipped.
   It only gates starts: a run already going finishes even if it pushes usage past the limit.
+- Merge policy: by default (`AGENT_MERGE_POLICY=gate`) only `low` plans that pass `gate.py` merge after green CI; the rest wait for preprod and you.
+  `AGENT_MERGE_POLICY=all` merges every ready PR after green CI, also merges PRs already waiting for review once their CI is green,
+  and redeploys preprod from trunk after each merge (`preprod.sh release`). A PR with red CI stays open and you get a notice.
 - Each run is killed after `AGENT_MAX_RUNTIME` (3h). A `flock` allows one run at a time.
 - A usage-limit exit pauses the queue for 5h and gives the attempt back.
 - A run that ends without a result file, or whose `ready` fails `validate.sh --full`, counts as a failed attempt. After 2 failures the item is `blocked` and you get a notice.

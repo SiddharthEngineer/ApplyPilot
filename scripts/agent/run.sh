@@ -11,6 +11,8 @@
 #    pushes and opens a PR, then writes a result file. It cannot merge.
 # 4. This script decides the merge: gate.py (plan risk + diff checks) and green CI → rebase-merge;
 #    otherwise the PR waits for preprod (preprod.sh) and you.
+#    AGENT_MERGE_POLICY=all (env file) merges every ready PR after green CI, whatever its tier, merges PRs already
+#    waiting for review once their CI is green, and redeploys preprod from trunk after each merge. Default: gate.
 set -uo pipefail
 export HOME=${HOME:-/home/dev}
 export PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -22,6 +24,7 @@ AGENT_REPO=${AGENT_REPO:-$(cd "$HERE/../.." && pwd)}
 STATE=${APPLYPILOT_AGENT_STATE:-$HOME/.local/state/applypilot-agent}
 GH_REPO=${GH_REPO:-SiddharthEngineer/ApplyPilot}
 MAX_RUNTIME=${AGENT_MAX_RUNTIME:-3h}
+MERGE_POLICY=${AGENT_MERGE_POLICY:-gate}
 export APPLYPILOT_AGENT_STATE=$STATE GH_REPO
 mkdir -p "$STATE/logs" "$STATE/results" "$STATE/worktrees"
 Q=(python3 "$HERE/buildqueue.py")
@@ -32,6 +35,39 @@ exec 9>"$STATE/run.lock"
 flock -n 9 || exit 0
 
 [ -n "${AGENT_INBOX_REPO:-}" ] && python3 "$HERE/inbox.py" poll >> "$STATE/runs.log" 2>&1
+
+# Policy `all`: preprod follows trunk. `status` releases (and redeploys trunk) when its PR was merged; else redeploy if free.
+redeploy_preprod() {
+    [ "$MERGE_POLICY" = all ] || return 0
+    local out
+    out=$("$HERE/preprod.sh" status 2>&1)
+    echo "$out" >> "$STATE/runs.log"
+    case $out in *"held by"*|*releasing*) return 0 ;; esac
+    "$HERE/preprod.sh" release >> "$STATE/runs.log" 2>&1
+}
+
+# Policy `all`: merge PRs that were left for review (awaiting-preprod / on-preprod) once their CI is green.
+if [ "$MERGE_POLICY" = all ]; then
+    merged_any=
+    while read -r wslug wpr; do
+        [ -n "$wpr" ] || continue
+        gh pr checks "$wpr" --repo "$GH_REPO" >/dev/null 2>&1 || continue
+        if gh pr merge "$wpr" --repo "$GH_REPO" --rebase --delete-branch >/dev/null 2>&1; then
+            "${Q[@]}" set "$wslug" status=done
+            say "$wslug: PR #$wpr merged (policy all, CI green)"
+            [ -n "${AGENT_INBOX_REPO:-}" ] && python3 "$HERE/inbox.py" notify --slug "$wslug" --title "merged PR #$wpr" \
+                --body "Merged to trunk without review (AGENT_MERGE_POLICY=all): https://github.com/$GH_REPO/pull/$wpr" >/dev/null
+            merged_any=1
+        fi
+    done < <(python3 -c '
+import json, os, sys
+items = json.load(open(sys.argv[1]))["items"] if os.path.exists(sys.argv[1]) else {}
+for slug, it in items.items():
+    if it.get("status") in ("awaiting-preprod", "on-preprod") and it.get("pr"):
+        print(slug, it["pr"])
+' "$STATE/queue.json")
+    [ -n "$merged_any" ] && redeploy_preprod
+fi
 "$HERE/preprod.sh" tick >> "$STATE/runs.log" 2>&1
 
 slug=$("${Q[@]}" next) || exit 0
@@ -110,10 +146,11 @@ if [ "$status" = ready ]; then
     pr=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pr"])' "$result")
     verdict=$(cd "$wt" && python3 scripts/agent/gate.py "agents/plans/$slug.md")
     tier=$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tier"])')
-    if [ "$tier" = low ] && timeout 30m gh pr checks "$pr" --repo "$GH_REPO" --watch --fail-fast >/dev/null 2>&1 \
+    if { [ "$tier" = low ] || [ "$MERGE_POLICY" = all ]; } && timeout 30m gh pr checks "$pr" --repo "$GH_REPO" --watch --fail-fast >/dev/null 2>&1 \
         && gh pr merge "$pr" --repo "$GH_REPO" --rebase --delete-branch >/dev/null; then
         final=merged
-        notify "merged PR #$pr" "Low-risk change merged to trunk after green CI: https://github.com/$GH_REPO/pull/$pr"
+        notify "merged PR #$pr" "Merged to trunk after green CI (gate tier $tier, policy $MERGE_POLICY): https://github.com/$GH_REPO/pull/$pr"
+        redeploy_preprod
     else
         final=review
         gh pr edit "$pr" --repo "$GH_REPO" --add-label awaiting-preprod >/dev/null 2>&1 \
@@ -122,6 +159,8 @@ if [ "$status" = ready ]; then
 \`\`\`json
 $verdict
 \`\`\`" >/dev/null
+        [ "$MERGE_POLICY" = all ] && notify "PR #$pr not merged: CI not green" \
+            "Left open for you; it merges on a later tick if CI turns green: https://github.com/$GH_REPO/pull/$pr"
     fi
     python3 - "$result" "$final" <<'EOF'
 import json, sys
