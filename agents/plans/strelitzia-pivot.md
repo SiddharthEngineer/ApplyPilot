@@ -109,7 +109,7 @@ Pickle-Pixel (Henry Muhiar), original ApplyPilot", "Modifications Copyright (C) 
 auto-apply removed, dashboard redesigned", AGPL-3.0 reference, and the flower artwork as MIT. `__version__ = "0.4.0"`. AGENTS.md/DEPLOY.md:
 the new names. Mark the old `/srv` and `~` paths as "until the post-merge migration (M15)".
 **Validate:** `grep -rn "ApplyPilot" README.md AGENTS.md` → only the credit and migration lines; `python -c "import strelitzia; print(strelitzia.__version__)"` → `0.4.0`.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit). ROADMAP: M5 marked obsolete, the apply backlog item dropped.
 
 ### Task 6: Post-merge VPS migration script (written and dry-run tested here, run later by the user)
 **Runs:** unattended (writing and testing); running it for real is M15
