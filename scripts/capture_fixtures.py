@@ -41,8 +41,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def _setup_isolated_env(tmp_dir: Path) -> None:
-    """Point ApplyPilot at a temporary directory."""
-    os.environ["APPLYPILOT_DIR"] = str(tmp_dir)
+    """Point Strelitzia at a temporary directory."""
+    os.environ["STRELITZIA_DIR"] = str(tmp_dir)
     (tmp_dir / "tailored_resumes").mkdir(exist_ok=True)
     (tmp_dir / "cover_letters").mkdir(exist_ok=True)
     (tmp_dir / "logs").mkdir(exist_ok=True)
@@ -50,7 +50,7 @@ def _setup_isolated_env(tmp_dir: Path) -> None:
 
 def _capture_jobs_raw(conn: sqlite3.Connection, out_dir: Path) -> None:
     """Pickle raw discovered jobs + site counts."""
-    from applypilot.database import get_jobs_by_stage
+    from strelitzia.database import get_jobs_by_stage
 
     jobs = get_jobs_by_stage(conn, stage="discovered", limit=100)
 
@@ -67,7 +67,7 @@ def _capture_jobs_raw(conn: sqlite3.Connection, out_dir: Path) -> None:
 
 def _capture_jobs_enriched(conn: sqlite3.Connection, out_dir: Path) -> None:
     """Capture enriched jobs with full_description."""
-    from applypilot.database import get_jobs_by_stage
+    from strelitzia.database import get_jobs_by_stage
 
     jobs = get_jobs_by_stage(conn, stage="enriched", limit=3)
 
@@ -254,7 +254,7 @@ def _capture_jobspy_samples(out_dir: Path, sites: list[str], terms, do_scrub) ->
 
 
 def _capture_workday_sample(out_dir: Path, terms, do_scrub) -> None:
-    from applypilot.discovery.workday import load_employers, workday_search
+    from strelitzia.discovery.workday import load_employers, workday_search
 
     for key, employer in load_employers().items():
         try:
@@ -270,8 +270,8 @@ def _capture_workday_sample(out_dir: Path, terms, do_scrub) -> None:
 
 
 def _capture_gemini_sample(out_dir: Path, terms, do_scrub) -> None:
-    from applypilot.llm import get_client
-    from applypilot.scoring.scorer import SCORE_PROMPT
+    from strelitzia.llm import get_client
+    from strelitzia.scoring.scorer import SCORE_PROMPT
 
     job_path = out_dir / "jobspy_indeed.json"
     jobs = json.loads(job_path.read_text(encoding="utf-8")) if job_path.exists() else []
@@ -314,8 +314,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.out is not None:
-        real_app_dir = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
-        from applypilot.config import load_env
+        from strelitzia.config import load_env, resolve_app_dir
+        real_app_dir = resolve_app_dir()
         load_env()
         sites = [s.strip() for s in args.sites.split(",")]
         capture_samples(args.out, sites, args.scrub, real_app_dir)
@@ -330,17 +330,17 @@ def main() -> None:
 
     print(f"Capturing fixtures (n={args.n}, sites={sites})...")
 
-    with tempfile.TemporaryDirectory(prefix="applypilot_capture_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="strelitzia_capture_") as tmp:
         tmp_dir = Path(tmp)
         _setup_isolated_env(tmp_dir)
 
         # Import after env setup
-        from applypilot.database import get_stats, init_db
+        from strelitzia.database import get_stats, init_db
 
-        conn = init_db(tmp_dir / "applypilot.db")
+        conn = init_db(tmp_dir / "strelitzia.db")
 
         # Run discovery
-        from applypilot.discovery.jobspy import search_jobs
+        from strelitzia.discovery.jobspy import search_jobs
 
         print(f"  Running JobSpy search (sites={sites})...")
         try:

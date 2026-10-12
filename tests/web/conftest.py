@@ -1,4 +1,4 @@
-"""Dashboard app fixtures: the FastAPI app on a temp SQLite DB (APPLYPILOT_DATABASE_URL is unset by tests/conftest.py)."""
+"""Dashboard app fixtures: the FastAPI app on a temp SQLite DB (STRELITZIA_DATABASE_URL is unset by tests/conftest.py)."""
 
 import pytest
 
@@ -6,10 +6,10 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from applypilot.database import close_connection, get_connection
-from applypilot.web.app import create_app
+from strelitzia.database import close_connection, get_connection
+from strelitzia.web.app import create_app
 
-HEADERS = {"X-ApplyPilot": "1"}
+HEADERS = {"X-Strelitzia": "1"}
 
 
 @pytest.fixture

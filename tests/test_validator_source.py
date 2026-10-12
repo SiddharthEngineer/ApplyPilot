@@ -1,6 +1,6 @@
 """Tests for validator source parameter (content-library mode relaxation)."""
 
-from applypilot.scoring.validator import (
+from strelitzia.scoring.validator import (
     validate_json_fields,
     validate_tailored_resume,
 )

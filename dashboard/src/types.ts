@@ -1,4 +1,4 @@
-// Mirrors the dashboard API responses (src/applypilot/web/app.py, queries.py, tasks.py).
+// Mirrors the dashboard API responses (src/strelitzia/web/app.py, queries.py, tasks.py).
 
 export type Status = 'active' | 'inactive' | 'in_progress' | 'submitted' | 'rejected' | 'heard_back';
 export type StatusFilter = Status | 'no_response' | 'all';

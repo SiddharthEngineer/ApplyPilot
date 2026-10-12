@@ -1,6 +1,6 @@
 """Tests for config.py utilities including file permissions."""
 
-from applypilot.config import set_restricted_permissions
+from strelitzia.config import set_restricted_permissions
 
 
 class TestSetRestrictedPermissions:

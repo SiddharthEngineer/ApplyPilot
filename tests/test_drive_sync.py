@@ -3,9 +3,9 @@
 import pytest
 from fake_drive import FakeDrive, fake_media
 
-from applypilot.database import init_db
-from applypilot.storage.drive import DriveClient
-from applypilot.storage.sync import ensure_local_pdf, local_pdf, run_drive_sync
+from strelitzia.database import init_db
+from strelitzia.storage.drive import DriveClient
+from strelitzia.storage.sync import ensure_local_pdf, local_pdf, run_drive_sync
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def test_sync_moves_pdfs_and_saves_links(conn, client, drive, tmp_path):
     assert not stem.with_suffix(".pdf").exists()
     assert stem.with_suffix(".json").exists()  # working files stay
     assert (tmp_path / "1_CL.txt").exists()
-    assert drive.path_of(row["resume_drive_id"])[:4] == ["ApplyPilot", "Acme", "Data Engineer", "2026-09-30"]
+    assert drive.path_of(row["resume_drive_id"])[:4] == ["Strelitzia", "Acme", "Data Engineer", "2026-09-30"]
 
 
 def test_sync_saves_the_job_folder(conn, client, drive, tmp_path):
@@ -183,14 +183,14 @@ def test_sync_leaves_row_factory_alone(conn, client, tmp_path):
 
 @pytest.fixture
 def token(tmp_path, monkeypatch):
-    from applypilot import config
+    from strelitzia import config
     path = tmp_path / "google_token.json"
     monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", path)
     return path
 
 
 def test_drive_sync_enabled(token, monkeypatch):
-    from applypilot.config import drive_sync_enabled
+    from strelitzia.config import drive_sync_enabled
     monkeypatch.delenv("DRIVE_SYNC", raising=False)
     token.write_text("{}")
     assert not drive_sync_enabled()
@@ -201,13 +201,13 @@ def test_drive_sync_enabled(token, monkeypatch):
 
 
 def _patch_tailoring(monkeypatch):
-    from applypilot.scoring import tailor
+    from strelitzia.scoring import tailor
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
 
 
 def test_pipeline_syncs_after_tailor(token, monkeypatch):
-    from applypilot import pipeline
-    from applypilot.storage import sync
+    from strelitzia import pipeline
+    from strelitzia.storage import sync
     token.write_text("{}")
     monkeypatch.setenv("DRIVE_SYNC", "1")
     calls = []
@@ -218,8 +218,8 @@ def test_pipeline_syncs_after_tailor(token, monkeypatch):
 
 
 def test_pipeline_drive_errors_do_not_fail_stage(token, monkeypatch):
-    from applypilot import pipeline
-    from applypilot.storage import sync
+    from strelitzia import pipeline
+    from strelitzia.storage import sync
     token.write_text("{}")
     monkeypatch.setenv("DRIVE_SYNC", "1")
 
@@ -232,8 +232,8 @@ def test_pipeline_drive_errors_do_not_fail_stage(token, monkeypatch):
 
 
 def test_pipeline_skips_sync_when_disabled(token, monkeypatch):
-    from applypilot import pipeline
-    from applypilot.storage import sync
+    from strelitzia import pipeline
+    from strelitzia.storage import sync
     monkeypatch.delenv("DRIVE_SYNC", raising=False)
 
     def fail():
@@ -245,8 +245,8 @@ def test_pipeline_skips_sync_when_disabled(token, monkeypatch):
 
 
 def test_pdf_stage_does_not_rebuild_moved_pdfs(conn, client, tmp_path, monkeypatch):
-    import applypilot.scoring.pdf as pdf_mod
-    from applypilot.storage import sync
+    import strelitzia.scoring.pdf as pdf_mod
+    from strelitzia.storage import sync
     stem = _add_job(conn, tmp_path, cover=False)
     stem.with_suffix(".txt").write_text("resume text")
     (tmp_path / "other.txt").write_text("unsynced resume")

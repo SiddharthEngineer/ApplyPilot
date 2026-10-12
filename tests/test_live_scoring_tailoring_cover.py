@@ -20,7 +20,7 @@ def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
 
     # live/llm env exception — model pin (no per-call model arg available)
     """
-    from applypilot.llm import _detect_provider
+    from strelitzia.llm import _detect_provider
 
     # Check if any provider is available
     try:
@@ -33,7 +33,7 @@ def _setup_llm(request, monkeypatch: pytest.MonkeyPatch):
     for purpose in ("DISCOVERY", "SCORING", "TAILOR", "COVER"):
         monkeypatch.setenv(f"LLM_{purpose}_MODEL", "gemini-3.1-flash-lite")
 
-    import applypilot.llm as llm_mod
+    import strelitzia.llm as llm_mod
     llm_mod.reset_clients()
 
     yield
@@ -107,7 +107,7 @@ class TestScoreJob:
     """Test score_job with real LLM."""
 
     def test_score_returns_valid_range(self):
-        from applypilot.scoring.scorer import score_job
+        from strelitzia.scoring.scorer import score_job
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
@@ -122,8 +122,8 @@ class TestScoreJob:
         assert len(result.get("reasoning", "")) > 20, "Reasoning too short"
 
     def test_score_uses_flash_lite(self):
-        from applypilot.llm import get_client
-        from applypilot.scoring.scorer import score_job
+        from strelitzia.llm import get_client
+        from strelitzia.scoring.scorer import score_job
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
@@ -147,7 +147,7 @@ class TestTailorResume:
     """Test tailor_resume with real LLM."""
 
     def test_tailor_returns_valid_output(self):
-        from applypilot.scoring.tailor import tailor_resume
+        from strelitzia.scoring.tailor import tailor_resume
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
@@ -165,7 +165,7 @@ class TestTailorResume:
         assert report["validation_mode"] == "lenient"
 
     def test_tailor_no_llm_leak_phrases(self):
-        from applypilot.scoring.tailor import tailor_resume
+        from strelitzia.scoring.tailor import tailor_resume
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
@@ -197,7 +197,7 @@ class TestCoverLetter:
     """Test generate_cover_letter with real LLM."""
 
     def test_cover_starts_with_dear(self):
-        from applypilot.scoring.cover_letter import generate_cover_letter
+        from strelitzia.scoring.cover_letter import generate_cover_letter
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
@@ -215,7 +215,7 @@ class TestCoverLetter:
         )
 
     def test_cover_no_llm_leak_phrases(self):
-        from applypilot.scoring.cover_letter import generate_cover_letter
+        from strelitzia.scoring.cover_letter import generate_cover_letter
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]

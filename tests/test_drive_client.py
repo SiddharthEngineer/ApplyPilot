@@ -6,8 +6,8 @@ import sys
 import pytest
 from fake_drive import FakeDrive, fake_media
 
-from applypilot.storage.drive import DriveClient, DriveNotConfigured, file_md5, load_credentials
-from applypilot.storage.drive_layout import drive_target
+from strelitzia.storage.drive import DriveClient, DriveNotConfigured, file_md5, load_credentials
+from strelitzia.storage.drive_layout import drive_target
 
 JOB = {"url": "https://example.com/jobs/1", "title": "Data Engineer", "site": "indeed", "company": "Acme",
        "tailored_at": "2026-09-30T12:00:00"}
@@ -31,8 +31,8 @@ def pdf(tmp_path):
 
 
 def test_folders_created_once(drive, client):
-    a = client.ensure_folder_path(("ApplyPilot", "Acme", "Data Engineer", "2026-09-30"))
-    b = DriveClient(drive).ensure_folder_path(("ApplyPilot", "Acme", "Data Engineer", "2026-09-30"))
+    a = client.ensure_folder_path(("Strelitzia", "Acme", "Data Engineer", "2026-09-30"))
+    b = DriveClient(drive).ensure_folder_path(("Strelitzia", "Acme", "Data Engineer", "2026-09-30"))
     assert a == b
     assert len(drive.folders()) == 4
     assert drive.calls["create"] == 4
@@ -47,10 +47,10 @@ def test_upsert_creates_then_updates(drive, client, pdf):
     assert not second.created and second.id == first.id
     assert drive.store[first.id]["content"] == b"%PDF-1.4 second"
     assert len(drive.pdfs()) == 1
-    assert drive.path_of(first.id) == ["ApplyPilot", "Acme", "Data Engineer", "2026-09-30",
+    assert drive.path_of(first.id) == ["Strelitzia", "Acme", "Data Engineer", "2026-09-30",
                                        "Acme - Data Engineer - Resume.pdf"]
     assert drive.store[first.id]["appProperties"] == {
-        "applypilot_job": target.job_key, "applypilot_kind": "resume", "applypilot_site": "indeed"}
+        "applypilot_job": target.job_key, "applypilot_kind": "resume", "applypilot_site": "indeed"}  # legacy keys, kept for existing files
 
 
 def test_known_id_used(drive, client, pdf):
@@ -107,7 +107,7 @@ def test_download_round_trips(drive, client, pdf, tmp_path):
 
 def test_missing_token(monkeypatch, tmp_path):
     pytest.importorskip("googleapiclient")
-    from applypilot import config
+    from strelitzia import config
     monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", tmp_path / "none.json")
     with pytest.raises(DriveNotConfigured, match="drive auth"):
         load_credentials()
@@ -116,6 +116,6 @@ def test_missing_token(monkeypatch, tmp_path):
 def test_import_without_google_libraries():
     code = (
         "import sys; sys.modules['googleapiclient'] = None; sys.modules['google_auth_oauthlib'] = None; "
-        "import applypilot.storage.drive as d; assert not d.drive_libraries_installed()"
+        "import strelitzia.storage.drive as d; assert not d.drive_libraries_installed()"
     )
     subprocess.run([sys.executable, "-c", code], check=True)

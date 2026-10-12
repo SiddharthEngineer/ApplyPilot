@@ -1,4 +1,4 @@
-// Typed fetch helpers for /app/api. Mutating calls send `X-ApplyPilot: 1` (the server's CSRF check).
+// Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
 import type { Facets, JobDetail, JobList, JobQuery, Task, UserStatus } from './types';
 
 export const API_BASE = '/app/api';
@@ -26,7 +26,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (method !== 'GET') {
-    headers['X-ApplyPilot'] = '1';
+    headers['X-Strelitzia'] = '1';
     if (init?.body !== undefined) headers['Content-Type'] = 'application/json';
   }
   const res = await fetch(API_BASE + path, { ...init, headers });

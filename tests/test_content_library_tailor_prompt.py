@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.scoring.content_library import ContentLibrary, Project, RoleSection, parse_content_library
-from applypilot.scoring.tailor import _build_content_library_tailor_prompt
+from strelitzia.scoring.content_library import ContentLibrary, Project, RoleSection, parse_content_library
+from strelitzia.scoring.tailor import _build_content_library_tailor_prompt
 
 REAL_LIBRARY = Path(__file__).resolve().parent.parent / "personal" / "content_library.md"
 
@@ -109,7 +109,7 @@ class TestBuildContentLibraryTailorPrompt:
         assert "Docker" in prompt
 
     def test_includes_banned_words(self):
-        from applypilot.scoring.validator import BANNED_WORDS
+        from strelitzia.scoring.validator import BANNED_WORDS
         prompt = _build_content_library_tailor_prompt(_minimal_profile(), _minimal_library())
         for word in BANNED_WORDS[:5]:
             assert word in prompt
@@ -139,7 +139,7 @@ class TestBuildContentLibraryTailorPrompt:
         assert "patentsview-pipeline" in prompt and "data-science-associate-air" in prompt
 
     def test_slot_ranges_from_base_resume(self):
-        from applypilot.scoring.resume_model import Bullet, RoleEntry, TailoredResume
+        from strelitzia.scoring.resume_model import Bullet, RoleEntry, TailoredResume
         lib = _minimal_library().ensure_keys()
         base = TailoredResume(roles=[
             RoleEntry("data-science-associate-air", "Data Science Associate", "AIR", "2025", None,

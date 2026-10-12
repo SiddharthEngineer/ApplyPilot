@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from applypilot.database import MAX_SCORE_ATTEMPTS, get_jobs_by_stage, get_stats, init_db, reset_score_errors
-from applypilot.scoring import scorer
+from strelitzia.database import MAX_SCORE_ATTEMPTS, get_jobs_by_stage, get_stats, init_db, reset_score_errors
+from strelitzia.scoring import scorer
 
 JOB_URL = "https://example.com/job/1"
 
@@ -135,11 +135,11 @@ def test_reset_score_errors(tmp_path):
 def test_cli_reset_errors(tmp_path):
     from typer.testing import CliRunner
 
-    from applypilot.cli import app
+    from strelitzia.cli import app
 
-    with patch("applypilot.cli._bootstrap"), \
-            patch("applypilot.database.reset_score_errors", return_value=326) as reset, \
-            patch("applypilot.pipeline.run_pipeline") as pipeline:
+    with patch("strelitzia.cli._bootstrap"), \
+            patch("strelitzia.database.reset_score_errors", return_value=326) as reset, \
+            patch("strelitzia.pipeline.run_pipeline") as pipeline:
         result = CliRunner().invoke(app, ["run", "score", "--reset-errors"])
     assert result.exit_code == 0, result.output
     assert "Reset 326 job(s)" in result.output

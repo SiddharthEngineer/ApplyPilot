@@ -2,7 +2,7 @@
 
 import ssl
 
-from applypilot.discovery.workday import _ssl_context, setup_proxy
+from strelitzia.discovery.workday import _ssl_context, setup_proxy
 
 
 def test_ssl_context_exists():
@@ -26,7 +26,7 @@ def test_ssl_context_verify_mode():
 def test_setup_proxy_none_preserves_ssl_context():
     """Verify setup_proxy(None) creates opener that uses SSL context."""
     setup_proxy(None)
-    from applypilot.discovery.workday import _opener
+    from strelitzia.discovery.workday import _opener
     # The opener should exist
     assert _opener is not None
 

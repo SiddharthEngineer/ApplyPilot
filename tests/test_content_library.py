@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.scoring.content_library import (
+from strelitzia.scoring.content_library import (
     ContentLibrary,
     _parse_angle_tags,
     _parse_dates,

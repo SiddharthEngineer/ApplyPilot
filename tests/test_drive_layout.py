@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from applypilot.storage.drive_layout import (
+from strelitzia.storage.drive_layout import (
     clean_name,
     drive_target,
     file_name,
@@ -38,7 +38,7 @@ def test_clean_name_truncates():
 
 def test_folder_path():
     path = folder_path(JOB, "resume")
-    assert path[:3] == ["ApplyPilot", "Acme", "Data Engineer"]
+    assert path[:3] == ["Strelitzia", "Acme", "Data Engineer"]
     assert len(path) == 4 and len(path[3]) == 10
 
 

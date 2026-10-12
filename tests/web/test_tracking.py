@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from applypilot.database import init_db
-from applypilot.tracking import (
+from strelitzia.database import init_db
+from strelitzia.tracking import (
     COLORS,
     STATUSES,
     days_since_submitted,

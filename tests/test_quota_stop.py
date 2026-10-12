@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from applypilot import pipeline
-from applypilot.database import init_db
-from applypilot.discovery import smartextract
-from applypilot.llm import LLMQuotaExhausted
-from applypilot.scoring import cover_letter, scorer, tailor
+from strelitzia import pipeline
+from strelitzia.database import init_db
+from strelitzia.discovery import smartextract
+from strelitzia.llm import LLMQuotaExhausted
+from strelitzia.scoring import cover_letter, scorer, tailor
 
 URLS = [f"https://example.com/job/{i}" for i in range(3)]
 QUOTA = LLMQuotaExhausted("gemini-3.1-flash-lite", "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
@@ -125,9 +125,9 @@ def test_smartextract_judge_does_not_swallow_quota(judge):
 
 
 def test_pipeline_wrapper_reports_quota_stop():
-    with patch("applypilot.scoring.scorer.run_scoring", return_value={"stopped": "daily_quota"}):
+    with patch("strelitzia.scoring.scorer.run_scoring", return_value={"stopped": "daily_quota"}):
         assert pipeline._run_score() == {"status": pipeline.QUOTA_STOPPED}
-    with patch("applypilot.scoring.scorer.run_scoring", return_value={"scored": 1}):
+    with patch("strelitzia.scoring.scorer.run_scoring", return_value={"scored": 1}):
         assert pipeline._run_score() == {"status": "ok"}
 
 

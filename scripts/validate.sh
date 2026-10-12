@@ -71,9 +71,9 @@ fi
 
 if [ "$MODE" = full ]; then
     step "dashboard build" npm run build --prefix dashboard --silent
-    # The built bundle is committed under src/applypilot/web/static; a stale one ships old UI.
-    step "dashboard bundle committed" bash -c '[ -z "$(git status --porcelain -- src/applypilot/web/static)" ]'
-    step "docker build" docker build -q -t applypilot-validate:latest .
+    # The built bundle is committed under src/strelitzia/web/static; a stale one ships old UI.
+    step "dashboard bundle committed" bash -c '[ -z "$(git status --porcelain -- src/strelitzia/web/static)" ]'
+    step "docker build" docker build -q -t strelitzia-validate:latest .
 fi
 
 echo "ALL PASS ($MODE)"

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import applypilot.discovery.smartextract as se
+import strelitzia.discovery.smartextract as se
 
 TARGETS = [
     {"name": "Broken", "url": "https://broken.example/jobs", "query": None},

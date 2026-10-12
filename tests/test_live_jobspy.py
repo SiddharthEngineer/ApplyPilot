@@ -20,9 +20,9 @@ def _isolated_db(tmp_path: Path):
     (tmp_path / "cover_letters").mkdir(exist_ok=True)
     (tmp_path / "logs").mkdir(exist_ok=True)
 
-    from applypilot.database import init_db
+    from strelitzia.database import init_db
 
-    conn = init_db(tmp_path / "applypilot.db")
+    conn = init_db(tmp_path / "strelitzia.db")
     yield conn
     conn.close()
 
@@ -44,8 +44,8 @@ _NEEDS_PROXY = pytest.mark.skipif(not os.environ.get("PROXY"), reason="blocked w
 )
 def test_jobspy_single_site(site: str, _isolated_db: sqlite3.Connection):
     """Run one JobSpy search per site and verify DB insert."""
-    from applypilot.database import get_stats
-    from applypilot.discovery.jobspy import search_jobs
+    from strelitzia.database import get_stats
+    from strelitzia.discovery.jobspy import search_jobs
 
     result = search_jobs(
         query="software engineer",

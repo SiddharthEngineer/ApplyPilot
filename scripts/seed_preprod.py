@@ -3,7 +3,7 @@
 Runs on every preprod deploy (scripts/agent/preprod.sh, via PREPROD_SEED_CMD) in a one-off container of the preprod
 image with this checkout mounted at /seed. It refuses any database except `applypilot_preprod`, since it deletes rows.
 
-    python scripts/seed_preprod.py                 # target: APPLYPILOT_DATABASE_URL (must be .../applypilot_preprod)
+    python scripts/seed_preprod.py                 # target: STRELITZIA_DATABASE_URL (must be .../applypilot_preprod)
     python scripts/seed_preprod.py --sqlite PATH   # seed a SQLite file instead (tests)
 """
 
@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from applypilot import tracking
-from applypilot.database import init_db, job_key
+from strelitzia import tracking
+from strelitzia.config import env
+from strelitzia.database import init_db, job_key
 
 PREPROD_DB = "applypilot_preprod"
 DEFAULT_POSTINGS = Path(__file__).resolve().parent.parent / "tests" / "data" / "postings"
@@ -163,17 +163,17 @@ def _preprod_db_name(url: str | None) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--postings", type=Path, default=DEFAULT_POSTINGS, help="fixture postings directory")
-    parser.add_argument("--sqlite", type=Path, help="seed this SQLite file instead of APPLYPILOT_DATABASE_URL")
+    parser.add_argument("--sqlite", type=Path, help="seed this SQLite file instead of STRELITZIA_DATABASE_URL")
     args = parser.parse_args(argv)
 
     if args.sqlite:
         target, name = str(args.sqlite), args.sqlite.name
     else:
-        url = os.environ.get("APPLYPILOT_DATABASE_URL")
+        url = env("DATABASE_URL")
         name = _preprod_db_name(url)
         if name is None:
             # Never echo the URL: it holds the password.
-            print(f"refusing to seed: APPLYPILOT_DATABASE_URL must be a postgres URL for the database "
+            print(f"refusing to seed: STRELITZIA_DATABASE_URL (or APPLYPILOT_DATABASE_URL) must be a postgres URL for the database "
                   f"'{PREPROD_DB}' (this script deletes every job)", file=sys.stderr)
             return 2
         target = url

@@ -14,7 +14,7 @@ class TestEnrichmentCheap:
     """Test enrichment functions that don't require network."""
 
     def test_extract_from_json_ld(self):
-        from applypilot.enrichment.detail import extract_from_json_ld
+        from strelitzia.enrichment.detail import extract_from_json_ld
 
         intel = {
             "json_ld": [
@@ -36,7 +36,7 @@ class TestEnrichmentCheap:
         assert result["application_url"] == "https://example.com/apply"
 
     def test_extract_from_json_ld_no_posting(self):
-        from applypilot.enrichment.detail import extract_from_json_ld
+        from strelitzia.enrichment.detail import extract_from_json_ld
 
         intel = {"json_ld": [{"@type": "Organization", "name": "Test Corp"}]}
 
@@ -44,7 +44,7 @@ class TestEnrichmentCheap:
         assert result is None
 
     def test_clean_description_html(self):
-        from applypilot.enrichment.detail import clean_description
+        from strelitzia.enrichment.detail import clean_description
 
         html = "<p>Line 1</p><br><p>Line 2</p><li>Item 1</li><li>Item 2</li>"
         result = clean_description(html)
@@ -55,7 +55,7 @@ class TestEnrichmentCheap:
         assert "- Item 2" in result
 
     def test_clean_description_plain_text(self):
-        from applypilot.enrichment.detail import clean_description
+        from strelitzia.enrichment.detail import clean_description
 
         text = "Line 1\n\n\nLine 2"
         result = clean_description(text)
@@ -65,26 +65,26 @@ class TestEnrichmentCheap:
         assert "\n\n\n" not in result  # Should collapse triple newlines
 
     def test_clean_description_empty(self):
-        from applypilot.enrichment.detail import clean_description
+        from strelitzia.enrichment.detail import clean_description
 
         assert clean_description("") == ""
         assert clean_description(None) == ""
 
     def test_resolve_url_absolute(self):
-        from applypilot.enrichment.detail import resolve_url
+        from strelitzia.enrichment.detail import resolve_url
 
         url = resolve_url("https://example.com/job/123", "indeed")
         assert url == "https://example.com/job/123"
 
     def test_resolve_url_relative_returns_none_for_unknown_site(self):
-        from applypilot.enrichment.detail import resolve_url
+        from strelitzia.enrichment.detail import resolve_url
 
         # Relative URL with unknown site returns None (no base URL configured)
         url = resolve_url("/job/123", "indeed")
         assert url is None
 
     def test_resolve_url_absolute_returns_unchanged(self):
-        from applypilot.enrichment.detail import resolve_url
+        from strelitzia.enrichment.detail import resolve_url
 
         # Absolute URLs are returned as-is (jsessionid stripping only for relative)
         url = resolve_url("https://example.com/job/123;jsessionid=abc", "indeed")
@@ -99,7 +99,7 @@ class TestDatabaseStore:
     """Test database store and dedup functions."""
 
     def test_store_jobs_dedup(self, tmp_path):
-        from applypilot.database import get_stats, init_db
+        from strelitzia.database import get_stats, init_db
 
         conn = init_db(tmp_path / "test.db")
 
@@ -133,7 +133,7 @@ class TestPDFCheap:
     def test_convert_to_pdf_text(self, tmp_path):
         pytest.importorskip("playwright")
 
-        from applypilot.scoring.pdf import convert_to_pdf
+        from strelitzia.scoring.pdf import convert_to_pdf
 
         text = "Test User\nSan Francisco, CA\n\nEXPERIENCE\nSoftware Engineer"
         output_path = tmp_path / "test_resume.pdf"
@@ -159,7 +159,7 @@ class TestDetailPageLive:
     """Test scrape_detail_page with real network."""
 
     def test_scrape_detail_page(self, tmp_path):
-        from applypilot.enrichment.detail import scrape_detail_page
+        from strelitzia.enrichment.detail import scrape_detail_page
 
         try:
             from playwright.sync_api import sync_playwright
@@ -185,19 +185,19 @@ class TestWorkdayLive:
     """Test Workday discovery with real network."""
 
     def test_workday_smoke(self, tmp_path):
-        from applypilot.discovery.workday import run_workday_discovery
+        from strelitzia.discovery.workday import run_workday_discovery
 
         result = run_workday_discovery(
             employer_keys=["nvidia", "salesforce"],
             queries=["software engineer", "backend engineer"],
             max_results=5,
             workers=1,
-            db_path=tmp_path / "applypilot.db",
+            db_path=tmp_path / "strelitzia.db",
         )
 
         assert result["queries"] == 2
         assert result["found"] >= 0
-        assert (tmp_path / "applypilot.db").exists()
+        assert (tmp_path / "strelitzia.db").exists()
 
 
 @pytest.mark.live
@@ -206,7 +206,7 @@ class TestSmartExtractLive:
     """Test SmartExtract with real network."""
 
     def test_smartextract_hackernews(self, tmp_path):
-        from applypilot.discovery.smartextract import _run_one_site, build_scrape_targets
+        from strelitzia.discovery.smartextract import _run_one_site, build_scrape_targets
 
         # Hacker News Jobs is static and reliable
         targets = build_scrape_targets(

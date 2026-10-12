@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from applypilot.scoring.content_library import ContentLibrary, Project, RoleSection
+from strelitzia.scoring.content_library import ContentLibrary, Project, RoleSection
 
 
 def _minimal_profile() -> dict:
@@ -108,17 +108,17 @@ def _fake_render_pdf(overflows: int = 0):
 
 def _run_tailoring_with_tmp(tmp_path, validation_mode="lenient", jobs=None, render=None):
     """Helper that patches all dependencies and runs tailoring."""
-    from applypilot.scoring.tailor import run_tailoring
+    from strelitzia.scoring.tailor import run_tailoring
 
     with (
-        patch("applypilot.scoring.pdf.render_pdf", new=render or _fake_render_pdf()),
-        patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-        patch("applypilot.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
-        patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
-        patch("applypilot.scoring.tailor.get_connection") as mock_conn,
-        patch("applypilot.scoring.tailor.get_jobs_by_stage") as mock_jobs,
-        patch("applypilot.scoring.tailor.parse_content_library", return_value=_minimal_library()),
-        patch("applypilot.scoring.tailor.get_client") as mock_client,
+        patch("strelitzia.scoring.pdf.render_pdf", new=render or _fake_render_pdf()),
+        patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+        patch("strelitzia.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
+        patch("strelitzia.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+        patch("strelitzia.scoring.tailor.get_connection") as mock_conn,
+        patch("strelitzia.scoring.tailor.get_jobs_by_stage") as mock_jobs,
+        patch("strelitzia.scoring.tailor.parse_content_library", return_value=_minimal_library()),
+        patch("strelitzia.scoring.tailor.get_client") as mock_client,
     ):
         mock_cl.exists.return_value = True
         mock_client.return_value.chat.return_value = _valid_llm_response()
@@ -153,15 +153,15 @@ class TestRunTailoringContentLibrary:
         assert report["status"] == "approved"
 
     def test_no_jobs_returns_zero(self, tmp_path):
-        from applypilot.scoring.tailor import run_tailoring
+        from strelitzia.scoring.tailor import run_tailoring
 
         with (
-            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-            patch("applypilot.scoring.tailor.TAILORED_DIR"),
-            patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
-            patch("applypilot.scoring.tailor.get_connection"),
-            patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[]),
-            patch("applypilot.scoring.tailor.parse_content_library"),
+            patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("strelitzia.scoring.tailor.TAILORED_DIR"),
+            patch("strelitzia.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+            patch("strelitzia.scoring.tailor.get_connection"),
+            patch("strelitzia.scoring.tailor.get_jobs_by_stage", return_value=[]),
+            patch("strelitzia.scoring.tailor.parse_content_library"),
         ):
             mock_cl.exists.return_value = True
             result = run_tailoring(source="content-library")
@@ -172,13 +172,13 @@ class TestRunTailoringContentLibrary:
         assert result["elapsed"] == 0.0
 
     def test_content_library_not_found(self):
-        from applypilot.scoring.tailor import run_tailoring
+        from strelitzia.scoring.tailor import run_tailoring
 
         with (
-            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-            patch("applypilot.scoring.tailor.TAILORED_DIR"),
-            patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
-            patch("applypilot.scoring.tailor.get_jobs_by_stage") as mock_jobs,
+            patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("strelitzia.scoring.tailor.TAILORED_DIR"),
+            patch("strelitzia.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+            patch("strelitzia.scoring.tailor.get_jobs_by_stage") as mock_jobs,
         ):
             mock_cl.exists.return_value = False
             result = run_tailoring(source="content-library")
@@ -187,14 +187,14 @@ class TestRunTailoringContentLibrary:
         mock_jobs.assert_not_called()
 
     def test_resume_source_not_affected(self):
-        from applypilot.scoring.tailor import run_tailoring
+        from strelitzia.scoring.tailor import run_tailoring
 
         with (
-            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-            patch("applypilot.scoring.tailor.RESUME_PATH") as mock_resume,
-            patch("applypilot.scoring.tailor.get_connection"),
-            patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[]),
-            patch("applypilot.scoring.tailor.parse_content_library") as mock_parse,
+            patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("strelitzia.scoring.tailor.RESUME_PATH") as mock_resume,
+            patch("strelitzia.scoring.tailor.get_connection"),
+            patch("strelitzia.scoring.tailor.get_jobs_by_stage", return_value=[]),
+            patch("strelitzia.scoring.tailor.parse_content_library") as mock_parse,
         ):
             mock_resume.exists.return_value = True
             mock_resume.read_text.return_value = "resume content"
@@ -221,17 +221,17 @@ class TestRunTailoringContentLibrary:
         assert result["approved"] == 2
 
     def test_db_updated_for_approved_jobs(self, tmp_path):
-        from applypilot.scoring.tailor import run_tailoring
+        from strelitzia.scoring.tailor import run_tailoring
 
         with (
-            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-            patch("applypilot.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
-            patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
-            patch("applypilot.scoring.tailor.get_connection") as mock_conn,
-            patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
-            patch("applypilot.scoring.tailor.parse_content_library", return_value=_minimal_library()),
-            patch("applypilot.scoring.tailor.get_client") as mock_client,
-            patch("applypilot.scoring.pdf.render_pdf", new=_fake_render_pdf()),
+            patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("strelitzia.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
+            patch("strelitzia.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+            patch("strelitzia.scoring.tailor.get_connection") as mock_conn,
+            patch("strelitzia.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
+            patch("strelitzia.scoring.tailor.parse_content_library", return_value=_minimal_library()),
+            patch("strelitzia.scoring.tailor.get_client") as mock_client,
+            patch("strelitzia.scoring.pdf.render_pdf", new=_fake_render_pdf()),
         ):
             mock_cl.exists.return_value = True
             mock_client.return_value.chat.return_value = _valid_llm_response()
@@ -268,18 +268,18 @@ class TestTemplateOutputs:
         assert 'id="resume-experience"' in render.calls[0]
 
     def test_db_stores_pdf_path(self, tmp_path):
-        from applypilot.scoring.tailor import run_tailoring
+        from strelitzia.scoring.tailor import run_tailoring
 
         conn = MagicMock()
         with (
-            patch("applypilot.scoring.pdf.render_pdf", new=_fake_render_pdf()),
-            patch("applypilot.scoring.tailor.load_profile", return_value=_minimal_profile()),
-            patch("applypilot.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
-            patch("applypilot.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
-            patch("applypilot.scoring.tailor.get_connection", return_value=conn),
-            patch("applypilot.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
-            patch("applypilot.scoring.tailor.parse_content_library", return_value=_minimal_library()),
-            patch("applypilot.scoring.tailor.get_client") as mock_client,
+            patch("strelitzia.scoring.pdf.render_pdf", new=_fake_render_pdf()),
+            patch("strelitzia.scoring.tailor.load_profile", return_value=_minimal_profile()),
+            patch("strelitzia.scoring.tailor.TAILORED_DIR", new=MagicMock()) as mock_dir,
+            patch("strelitzia.scoring.tailor.CONTENT_LIBRARY_PATH") as mock_cl,
+            patch("strelitzia.scoring.tailor.get_connection", return_value=conn),
+            patch("strelitzia.scoring.tailor.get_jobs_by_stage", return_value=[_test_job()]),
+            patch("strelitzia.scoring.tailor.parse_content_library", return_value=_minimal_library()),
+            patch("strelitzia.scoring.tailor.get_client") as mock_client,
         ):
             mock_cl.exists.return_value = True
             mock_client.return_value.chat.return_value = _valid_llm_response()
@@ -313,9 +313,9 @@ class TestTemplateOutputs:
 
 class TestRunLimit:
     def test_tailor_stage_passes_limit(self):
-        from applypilot import pipeline
+        from strelitzia import pipeline
 
-        with patch("applypilot.scoring.tailor.run_tailoring", return_value={"approved": 0}) as rt:
+        with patch("strelitzia.scoring.tailor.run_tailoring", return_value={"approved": 0}) as rt:
             pipeline._run_tailor(min_score=7, source="content-library", limit=3)
             pipeline._run_tailor(min_score=7)
         assert rt.call_args_list[0].kwargs["limit"] == 3
@@ -324,7 +324,7 @@ class TestRunLimit:
     def test_run_help_lists_limit(self):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         out = _plain(CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output)
         assert "--limit" in out
@@ -336,14 +336,14 @@ class TestDefaultSource:
     def _invoke(self, library_exists: bool):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         lib = MagicMock()
         lib.exists.return_value = library_exists
         with (
-            patch("applypilot.config.CONTENT_LIBRARY_PATH", lib),
-            patch("applypilot.config.check_tier"),
-            patch("applypilot.pipeline.run_pipeline", return_value={}) as rp,
+            patch("strelitzia.config.CONTENT_LIBRARY_PATH", lib),
+            patch("strelitzia.config.check_tier"),
+            patch("strelitzia.pipeline.run_pipeline", return_value={}) as rp,
         ):
             result = CliRunner().invoke(app, ["run", "tailor"])
         assert result.exit_code == 0, result.output
@@ -358,7 +358,7 @@ class TestDefaultSource:
     def test_help_shows_default(self):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         out = _plain(CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "250"}).output)
         assert "default when content_library.md exists" in " ".join(out.split())
@@ -386,7 +386,7 @@ class TestCoverLetterEvidence:
         return {"tailored_resume_path": str(tmp_path / "Job.pdf"), "lib": lib_path}
 
     def test_evidence_from_sidecar(self, tmp_path):
-        from applypilot.scoring.cover_letter import tailored_evidence
+        from strelitzia.scoring.cover_letter import tailored_evidence
 
         job = self._sidecar(tmp_path)
         ev = tailored_evidence(job, library_path=job["lib"])
@@ -396,13 +396,13 @@ class TestCoverLetterEvidence:
         assert "Unused Project" not in ev
 
     def test_no_sidecar_returns_none(self, tmp_path):
-        from applypilot.scoring.cover_letter import tailored_evidence
+        from strelitzia.scoring.cover_letter import tailored_evidence
 
         assert tailored_evidence({"tailored_resume_path": str(tmp_path / "Legacy.txt")}) is None
         assert tailored_evidence({}) is None
 
     def test_generate_uses_evidence_instead_of_resume(self, tmp_path):
-        from applypilot.scoring import cover_letter
+        from strelitzia.scoring import cover_letter
 
         client = MagicMock()
         client.chat.return_value = "Dear Hiring Manager,\n\nI released 9.1M records.\n\nAlex"
@@ -419,17 +419,17 @@ class TestDefaultValidation:
     """Content-library tailoring defaults to lenient validation; everything else to normal."""
 
     def test_tailor_validation_resolution(self):
-        from applypilot.pipeline import tailor_validation_mode
+        from strelitzia.pipeline import tailor_validation_mode
 
         assert tailor_validation_mode(None, "content-library") == "lenient"
         assert tailor_validation_mode(None, "resume") == "normal"
         assert tailor_validation_mode("strict", "content-library") == "strict"
 
     def test_stages_resolve_default(self):
-        from applypilot import pipeline
+        from strelitzia import pipeline
 
-        with patch("applypilot.scoring.tailor.run_tailoring", return_value={}) as rt, \
-                patch("applypilot.scoring.cover_letter.run_cover_letters", return_value={}) as rc:
+        with patch("strelitzia.scoring.tailor.run_tailoring", return_value={}) as rt, \
+                patch("strelitzia.scoring.cover_letter.run_cover_letters", return_value={}) as rc:
             pipeline._run_tailor(validation_mode=None, source="content-library")
             pipeline._run_cover(validation_mode=None)
         assert rt.call_args.kwargs["validation_mode"] == "lenient"
@@ -438,11 +438,11 @@ class TestDefaultValidation:
     def test_cli_passes_none_when_flag_omitted(self):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         with (
-            patch("applypilot.config.check_tier"),
-            patch("applypilot.pipeline.run_pipeline", return_value={}) as rp,
+            patch("strelitzia.config.check_tier"),
+            patch("strelitzia.pipeline.run_pipeline", return_value={}) as rp,
         ):
             assert CliRunner().invoke(app, ["run", "tailor"]).exit_code == 0
             assert CliRunner().invoke(app, ["run", "tailor", "--validation", "strict"]).exit_code == 0

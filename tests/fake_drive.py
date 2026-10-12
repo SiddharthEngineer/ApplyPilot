@@ -1,6 +1,6 @@
 """In-memory fake of the Drive v3 `files()` resource, for hermetic tests.
 
-Understands the query clauses used by applypilot.storage.drive. Pass `media_factory=fake_media`
+Understands the query clauses used by strelitzia.storage.drive. Pass `media_factory=fake_media`
 to DriveClient so uploads carry the file's bytes.
 """
 

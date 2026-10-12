@@ -1,4 +1,4 @@
-"""Pytest configuration for ApplyPilot.
+"""Pytest configuration for Strelitzia.
 
 Registers custom marks and provides CLI options to opt-in to expensive tests.
 Default `pytest tests/ -v` excludes live, llm, and expensive tests.
@@ -14,7 +14,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # Hermetic guard: unit tests (not marked live/llm) may not reach the network
-# or the real ~/.applypilot directory.
+# or the real ~/.strelitzia directory.
 # ---------------------------------------------------------------------------
 
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
@@ -49,14 +49,14 @@ def _make_guard(original):
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Point APPLYPILOT_DIR at a session temp dir before applypilot.config is imported.
+    """Point STRELITZIA_DIR at a session temp dir before strelitzia.config is imported.
 
-    APP_DIR is computed at import time (src/applypilot/config.py), so this must run
-    before any test module imports applypilot.
+    APP_DIR is computed at import time (src/strelitzia/config.py), so this must run
+    before any test module imports strelitzia.
     """
     global _ISOLATED_APP_DIR
-    _ISOLATED_APP_DIR = tempfile.mkdtemp(prefix="applypilot-test-")
-    os.environ["APPLYPILOT_DIR"] = _ISOLATED_APP_DIR
+    _ISOLATED_APP_DIR = tempfile.mkdtemp(prefix="strelitzia-test-")
+    os.environ["STRELITZIA_DIR"] = _ISOLATED_APP_DIR
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -79,19 +79,20 @@ def _block_network(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True)
 def _no_user_database_url(monkeypatch: pytest.MonkeyPatch):
-    """Unit tests never use the developer's Postgres job store (APPLYPILOT_DATABASE_URL from a shell or .env).
+    """Unit tests never use the developer's Postgres job store (STRELITZIA_DATABASE_URL from a shell or .env).
 
-    Tests that want Postgres use the `pg_db` / `db_target` fixtures (APPLYPILOT_TEST_DATABASE_URL).
+    Tests that want Postgres use the `pg_db` / `db_target` fixtures (STRELITZIA_TEST_DATABASE_URL).
     """
-    monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)
+    monkeypatch.delenv("STRELITZIA_DATABASE_URL", raising=False)
+    monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)  # legacy name
 
 
 def _test_database_url() -> str | None:
-    return os.environ.get("APPLYPILOT_TEST_DATABASE_URL") or None
+    return os.environ.get("STRELITZIA_TEST_DATABASE_URL") or os.environ.get("APPLYPILOT_TEST_DATABASE_URL") or None
 
 
 def _reset_pg_schema(url: str) -> None:
-    from applypilot.db_pg import PgConnection
+    from strelitzia.db_pg import PgConnection
 
     conn = PgConnection(url)
     try:
@@ -103,15 +104,15 @@ def _reset_pg_schema(url: str) -> None:
 
 @pytest.fixture
 def pg_db():
-    """A fresh `jobs` table in APPLYPILOT_TEST_DATABASE_URL (a throwaway DB such as applypilot_test).
+    """A fresh `jobs` table in STRELITZIA_TEST_DATABASE_URL (a throwaway DB such as applypilot_test).
 
     Yields the URL; `init_db(url)` / `get_connection(url)` open it. Skips when the variable is unset.
     """
     url = _test_database_url()
     if not url:
-        pytest.skip("APPLYPILOT_TEST_DATABASE_URL not set (Postgres test tier)")
+        pytest.skip("STRELITZIA_TEST_DATABASE_URL not set (Postgres test tier)")
     pytest.importorskip("psycopg")
-    from applypilot.database import close_connection
+    from strelitzia.database import close_connection
 
     close_connection(url)
     _reset_pg_schema(url)
@@ -137,7 +138,7 @@ def _isolate_env_file(request: pytest.FixtureRequest):
     """Keep load_env() away from the repo-root .env (its CWD fallback) in unit tests.
 
     Otherwise CLI tests that run _bootstrap() pull the developer's real keys and limits into os.environ.
-    Only the isolated APPLYPILOT_DIR/.env is loaded. Tests marked live/llm keep the real loader.
+    Only the isolated STRELITZIA_DIR/.env is loaded. Tests marked live/llm keep the real loader.
     Patched at ``dotenv.load_dotenv`` because config.load_env imports it at call time, which covers
     modules that bound ``load_env`` by name (pipeline.py, cli.py).
     """
@@ -243,7 +244,7 @@ def _set_llm_defaults():
     for purpose in ("DISCOVERY", "SCORING", "TAILOR", "COVER"):
         os.environ.setdefault(f"LLM_{purpose}_MODEL", "gemini-3.1-flash-lite")
 
-    import applypilot.llm as llm_mod
+    import strelitzia.llm as llm_mod
 
     llm_mod.reset_clients()
 
@@ -255,7 +256,7 @@ def _set_llm_defaults():
 @pytest.fixture(autouse=False)
 def _reset_llm_singletons():
     """Per-test reset of LLM singletons to avoid cross-test contamination."""
-    import applypilot.llm as llm_mod
+    import strelitzia.llm as llm_mod
 
     llm_mod.reset_clients()
 

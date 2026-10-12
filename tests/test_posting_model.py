@@ -2,7 +2,7 @@
 
 from dataclasses import fields
 
-from applypilot.enrichment.posting_model import (
+from strelitzia.enrichment.posting_model import (
     ENUMS,
     ROLE_CATEGORIES,
     JobPosting,

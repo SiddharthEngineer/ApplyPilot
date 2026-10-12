@@ -2,12 +2,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Built into the Python package, so `applypilot serve` (and pip installs) need no Node.
+// Built into the Python package, so `strelitzia serve` (and pip installs) need no Node.
 export default defineConfig({
   base: '/app/',
   plugins: [react()],
   build: {
-    outDir: '../src/applypilot/web/static',
+    outDir: '../src/strelitzia/web/static',
     emptyOutDir: true,
   },
   server: {

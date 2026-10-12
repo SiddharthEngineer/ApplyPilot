@@ -46,12 +46,11 @@ def test_unit_test_is_guarded():
 
 
 def test_app_dir_isolated():
-    from applypilot import config
+    from strelitzia import config
 
-    real = Path.home() / ".applypilot"
-    assert os.environ["APPLYPILOT_DIR"] == str(config.APP_DIR)
-    assert config.APP_DIR != real
-    assert config.APP_DIR.name.startswith("applypilot-test-")
+    assert os.environ["STRELITZIA_DIR"] == str(config.APP_DIR)
+    assert config.APP_DIR not in (Path.home() / ".strelitzia", Path.home() / config.LEGACY_DIR_NAME)
+    assert config.APP_DIR.name.startswith("strelitzia-test-")
     assert config.DB_PATH.parent == config.APP_DIR
 
 
@@ -59,12 +58,12 @@ def test_load_env_ignores_repo_root_dotenv(tmp_path, monkeypatch):
     """load_env() must not read a .env from the CWD (the developer's real keys) during unit tests."""
     import os
 
-    from applypilot import pipeline
-    from applypilot.config import load_env
+    from strelitzia import pipeline
+    from strelitzia.config import load_env
 
-    (tmp_path / ".env").write_text("APPLYPILOT_HERMETIC_PROBE=leaked\n")
+    (tmp_path / ".env").write_text("STRELITZIA_HERMETIC_PROBE=leaked\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("APPLYPILOT_HERMETIC_PROBE", raising=False)
+    monkeypatch.delenv("STRELITZIA_HERMETIC_PROBE", raising=False)
     load_env()
     pipeline.load_env()
-    assert "APPLYPILOT_HERMETIC_PROBE" not in os.environ
+    assert "STRELITZIA_HERMETIC_PROBE" not in os.environ

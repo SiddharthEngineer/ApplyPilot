@@ -51,27 +51,27 @@ def temp_resume_pdf(tmp_path: Path) -> Path:
 class TestSetupResumeWorkflowChoice:
     """Test the workflow choice in _setup_resume()."""
 
-    @patch("applypilot.wizard.init.Confirm.ask")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_traditional_workflow_selected(self, mock_ask, mock_confirm):
         """Test that selecting option 1 triggers traditional resume setup."""
-        from applypilot.wizard.init import _setup_resume
+        from strelitzia.wizard.init import _setup_resume
 
         mock_ask.return_value = "1"
         mock_confirm.return_value = False
-        with patch("applypilot.wizard.init._setup_traditional_resume") as mock_traditional:
+        with patch("strelitzia.wizard.init._setup_traditional_resume") as mock_traditional:
             _setup_resume()
             mock_traditional.assert_called_once()
 
-    @patch("applypilot.wizard.init.Confirm.ask")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_content_library_workflow_selected(self, mock_ask, mock_confirm):
         """Test that selecting option 2 triggers content library setup."""
-        from applypilot.wizard.init import _setup_resume
+        from strelitzia.wizard.init import _setup_resume
 
         mock_ask.return_value = "2"
         mock_confirm.return_value = False
-        with patch("applypilot.wizard.init._setup_content_library") as mock_cl:
+        with patch("strelitzia.wizard.init._setup_content_library") as mock_cl:
             _setup_resume()
             mock_cl.assert_called_once()
 
@@ -79,29 +79,29 @@ class TestSetupResumeWorkflowChoice:
 class TestSetupTraditionalResume:
     """Test traditional resume setup."""
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_txt_file_copied(self, mock_ask, temp_resume_txt, tmp_path):
         """Test that .txt file is copied to RESUME_PATH."""
-        from applypilot.wizard.init import _setup_traditional_resume
+        from strelitzia.wizard.init import _setup_traditional_resume
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
         dest_path = dest_dir / "resume.txt"
         mock_ask.return_value = str(temp_resume_txt)
-        with patch("applypilot.wizard.init.RESUME_PATH", dest_path):
+        with patch("strelitzia.wizard.init.RESUME_PATH", dest_path):
             _setup_traditional_resume()
             assert dest_path.exists()
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_pdf_file_copied(self, mock_ask, temp_resume_pdf, tmp_path):
         """Test that .pdf file is copied to RESUME_PDF_PATH."""
-        from applypilot.wizard.init import _setup_traditional_resume
+        from strelitzia.wizard.init import _setup_traditional_resume
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
         dest_path = dest_dir / "resume.pdf"
         mock_ask.return_value = str(temp_resume_pdf)
-        with patch("applypilot.wizard.init.RESUME_PDF_PATH", dest_path):
+        with patch("strelitzia.wizard.init.RESUME_PDF_PATH", dest_path):
             _setup_traditional_resume()
             assert dest_path.exists()
 
@@ -109,23 +109,23 @@ class TestSetupTraditionalResume:
 class TestSetupContentLibrary:
     """Test content library setup."""
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_content_library_copied(self, mock_ask, temp_content_library, tmp_path):
         """Test that content library file is copied to CONTENT_LIBRARY_PATH."""
-        from applypilot.wizard.init import _setup_content_library
+        from strelitzia.wizard.init import _setup_content_library
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
         dest_path = dest_dir / "content_library.md"
         mock_ask.return_value = str(temp_content_library)
-        with patch("applypilot.wizard.init.CONTENT_LIBRARY_PATH", dest_path):
+        with patch("strelitzia.wizard.init.CONTENT_LIBRARY_PATH", dest_path):
             _setup_content_library()
             assert dest_path.exists()
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_nonexistent_file_prompts_again(self, mock_ask, tmp_path):
         """Test that non-existent file prompts for another path."""
-        from applypilot.wizard.init import _setup_content_library
+        from strelitzia.wizard.init import _setup_content_library
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
@@ -134,47 +134,47 @@ class TestSetupContentLibrary:
             str(tmp_path / "nonexistent.md"),
             str(tmp_path / "also_nonexistent.md"),
         ]
-        with patch("applypilot.wizard.init.CONTENT_LIBRARY_PATH", dest_path), pytest.raises(StopIteration):
+        with patch("strelitzia.wizard.init.CONTENT_LIBRARY_PATH", dest_path), pytest.raises(StopIteration):
             _setup_content_library()
 
 
 class TestSetupPdfReference:
     """Test optional PDF reference setup."""
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_pdf_reference_copied(self, mock_ask, temp_resume_pdf, tmp_path):
         """Test that PDF reference is copied to RESUME_REFERENCE_PATH."""
-        from applypilot.wizard.init import _setup_pdf_reference
+        from strelitzia.wizard.init import _setup_pdf_reference
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
         dest_path = dest_dir / "resume_reference.pdf"
         mock_ask.return_value = str(temp_resume_pdf)
-        with patch("applypilot.wizard.init.RESUME_REFERENCE_PATH", dest_path):
+        with patch("strelitzia.wizard.init.RESUME_REFERENCE_PATH", dest_path):
             _setup_pdf_reference()
             assert dest_path.exists()
 
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_non_pdf_rejected(self, mock_ask, temp_resume_txt, tmp_path):
         """Test that non-PDF files are rejected."""
-        from applypilot.wizard.init import _setup_pdf_reference
+        from strelitzia.wizard.init import _setup_pdf_reference
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
         dest_path = dest_dir / "resume_reference.pdf"
         mock_ask.side_effect = [str(temp_resume_txt), str(temp_resume_txt)]
-        with patch("applypilot.wizard.init.RESUME_REFERENCE_PATH", dest_path), pytest.raises(StopIteration):
+        with patch("strelitzia.wizard.init.RESUME_REFERENCE_PATH", dest_path), pytest.raises(StopIteration):
             _setup_pdf_reference()
 
 
 class TestIntegration:
     """Integration tests for the init wizard."""
 
-    @patch("applypilot.wizard.init.Confirm.ask")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_content_library_mode_skips_resume_prompts(self, mock_ask, mock_confirm, temp_content_library, tmp_path):
         """Test that content library mode doesn't ask for resume.txt/resume.pdf."""
-        from applypilot.wizard.init import _setup_resume
+        from strelitzia.wizard.init import _setup_resume
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
@@ -183,7 +183,7 @@ class TestIntegration:
         mock_ask.side_effect = ["2", str(temp_content_library)]
         mock_confirm.return_value = False
 
-        with patch("applypilot.wizard.init.CONTENT_LIBRARY_PATH", dest_path):
+        with patch("strelitzia.wizard.init.CONTENT_LIBRARY_PATH", dest_path):
             _setup_resume()
             # Should only have 2 calls to Prompt.ask: workflow choice and content library path
             # Should NOT be asked for resume.txt or resume.pdf
@@ -195,7 +195,7 @@ class TestStrToBool:
     """Test the _str_to_bool helper."""
 
     def test_true_strings(self):
-        from applypilot.wizard.init import _str_to_bool
+        from strelitzia.wizard.init import _str_to_bool
 
         assert _str_to_bool("yes") is True
         assert _str_to_bool("Yes") is True
@@ -204,7 +204,7 @@ class TestStrToBool:
         assert _str_to_bool("1") is True
 
     def test_false_strings(self):
-        from applypilot.wizard.init import _str_to_bool
+        from strelitzia.wizard.init import _str_to_bool
 
         assert _str_to_bool("no") is False
         assert _str_to_bool("No") is False
@@ -212,19 +212,19 @@ class TestStrToBool:
         assert _str_to_bool("0") is False
 
     def test_bool_passthrough(self):
-        from applypilot.wizard.init import _str_to_bool
+        from strelitzia.wizard.init import _str_to_bool
 
         assert _str_to_bool(True) is True
         assert _str_to_bool(False) is False
 
     def test_unknown_returns_default(self):
-        from applypilot.wizard.init import _str_to_bool
+        from strelitzia.wizard.init import _str_to_bool
 
         assert _str_to_bool("maybe") is True  # default=True
         assert _str_to_bool("maybe", default=False) is False
 
     def test_none_returns_default(self):
-        from applypilot.wizard.init import _str_to_bool
+        from strelitzia.wizard.init import _str_to_bool
 
         assert _str_to_bool(None) is True
         assert _str_to_bool(None, default=False) is False
@@ -234,22 +234,22 @@ class TestJoinList:
     """Test the _join_list helper."""
 
     def test_join_list(self):
-        from applypilot.wizard.init import _join_list
+        from strelitzia.wizard.init import _join_list
 
         assert _join_list(["Python", "JS"]) == "Python, JS"
 
     def test_empty_list(self):
-        from applypilot.wizard.init import _join_list
+        from strelitzia.wizard.init import _join_list
 
         assert _join_list([]) == ""
 
     def test_string_passthrough(self):
-        from applypilot.wizard.init import _join_list
+        from strelitzia.wizard.init import _join_list
 
         assert _join_list("hello") == "hello"
 
     def test_none_returns_empty(self):
-        from applypilot.wizard.init import _join_list
+        from strelitzia.wizard.init import _join_list
 
         assert _join_list(None) == ""
 
@@ -258,29 +258,29 @@ class TestLoadExistingProfile:
     """Test _load_existing_profile helper."""
 
     def test_loads_valid_profile(self, tmp_path):
-        from applypilot.wizard.init import _load_existing_profile
+        from strelitzia.wizard.init import _load_existing_profile
 
         profile_path = tmp_path / "profile.json"
         data = {"personal": {"full_name": "Test User"}}
         profile_path.write_text(json.dumps(data), encoding="utf-8")
-        with patch("applypilot.wizard.init.PROFILE_PATH", profile_path):
+        with patch("strelitzia.wizard.init.PROFILE_PATH", profile_path):
             result = _load_existing_profile()
         assert result == data
 
     def test_returns_none_when_missing(self, tmp_path):
-        from applypilot.wizard.init import _load_existing_profile
+        from strelitzia.wizard.init import _load_existing_profile
 
         profile_path = tmp_path / "nonexistent.json"
-        with patch("applypilot.wizard.init.PROFILE_PATH", profile_path):
+        with patch("strelitzia.wizard.init.PROFILE_PATH", profile_path):
             result = _load_existing_profile()
         assert result is None
 
     def test_returns_none_on_invalid_json(self, tmp_path):
-        from applypilot.wizard.init import _load_existing_profile
+        from strelitzia.wizard.init import _load_existing_profile
 
         profile_path = tmp_path / "profile.json"
         profile_path.write_text("not json {{{", encoding="utf-8")
-        with patch("applypilot.wizard.init.PROFILE_PATH", profile_path):
+        with patch("strelitzia.wizard.init.PROFILE_PATH", profile_path):
             result = _load_existing_profile()
         assert result is None
 
@@ -289,22 +289,22 @@ class TestLoadExistingEnv:
     """Test _load_existing_env helper."""
 
     def test_parses_env_file(self, tmp_path):
-        from applypilot.wizard.init import _load_existing_env
+        from strelitzia.wizard.init import _load_existing_env
 
         env_path = tmp_path / ".env"
         env_path.write_text(
-            "# ApplyPilot configuration\nGEMINI_API_KEY=abc123\nLLM_MODEL=gemini-2.0-flash\n",
+            "# Strelitzia configuration\nGEMINI_API_KEY=abc123\nLLM_MODEL=gemini-2.0-flash\n",
             encoding="utf-8",
         )
-        with patch("applypilot.wizard.init.ENV_PATH", env_path):
+        with patch("strelitzia.wizard.init.ENV_PATH", env_path):
             result = _load_existing_env()
         assert result == {"GEMINI_API_KEY": "abc123", "LLM_MODEL": "gemini-2.0-flash"}
 
     def test_returns_empty_when_missing(self, tmp_path):
-        from applypilot.wizard.init import _load_existing_env
+        from strelitzia.wizard.init import _load_existing_env
 
         env_path = tmp_path / "nonexistent.env"
-        with patch("applypilot.wizard.init.ENV_PATH", env_path):
+        with patch("strelitzia.wizard.init.ENV_PATH", env_path):
             result = _load_existing_env()
         assert result == {}
 
@@ -317,12 +317,12 @@ class TestLoadExistingEnv:
 class TestSetupProfilePrefill:
     """Test that _setup_profile uses existing profile values as defaults."""
 
-    @patch("applypilot.wizard.init.Confirm.ask")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.PROFILE_PATH")
+    @patch("strelitzia.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.PROFILE_PATH")
     def test_personal_info_prefilled(self, mock_path, mock_ask, mock_confirm):
         """Existing personal info is used as defaults for prompts."""
-        from applypilot.wizard.init import _setup_profile
+        from strelitzia.wizard.init import _setup_profile
 
         existing = {
             "personal": {
@@ -421,12 +421,12 @@ class TestSetupProfilePrefill:
         email_call = mock_ask.call_args_list[2]
         assert email_call.kwargs.get("default") == "jane@example.com"
 
-    @patch("applypilot.wizard.init.Confirm.ask")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.PROFILE_PATH")
+    @patch("strelitzia.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.PROFILE_PATH")
     def test_empty_profile_allows_fresh_input(self, mock_path, mock_ask, mock_confirm):
         """When no existing profile, all defaults are empty."""
-        from applypilot.wizard.init import _setup_profile
+        from strelitzia.wizard.init import _setup_profile
 
         mock_confirm.side_effect = [True, False]
 
@@ -479,11 +479,11 @@ class TestSetupProfilePrefill:
 class TestSetupSearchesPrefill:
     """Test that _setup_searches uses existing config as defaults."""
 
-    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_existing_searches_used_as_defaults(self, mock_ask, mock_path):
         """Existing search config is used as defaults for prompts."""
-        from applypilot.wizard.init import _setup_searches
+        from strelitzia.wizard.init import _setup_searches
 
         existing = {
             "defaults": {"location": "New York, NY", "distance": 25},
@@ -509,11 +509,11 @@ class TestSetupSearchesPrefill:
         assert calls[2].kwargs.get("default") == "New York, Brooklyn, Remote"
         assert calls[3].kwargs.get("default") == "Backend Engineer, Full Stack Developer"
 
-    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_no_existing_searches_use_fallbacks(self, mock_ask, mock_path):
         """When no existing searches, defaults are used."""
-        from applypilot.wizard.init import _setup_searches
+        from strelitzia.wizard.init import _setup_searches
 
         mock_ask.side_effect = [
             "Chicago",  # location
@@ -537,13 +537,13 @@ class TestSetupSearchesPrefill:
 class TestSetupSearchesSitesThreshold:
     """Test that _setup_searches writes explicit sites (no zip_recruiter) and site_fail_threshold."""
 
-    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_writes_sites_without_zip_recruiter(self, mock_ask, mock_path):
         """Generated YAML contains a sites list that excludes zip_recruiter."""
         import yaml
 
-        from applypilot.wizard.init import _setup_searches
+        from strelitzia.wizard.init import _setup_searches
 
         written: list[str] = []
 
@@ -566,13 +566,13 @@ class TestSetupSearchesSitesThreshold:
         assert "glassdoor" not in sites
         assert "google" not in sites
 
-    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_writes_site_fail_threshold(self, mock_ask, mock_path):
         """Generated YAML contains defaults.site_fail_threshold == 3."""
         import yaml
 
-        from applypilot.wizard.init import _setup_searches
+        from strelitzia.wizard.init import _setup_searches
 
         written: list[str] = []
 
@@ -587,13 +587,13 @@ class TestSetupSearchesSitesThreshold:
         cfg = yaml.safe_load(written[0])
         assert cfg["defaults"]["site_fail_threshold"] == 3
 
-    @patch("applypilot.wizard.init.SEARCH_CONFIG_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.SEARCH_CONFIG_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
     def test_valid_yaml(self, mock_ask, mock_path):
         """Generated YAML is valid and parseable."""
         import yaml
 
-        from applypilot.wizard.init import _setup_searches
+        from strelitzia.wizard.init import _setup_searches
 
         written: list[str] = []
 
@@ -619,12 +619,12 @@ class TestSetupSearchesSitesThreshold:
 class TestSetupAiFeaturesPrefill:
     """Test that _setup_ai_features uses existing .env as defaults."""
 
-    @patch("applypilot.wizard.init.ENV_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.ENV_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
     def test_existing_gemini_key_detected(self, mock_confirm, mock_ask, mock_env):
         """Existing Gemini key auto-selects gemini provider."""
-        from applypilot.wizard.init import _setup_ai_features
+        from strelitzia.wizard.init import _setup_ai_features
 
         existing_env = {"GEMINI_API_KEY": "my-secret-key", "LLM_MODEL": "gemini-2.0-flash"}
         mock_confirm.return_value = True  # Enable AI
@@ -644,12 +644,12 @@ class TestSetupAiFeaturesPrefill:
         key_call = mock_ask.call_args_list[1]
         assert key_call.kwargs.get("default") == "my-secret-key"
 
-    @patch("applypilot.wizard.init.ENV_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.ENV_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
     def test_existing_openai_key_detected(self, mock_confirm, mock_ask, mock_env):
         """Existing OpenAI key auto-selects openai provider."""
-        from applypilot.wizard.init import _setup_ai_features
+        from strelitzia.wizard.init import _setup_ai_features
 
         existing_env = {"OPENAI_API_KEY": "sk-xxx", "LLM_MODEL": "gpt-4o"}
         mock_confirm.return_value = True
@@ -666,12 +666,12 @@ class TestSetupAiFeaturesPrefill:
         provider_call = mock_ask.call_args_list[0]
         assert provider_call.kwargs.get("default") == "openai"
 
-    @patch("applypilot.wizard.init.ENV_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.ENV_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
     def test_no_existing_env_defaults_to_gemini(self, mock_confirm, mock_ask, mock_env):
         """No existing env defaults to gemini provider."""
-        from applypilot.wizard.init import _setup_ai_features
+        from strelitzia.wizard.init import _setup_ai_features
 
         mock_confirm.return_value = True
         mock_ask.side_effect = [
@@ -687,13 +687,13 @@ class TestSetupAiFeaturesPrefill:
         provider_call = mock_ask.call_args_list[0]
         assert provider_call.kwargs.get("default") == "gemini"
 
-    @patch("applypilot.wizard.init.set_restricted_permissions")
-    @patch("applypilot.wizard.init.ENV_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.set_restricted_permissions")
+    @patch("strelitzia.wizard.init.ENV_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
     def test_writes_discovery_model_and_rpm_limit(self, mock_confirm, mock_ask, mock_env, mock_perm):
         """Default answers write LLM_DISCOVERY_MODEL and LLM_RPM_LIMIT to .env."""
-        from applypilot.wizard.init import _setup_ai_features
+        from strelitzia.wizard.init import _setup_ai_features
 
         written: list[str] = []
 
@@ -718,13 +718,13 @@ class TestSetupAiFeaturesPrefill:
         assert "LLM_RPM_LIMIT=12" in content
         assert "GEMINI_API_KEY=new-key" in content
 
-    @patch("applypilot.wizard.init.set_restricted_permissions")
-    @patch("applypilot.wizard.init.ENV_PATH")
-    @patch("applypilot.wizard.init.Prompt.ask")
-    @patch("applypilot.wizard.init.Confirm.ask")
+    @patch("strelitzia.wizard.init.set_restricted_permissions")
+    @patch("strelitzia.wizard.init.ENV_PATH")
+    @patch("strelitzia.wizard.init.Prompt.ask")
+    @patch("strelitzia.wizard.init.Confirm.ask")
     def test_discovery_model_default_depends_on_provider(self, mock_confirm, mock_ask, mock_env, mock_perm):
         """Non-gemini providers default discovery model to LLM_MODEL, not flash-lite."""
-        from applypilot.wizard.init import _setup_ai_features
+        from strelitzia.wizard.init import _setup_ai_features
 
         written: list[str] = []
 

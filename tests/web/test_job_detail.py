@@ -6,8 +6,8 @@ from datetime import UTC, date, datetime
 import pytest
 from web_helpers import add_job
 
-from applypilot.database import job_key
-from applypilot.web import app as app_mod
+from strelitzia.database import job_key
+from strelitzia.web import app as app_mod
 
 URL = "https://boards.example.com/acme/jobs/42"
 KEY = job_key(URL)

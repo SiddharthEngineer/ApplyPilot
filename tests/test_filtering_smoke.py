@@ -61,7 +61,7 @@ class TestLocationOkJobspy:
     """Test _location_ok from discovery/jobspy.py."""
 
     def _location_ok(self, location, accept, reject):
-        from applypilot.discovery.jobspy import _location_ok as jobspy_ok
+        from strelitzia.discovery.jobspy import _location_ok as jobspy_ok
         return jobspy_ok(location, accept, reject)
 
     def test_remote_always_passes(self):
@@ -94,7 +94,7 @@ class TestLocationOkSmartextract:
     """Test _location_ok from discovery/smartextract.py."""
 
     def _location_ok(self, location, accept, reject):
-        from applypilot.discovery.smartextract import _location_ok as se_ok
+        from strelitzia.discovery.smartextract import _location_ok as se_ok
         return se_ok(location, accept, reject)
 
     def test_remote_always_passes(self):
@@ -118,7 +118,7 @@ class TestLocationOkWorkday:
     """Test _location_ok from discovery/workday.py."""
 
     def _location_ok(self, location, accept, reject):
-        from applypilot.discovery.workday import _location_ok as wd_ok
+        from strelitzia.discovery.workday import _location_ok as wd_ok
         return wd_ok(location, accept, reject)
 
     def test_remote_always_passes(self):
@@ -154,9 +154,9 @@ class TestLocationOkDrift:
         ],
     )
     def test_all_impls_agree(self, location, accept, reject):
-        from applypilot.discovery.jobspy import _location_ok as jobspy_ok
-        from applypilot.discovery.smartextract import _location_ok as se_ok
-        from applypilot.discovery.workday import _location_ok as wd_ok
+        from strelitzia.discovery.jobspy import _location_ok as jobspy_ok
+        from strelitzia.discovery.smartextract import _location_ok as se_ok
+        from strelitzia.discovery.workday import _location_ok as wd_ok
 
         results = {
             "jobspy": jobspy_ok(location, accept, reject),
@@ -181,7 +181,7 @@ class TestFilteringWithFixtures:
             assert "location" in job or "url" in job
 
     def test_filter_remote_jobs(self):
-        from applypilot.discovery.jobspy import _location_ok
+        from strelitzia.discovery.jobspy import _location_ok
 
         jobs = _load_enriched_jobs()
         accept = ["San Francisco"]

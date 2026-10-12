@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from applypilot.database import init_db
-from applypilot.scoring import cover_letter, tailor
-from applypilot.scoring.content_library import ContentLibrary, Project, RoleSection
-from applypilot.scoring.resume_model import TailoredResume
-from applypilot.scoring.tailor import (
+from strelitzia.database import init_db
+from strelitzia.scoring import cover_letter, tailor
+from strelitzia.scoring.content_library import ContentLibrary, Project, RoleSection
+from strelitzia.scoring.resume_model import TailoredResume
+from strelitzia.scoring.tailor import (
     _build_content_library_judge_prompt,
     assemble_resume_text,
     tailor_from_content_library,
@@ -168,7 +168,7 @@ class TestBuildContentLibraryJudgePrompt:
 
 
 class TestTailorFromContentLibrary:
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_successful_tailoring(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = _valid_llm_response()
@@ -187,7 +187,7 @@ class TestTailorFromContentLibrary:
         assert tailored.roles[0].bullets[0].project_ids == ["patentsview-pipeline"]
         assert list(tailored.skills) == ["Languages", "DevOps & Infra"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_unknown_slug_triggers_retry(self, mock_get_client):
         bad = json.loads(_valid_llm_response())
         bad["roles"][0]["bullets"][0]["project_ids"] = ["invented-project"]
@@ -204,7 +204,7 @@ class TestTailorFromContentLibrary:
         retry_user_msg = mock_client.chat.call_args_list[1][0][0][1]["content"]
         assert "invented-project" in retry_user_msg
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_judge_sees_cited_facts(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.side_effect = [_valid_llm_response(), "VERDICT: PASS\nISSUES: none"]
@@ -218,7 +218,7 @@ class TestTailorFromContentLibrary:
         assert "Airflow, Celery, RabbitMQ." in judge_msgs[1]["content"]  # patentsview-pipeline's facts
         assert "Today is" in judge_msgs[0]["content"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_invented_number_triggers_retry(self, mock_get_client):
         bad = json.loads(_valid_llm_response())
         bad["roles"][0]["bullets"][0]["text"] = "Built the PatentsView pipeline, cutting runtime 75%"
@@ -233,7 +233,7 @@ class TestTailorFromContentLibrary:
         assert report["attempts"] == 2
         assert "75 not in the facts of patentsview-pipeline" in mock_client.chat.call_args_list[1][0][0][1]["content"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_slot_violation_triggers_retry(self, mock_get_client):
         one_bullet = json.loads(_valid_llm_response())
         one_bullet["roles"][0]["bullets"] = one_bullet["roles"][0]["bullets"][:1]  # needs 2-5 without a base resume
@@ -248,7 +248,7 @@ class TestTailorFromContentLibrary:
         assert report["attempts"] == 2
         assert "needs 2-5" in mock_client.chat.call_args_list[1][0][0][1]["content"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_requests_structured_schema(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = _valid_llm_response()
@@ -261,7 +261,7 @@ class TestTailorFromContentLibrary:
         slugs = schema["properties"]["roles"]["items"]["properties"]["bullets"]["items"]["properties"]["project_ids"]
         assert slugs["items"]["enum"] == ["patentsview-pipeline", "cafe-pipeline", "project-talent-ocr"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_roles_sorted_in_library_order(self, mock_get_client):
         data = json.loads(_valid_llm_response())
         data["roles"].reverse()
@@ -274,7 +274,7 @@ class TestTailorFromContentLibrary:
 
         assert tailored.roles[0].role_key == "data-science-associate-air"
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_retry_on_invalid_json(self, mock_get_client):
         mock_client = MagicMock()
         # First two calls return invalid JSON, third returns valid
@@ -294,7 +294,7 @@ class TestTailorFromContentLibrary:
         assert report["attempts"] == 3
         assert mock_client.chat.call_count == 3
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_exhausted_retries(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = "not valid json at all"
@@ -308,7 +308,7 @@ class TestTailorFromContentLibrary:
         assert report["status"] == "exhausted_retries"
         assert report["attempts"] == 3  # 0, 1, 2 = 3 attempts
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_content_library_in_system_prompt(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = _valid_llm_response()
@@ -328,7 +328,7 @@ class TestTailorFromContentLibrary:
         assert "Project Talent OCR" in system_msg
         assert "DEVOPS" in system_msg
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_job_description_in_user_message(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = _valid_llm_response()
@@ -345,7 +345,7 @@ class TestTailorFromContentLibrary:
         assert "Data Engineer" in user_msg
         assert "TechCorp" in user_msg
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_avoid_notes_on_retry(self, mock_get_client):
         mock_client = MagicMock()
         # First call: invalid JSON (attempt 0), second and third: valid (attempts 1,2)
@@ -367,7 +367,7 @@ class TestTailorFromContentLibrary:
         assert "AVOID THESE ISSUES" in second_call_messages[1]["content"]
         assert second_call_messages[0]["content"] == first_call_messages[0]["content"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_report_contains_source(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.chat.return_value = _valid_llm_response()
@@ -383,9 +383,9 @@ class TestTailorFromContentLibrary:
 
 
 class TestContentLibraryJudge:
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_judge_pass(self, mock_get_client):
-        from applypilot.scoring.tailor import judge_content_library_resume
+        from strelitzia.scoring.tailor import judge_content_library_resume
 
         mock_client = MagicMock()
         mock_client.chat.return_value = "VERDICT: PASS\nISSUES: none"
@@ -395,9 +395,9 @@ class TestContentLibraryJudge:
         assert result["passed"] is True
         assert result["verdict"] == "PASS"
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_judge_fail(self, mock_get_client):
-        from applypilot.scoring.tailor import judge_content_library_resume
+        from strelitzia.scoring.tailor import judge_content_library_resume
 
         mock_client = MagicMock()
         mock_client.chat.return_value = "VERDICT: FAIL\nISSUES: Fabricated skill 'C++'"
@@ -408,9 +408,9 @@ class TestContentLibraryJudge:
         assert result["verdict"] == "FAIL"
         assert "C++" in result["issues"]
 
-    @patch("applypilot.scoring.tailor.get_client")
+    @patch("strelitzia.scoring.tailor.get_client")
     def test_judge_uses_correct_prompt(self, mock_get_client):
-        from applypilot.scoring.tailor import judge_content_library_resume
+        from strelitzia.scoring.tailor import judge_content_library_resume
 
         mock_client = MagicMock()
         mock_client.chat.return_value = "VERDICT: PASS\nISSUES: none"
@@ -570,7 +570,7 @@ class TestSingleJobUrls:
                 patch.object(cover_letter, "RESUME_PATH", resume), \
                 patch.object(cover_letter, "COVER_LETTER_DIR", tmp_path / "cl"), \
                 patch.object(cover_letter, "generate_cover_letter", side_effect=fake), \
-                patch("applypilot.scoring.pdf.convert_to_pdf", side_effect=RuntimeError("no browser")):
+                patch("strelitzia.scoring.pdf.convert_to_pdf", side_effect=RuntimeError("no browser")):
             stats = cover_letter.run_cover_letters(urls=[self.UNSCORED, self.TAILORED])
         # The letter needs the tailored resume first (UNSCORED has none); an existing letter is rewritten.
         assert seen == [self.TAILORED] and stats["generated"] == 1

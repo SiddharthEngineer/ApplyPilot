@@ -1,0 +1,4 @@
+# Requests per minute / per day, per model (Gemini free tier). Override in ~/.strelitzia/llm_limits.yaml.
+# Source: https://aistudio.google.com/rate-limit. Models not listed fall back to LLM_RPM_LIMIT / LLM_RPD_LIMIT (0 = no limit).
+rpm: {gemini-3.1-flash-lite: 15, gemini-3.6-flash: 5}
+rpd: {gemini-3.1-flash-lite: 500, gemini-3.6-flash: 20}

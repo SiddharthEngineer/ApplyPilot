@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.enrichment.posting_model import ENUMS, ROLE_CATEGORIES, JobPosting
-from applypilot.enrichment.posting_prompt import (
+from strelitzia.enrichment.posting_model import ENUMS, ROLE_CATEGORIES, JobPosting
+from strelitzia.enrichment.posting_prompt import (
     MAX_DESCRIPTION_CHARS,
     build_extract_prompt,
     format_batch,
