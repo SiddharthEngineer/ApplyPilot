@@ -7,6 +7,7 @@ Data lives in Postgres (`APPLYPILOT_DATABASE_URL`) or SQLite under `~/.applypilo
 ## Map
 - `src/applypilot/`: `cli.py` (Typer entry), `pipeline.py`, stage packages (`discovery/`, `enrichment/`, `scoring/`, `apply/`),
   `database.py`/`db_pg.py`, `web/` (API), `wizard/` (init).
+- "Dashboard" is three things: `apply/dashboard.py` = Rich TUI during `apply`; `view.py` = static HTML report; `web/` + `dashboard/` = the React app at `/app/`.
 - `tests/`: hermetic by default (`conftest.py` blocks network). Opt-in tiers: `-m live --run-live`, `-m llm --run-llm`, `pg`.
 - `agents/ROADMAP.md`: the only status tracker. `agents/plans/<slug>.md`: one spec per change (`done/` holds the archive).
 - `agents/DEPLOY.md`: the prod/preprod layout and how deploys work. `scripts/agent/`: the unattended runner.

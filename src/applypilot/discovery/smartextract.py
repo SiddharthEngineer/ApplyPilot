@@ -30,6 +30,7 @@ from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import init_db, get_stats, Connection, IntegrityError
 from applypilot.llm import LLMStopRun, get_discovery_client
+from applypilot.llm_json import extract_json
 
 log = logging.getLogger(__name__)
 
@@ -641,7 +642,7 @@ def format_strategy_briefing(intel: dict) -> str:
             sections.append(f"\nJSON-LD: {len(job_postings)} JobPosting entries found (usable!)")
             sections.append(f"First JobPosting:\n{json.dumps(job_postings[0], indent=2)[:3000]}")
         else:
-            sections.append(f"\nJSON-LD: NO JobPosting entries (json_ld strategy will NOT work)")
+            sections.append("\nJSON-LD: NO JobPosting entries (json_ld strategy will NOT work)")
         if other:
             types = [j.get("@type", "?") if isinstance(j, dict) else "?" for j in other]
             sections.append(f"Other JSON-LD types (NOT job data): {types}")
@@ -853,31 +854,6 @@ def ask_llm(prompt: str, max_tokens: int = 4096) -> tuple[str, float, dict]:
         "response_chars": len(text),
     }
     return text, elapsed, meta
-
-
-def extract_json(text: str) -> dict:
-    """Extract JSON from LLM response, handling think tags and code fences."""
-    if "<think>" in text:
-        after = text.split("</think>")[-1].strip()
-        if after:
-            text = after
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
-    text = text.strip()
-    text = re.sub(r'\\([^"\\\/bfnrtu])', r'\1', text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    while text.endswith("}") or text.endswith("]"):
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            text = text[:-1].rstrip()
-    raise json.JSONDecodeError("Could not parse JSON", text, 0)
-
 
 # -- JSON path resolution ---------------------------------------------------
 

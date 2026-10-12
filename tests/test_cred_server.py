@@ -5,6 +5,8 @@ import json
 import os
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from applypilot.apply.cred_server import (
     ATS_PW_ENV,
     CAPTCHA_TYPE_MAP,
@@ -213,6 +215,12 @@ class TestHandleMessage:
 
 class TestCaptchaSolve:
     """Test captcha_solve tool definition and functionality."""
+
+    @pytest.fixture(autouse=True)
+    def _no_poll_delay(self):
+        # captcha_solve polls CapSolver every 3s; skip the real wait.
+        with patch("applypilot.apply.cred_server.asyncio.sleep", new=AsyncMock()):
+            yield
 
     def test_tool_definition_present(self):
         names = [t["name"] for t in TOOLS]

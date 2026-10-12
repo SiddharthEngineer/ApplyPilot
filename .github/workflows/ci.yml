@@ -28,9 +28,9 @@ jobs:
           activate-environment: true
 
       - name: Install dependencies
-        # Same as scripts/validate.sh --setup. python-jobspy 1.2.0 no longer needs --no-deps.
+        # Same as scripts/validate.sh --setup. The jobspy extra pins python-jobspy (pyproject.toml).
         run: |
-          uv pip install -e ".[dev,web]" "python-jobspy==1.2.0"
+          uv pip install -e ".[dev,web,jobspy]"
 
       - name: Lint
         # Rule set is pinned in pyproject.toml ([tool.ruff.lint]).
@@ -38,3 +38,36 @@ jobs:
 
       - name: Test
         run: pytest tests/ -q
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        run: npm ci --prefix dashboard
+
+      - name: Test
+        run: npm test --prefix dashboard
+
+      - name: Build
+        run: npm run build --prefix dashboard
+
+      - name: Committed bundle is current
+        # Same check as scripts/validate.sh --full.
+        run: |
+          if [ -n "$(git status --porcelain -- src/applypilot/web/static)" ]; then
+            git status --porcelain -- src/applypilot/web/static
+            echo "::error::The committed dashboard bundle is stale. Run 'npm run build --prefix dashboard' and commit src/applypilot/web/static."
+            exit 1
+          fi

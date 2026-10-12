@@ -5,8 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from applypilot.scoring.pdf import (
     _USABLE_HEIGHT_PT,
     build_html,

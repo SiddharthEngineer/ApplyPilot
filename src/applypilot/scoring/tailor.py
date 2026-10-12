@@ -19,17 +19,16 @@ from pathlib import Path
 from applypilot.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
 from applypilot.llm import LLMStopRun, get_client
+from applypilot.llm_json import extract_json
 from applypilot.scoring.content_library import ContentLibrary, parse_content_library
 from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
 from applypilot.scoring.validator import (
     BANNED_WORDS,
-    FABRICATION_WATCHLIST,
     sanitize_text,
     validate_json_fields,
     validate_provenance,
     validate_resume_model,
-    validate_tailored_resume,
 )
 
 log = logging.getLogger(__name__)
@@ -92,12 +91,10 @@ def _build_tailor_prompt(profile: dict) -> str:
 
     # Preserved entities
     companies = resume_facts.get("preserved_companies", [])
-    projects = resume_facts.get("preserved_projects", [])
     school = resume_facts.get("preserved_school", "")
     real_metrics = resume_facts.get("real_metrics", [])
 
     companies_str = ", ".join(companies) if companies else "N/A"
-    projects_str = ", ".join(projects) if projects else "N/A"
     metrics_str = ", ".join(real_metrics) if real_metrics else "N/A"
 
     # Include ALL banned words from the validator so the LLM knows exactly
@@ -390,51 +387,6 @@ The goal is to get interviews, not to be a perfect fact-checker. Allow up to 3 m
 - Only FAIL if there are MAJOR lies: completely invented projects, fake companies, fake degrees, wildly inflated numbers, or skills from a completely different domain.
 
 Be strict about major lies. Be lenient about minor stretches and learnable skills. Do not fail for style, tone, or restructuring."""
-
-
-# ── JSON Extraction ───────────────────────────────────────────────────────
-
-def extract_json(raw: str) -> dict:
-    """Robustly extract JSON from LLM response (handles fences, preamble).
-
-    Args:
-        raw: Raw LLM response text.
-
-    Returns:
-        Parsed JSON dict.
-
-    Raises:
-        ValueError: If no valid JSON found.
-    """
-    raw = raw.strip()
-
-    # Direct parse
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    # Markdown fences
-    if "```" in raw:
-        for part in raw.split("```")[1::2]:
-            part = part.strip()
-            if part.startswith("json"):
-                part = part[4:].strip()
-            try:
-                return json.loads(part)
-            except json.JSONDecodeError:
-                continue
-
-    # Find outermost { ... }
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end > start:
-        try:
-            return json.loads(raw[start:end + 1])
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError("No valid JSON found in LLM response")
 
 
 # ── Resume Assembly (profile-driven header) ──────────────────────────────

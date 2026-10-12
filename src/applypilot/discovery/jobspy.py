@@ -19,7 +19,7 @@ import pandas as pd
 from jobspy import scrape_jobs
 
 from applypilot import config
-from applypilot.database import Connection, IntegrityError, get_connection, init_db, store_jobs
+from applypilot.database import Connection, IntegrityError, get_connection, init_db
 
 log = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 # Plan: Code health cleanup (from the 2026-10-11 repo audit)
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-12). The agent did Tasks 1-5 and most of 6 and 8; an interactive session finished the `.github/` and `scripts/agent/` parts (its permissions deny those paths).
 **Risk:** review (touches `pyproject.toml`, `.github/`, `scripts/validate.sh`, `scripts/agent/preprod.sh` and `src/applypilot/apply/*`; one PR on preprod, user decision 2026-10-12)
 
 ## Goal
@@ -56,14 +56,14 @@ placeholder-less f-strings into plain strings), then fix the 4 F841s as describe
 In tests, only unused imports and unused assignments change: no test function, assert or call is removed.
 If the finding list differs from the 29 in Context (trunk moved), fix whatever `--select F` reports now.
 **Validate:** `.venv/bin/ruff check --select F src tests scripts` → `All checks passed!`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 2: Enforce pyflakes in the pinned rule set
 **Runs:** unattended
 **Files:** pyproject.toml (modify)
 **What:** Change `select` to `["E9", "F"]` and update its comment ("Real errors and pyflakes (unused imports/variables)…"). Nothing else in `pyproject.toml`.
 **Validate:** `.venv/bin/ruff check src tests scripts` → `All checks passed!`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 3: One `extract_json`
 **Runs:** unattended
@@ -82,7 +82,7 @@ Delete both old bodies. In `tailor.py` and `smartextract.py`, `from applypilot.l
 the JSON; an invalid `\_` escape; trailing junk after the closing brace; nothing parseable → `json.JSONDecodeError`, which is also a `ValueError`.
 **Validate:** `.venv/bin/pytest tests/test_llm_json.py tests/test_content_library_tailor.py tests/test_smartextract_cache.py tests/test_smartextract_heuristic.py -q` → pass;
 `grep -rn "def extract_json" src` → only `src/applypilot/llm_json.py`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 4: Stop the captcha tests sleeping
 **Runs:** unattended
@@ -91,7 +91,7 @@ the JSON; an invalid `\_` escape; trailing junk after the closing brace; nothing
 `patch("applypilot.apply.cred_server.asyncio.sleep", new=AsyncMock())`. If `cred_server` imports `asyncio` differently, patch where it's looked up.
 Don't change `cred_server.py`. Every existing assert stays.
 **Validate:** `.venv/bin/pytest tests/test_cred_server.py -q --durations=3` → all pass, and no listed duration is above 0.5s; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 5: Document every env var in `.env.example`
 **Runs:** unattended
@@ -101,7 +101,7 @@ Don't change `cred_server.py`. Every existing assert stays.
 Don't edit the existing LLM rate-limit block (R16 owns it).
 **Validate:** `for v in EXTRACT_BATCH_SIZE LLM_API_KEY APPLYPILOT_WEB_DIR APPLYPILOT_DIR CHROME_PATH; do grep -q "$v" .env.example || echo missing $v; done` → no output;
 `git diff origin/trunk -- .env.example | grep '^-[^-]'` → no output (only additions); `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 6: `python-jobspy` as a declared extra
 **Runs:** unattended
@@ -112,7 +112,7 @@ Leave `README.md:28` and the `Dockerfile` alone (see Context).
 **Validate:** `grep -rn "python-jobspy" pyproject.toml scripts/validate.sh .github/workflows/ci.yml README.md` → the pin appears only in `pyproject.toml`
 (README may keep the "Older installs" note); in a scratch venv, `uv venv -q /tmp/jp && uv pip install -q --python /tmp/jp/bin/python -e ".[jobspy]" && /tmp/jp/bin/python -c "import jobspy"`
 → exits 0 (use the scratch dir your session allows if `/tmp` is not writable); `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12: extra, `validate.sh`, README (agent); CI Install step (interactive session).
 
 ### Task 7: Dashboard job in CI
 **Runs:** unattended
@@ -125,7 +125,7 @@ Keep the existing `test` job as it is.
 `scripts/validate.sh --full` → ALL PASS (proves the local bundle is current). On the PR, both CI jobs must be green before you write `ready`
 (`gh pr checks <n> --repo SiddharthEngineer/ApplyPilot --watch` if your permissions allow it; otherwise say in the PR that the dashboard job is unverified).
 If only the bundle check fails in CI while it passes locally on a clean tree (a non-deterministic build), drop that one step, keep test and build, and explain it in the PR.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (interactive session): `dashboard` job with Node 22, npm test, build and the committed-bundle check.
 
 ### Task 8: Say which "dashboard" is which, and fix two stale plan paths
 **Runs:** unattended
@@ -134,7 +134,7 @@ If only the bundle check fails in CI while it passes locally on a clean tree (a 
 Point both messages at `agents/DEPLOY.md` (the preprod section) instead. Change only those message strings. Then, in AGENTS.md, add one line in the Map section: `apply/dashboard.py` = Rich TUI during `apply`; `view.py` = static HTML report; `web/` + `dashboard/` = the React
 app served at `/app/`. Keep AGENTS.md short (it's loaded every session): one line, no new section.
 **Validate:** `grep -n "view.py" AGENTS.md` → the new line; `grep -rn "vps-layout-migration" scripts` → no output; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12: AGENTS.md line and `validate.sh` message (agent); `preprod.sh` message (interactive session).
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.

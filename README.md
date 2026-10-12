@@ -37,7 +37,7 @@ applypilot apply         # autonomous browser-driven submission
 ```bash
 git clone https://github.com/Pickle-Pixel/ApplyPilot.git
 cd ApplyPilot
-uv pip install -e ".[dev]" "python-jobspy>=1.2.0"
+uv pip install -e ".[dev,jobspy]"
 playwright install chromium
 applypilot --version
 pytest tests/ -v

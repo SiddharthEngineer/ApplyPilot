@@ -783,7 +783,7 @@ def doctor() -> None:
     import shutil
     from applypilot.config import (
         load_env, PROFILE_PATH, RESUME_PATH, RESUME_PDF_PATH,
-        SEARCH_CONFIG_PATH, ENV_PATH, CONTENT_LIBRARY_PATH, get_chrome_path,
+        SEARCH_CONFIG_PATH, CONTENT_LIBRARY_PATH, get_chrome_path,
     )
 
     load_env()
