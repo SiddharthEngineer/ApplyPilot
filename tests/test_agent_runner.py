@@ -194,3 +194,65 @@ def test_validate_preprod_runs_outside_a_checkout(tmp_path):
                          capture_output=True, text=True)
     assert "not a git repository" not in out.stderr
     assert "PREPROD_HEALTH_URL is not set" in out.stderr
+
+
+@pytest.fixture
+def preprod(tmp_path):
+    """Source preprod.sh with a temp origin + app checkout and stub deploy/health commands; returns run(seed_cmd, with_script)."""
+    origin, app = tmp_path / "origin", tmp_path / "app"
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], check=True, capture_output=True)
+
+    git("init", "-q", "-b", "trunk", str(origin))
+    git("-C", str(origin), "config", "user.email", "t@example.com")
+    git("-C", str(origin), "config", "user.name", "t")
+    (origin / "README").write_text("x\n")
+    git("-C", str(origin), "add", "-A")
+    git("-C", str(origin), "commit", "-qm", "base")
+    git("clone", "-q", str(origin), str(app))
+    marker = tmp_path / "seeded"
+
+    def run(seed_cmd: str | None, with_script: bool) -> subprocess.CompletedProcess:
+        if with_script and not (origin / "scripts" / "seed_preprod.py").exists():
+            (origin / "scripts").mkdir()
+            (origin / "scripts" / "seed_preprod.py").write_text("")
+            git("-C", str(origin), "add", "-A")
+            git("-C", str(origin), "commit", "-qm", "add seed")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PREPROD_")}
+        env.update(HOME=str(tmp_path), APPLYPILOT_AGENT_STATE=str(tmp_path / "state"), PREPROD_APP_DIR=str(app),
+                   PREPROD_DEPLOY_CMD="true", PREPROD_HEALTH_URL="http://127.0.0.1:1/health")
+        if seed_cmd is not None:
+            env["PREPROD_SEED_CMD"] = seed_cmd.replace("MARKER", str(marker))
+        script = f'. "{AGENT / "preprod.sh"}"; sleep() {{ :; }}; health_check() {{ echo healthy; }}; deploy_ref trunk'
+        return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+
+    run.marker = marker
+    return run
+
+
+def test_preprod_deploy_runs_seed_when_script_exists(preprod):
+    out = preprod("echo seeded > MARKER", with_script=True)
+    assert out.returncode == 0, out.stderr
+    assert preprod.marker.read_text() == "seeded\n"
+    assert "healthy" in out.stdout
+
+
+def test_preprod_deploy_skips_seed_without_script(preprod):
+    out = preprod("echo seeded > MARKER", with_script=False)
+    assert out.returncode == 0, out.stderr
+    assert not preprod.marker.exists()
+    assert "seed skipped: no scripts/seed_preprod.py at" in out.stderr
+    assert "healthy" in out.stdout
+
+
+def test_preprod_deploy_fails_when_seed_fails(preprod):
+    out = preprod("exit 1", with_script=True)
+    assert out.returncode == 1
+    assert "healthy" not in out.stdout
+
+
+def test_preprod_deploy_without_seed_cmd(preprod):
+    out = preprod(None, with_script=True)
+    assert out.returncode == 0, out.stderr
+    assert "seed" not in out.stderr

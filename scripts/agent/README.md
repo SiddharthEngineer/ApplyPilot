@@ -34,6 +34,8 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
    PREPROD_APP_DIR=/srv/ApplyPilot-preprod
    PREPROD_DEPLOY_CMD="make -C /srv/engineerfamily-preprod preprod-applypilot-up"
    PREPROD_HEALTH_URL=http://127.0.0.1:8080/app/api/health
+   # Optional: wipe and reseed the preprod DB (scripts/seed_preprod.py) after every preprod deploy. See agents/DEPLOY.md.
+   PREPROD_SEED_CMD="docker compose -p engineerfamily-preprod --project-directory /srv/engineerfamily-preprod -f /srv/engineerfamily-preprod/docker-compose.base.yml -f /srv/engineerfamily-preprod/docker-compose.preprod.yml run --rm --no-deps -T -v /srv/ApplyPilot-preprod:/seed:ro applypilot python /seed/scripts/seed_preprod.py"
    PREPROD_NETRC=/home/dev/.config/applypilot-agent/preprod.netrc   # mode 600: machine 127.0.0.1 login … password … (preprod basic auth)
    ```
 4. Install the cron line (`crontab -e`): `*/5 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh`

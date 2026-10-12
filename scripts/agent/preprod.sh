@@ -7,8 +7,10 @@
 #   preprod.sh tick          status, then deploy the oldest awaiting-preprod item if the lock is free (cron, no Claude)
 #
 # Config (~/.config/applypilot-agent/env): PREPROD_APP_DIR (ApplyPilot checkout that preprod builds from),
-# PREPROD_DEPLOY_CMD (rebuilds only the preprod applypilot service), PREPROD_HEALTH_URL, AGENT_REPO.
-# If these are unset, deploy exits 3 ("not configured"); see agents/DEPLOY.md.
+# PREPROD_DEPLOY_CMD (rebuilds only the preprod applypilot service), PREPROD_HEALTH_URL, AGENT_REPO,
+# PREPROD_SEED_CMD (optional: wipes and reseeds the preprod DB with scripts/seed_preprod.py after each deploy).
+# If the required ones are unset, deploy exits 3 ("not configured"); see agents/DEPLOY.md.
+# Sourcing this file (tests) defines the functions without running a command.
 set -uo pipefail
 
 [ -f "$HOME/.config/applypilot-agent/env" ] && . "$HOME/.config/applypilot-agent/env"
@@ -29,9 +31,19 @@ deploy_ref() {  # deploy_ref <git ref fetched into PREPROD_APP_DIR>
     git -C "$PREPROD_APP_DIR" fetch -q origin "$1" || return 1
     git -C "$PREPROD_APP_DIR" checkout -q --detach FETCH_HEAD || return 1
     bash -c "$PREPROD_DEPLOY_CMD" || return 1
+    # Seed output goes to stderr so it reaches runs.log even when cmd_release silences stdout.
+    if [ -n "${PREPROD_SEED_CMD:-}" ]; then
+        if [ -f "$PREPROD_APP_DIR/scripts/seed_preprod.py" ]; then
+            bash -c "$PREPROD_SEED_CMD" >&2 || return 1
+        else
+            echo "seed skipped: no scripts/seed_preprod.py at $(git -C "$PREPROD_APP_DIR" rev-parse --short HEAD)" >&2
+        fi
+    fi
     sleep 10
-    "$HERE/../validate.sh" --preprod
+    health_check
 }
+
+health_check() { "$HERE/../validate.sh" --preprod; }
 
 slug_for_pr() {
     python3 - "$1" "$STATE/queue.json" <<'EOF'
@@ -99,10 +111,12 @@ EOF
     [ -n "$next" ] && cmd_deploy "$next"
 }
 
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
 case "${1:-}" in
     status) cmd_status ;;
     deploy) [ -n "${2:-}" ] || { echo "usage: preprod.sh deploy <pr>"; exit 2; }; cmd_deploy "$2" ;;
     release) cmd_release ;;
     tick) cmd_tick ;;
-    *) sed -n '2,11p' "$0"; exit 2 ;;
+    *) sed -n '2,12p' "$0"; exit 2 ;;
 esac

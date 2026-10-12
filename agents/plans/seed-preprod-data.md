@@ -58,7 +58,7 @@ Update the header comment's config list. In DEPLOY.md's preprod section and the 
 **Validate:** `bash -n scripts/agent/preprod.sh`. Add a test that runs `preprod.sh` `deploy_ref` logic with stub commands, either by extracting it into a sourceable function
 or by running the script with `PREPROD_*` pointing at `true`/`false` stubs and a temp git repo. It checks that the seed runs when the script exists, is skipped when it's missing,
 and that a failing seed fails the deploy. `scripts/validate.sh --full` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (commit `feat(seed-preprod-data): Task 2`). `preprod.sh` is now sourceable (tests stub `sleep` and the new `health_check`). Seed output and the skip message go to stderr, because `cmd_release` sends `deploy_ref`'s stdout to /dev/null and `runs.log` would otherwise miss `seeded 18 jobs`.
 
 ### Task 3: Turn it on and check it live
 **Runs:** interactive (VPS: pulls the runner's tree, deploys preprod)
