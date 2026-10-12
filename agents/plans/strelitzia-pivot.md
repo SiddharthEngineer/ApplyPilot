@@ -1,5 +1,5 @@
 # Plan: Strelitzia pivot (rename, drop auto-apply, bird-of-paradise theme)
-**Status:** 🔄 In progress
+**Status:** 🟡 Code done 2026-10-12; left for the user: `.github/` edits (Task 3), preprod check, then M15/M16
 **Risk:** review (renames the package, CLI, env vars and data dir, deletes the apply stage, and redesigns the dashboard)
 
 ## Goal
