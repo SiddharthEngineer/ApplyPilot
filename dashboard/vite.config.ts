@@ -16,5 +16,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
+    // Process styles.css so the theme tests can read it (`?raw`); vitest stubs CSS out by default.
+    css: { include: [/styles\.css/] },
   },
 });

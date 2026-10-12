@@ -95,7 +95,7 @@ Don't hardcode `/home/dev/src/ApplyPilot` anywhere. Derive the repo root from th
 - Phone width (375px): no horizontal page scroll, and the hero collapses to a single column.
 **Validate:** `cd dashboard && npm test` → new tests for Flower variants, the reduced-motion CSS guard, the footer source link and token
 contrast pass; `npm run build` updates the committed bundle; `scripts/validate.sh --full` passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit). Links use the secondary indigo (orange on cream is under 4.5:1), primary buttons use dark text on orange. The existing spinner and row-fade transitions also moved inside the reduced-motion guard.
 
 ### Task 5: Docs, license notices, version
 **Runs:** unattended
