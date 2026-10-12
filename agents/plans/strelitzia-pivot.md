@@ -127,7 +127,7 @@ the new names. Mark the old `/srv` and `~` paths as "until the post-merge migrat
    **print** the exact `sudo` commands, never run them.
 Tests run the script against a fake `HOME` in `tmp_path`: the dry run changes nothing, `--apply` twice gives the same result, and the symlinks resolve.
 **Validate:** `pytest tests/test_migrate_script.py -q` passes; `scripts/migrate_to_strelitzia.sh` (dry run) on the VPS prints the plan and exits 0.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit). Step 1 reads `preprod.lock` directly (`preprod.sh status` can release the lock and redeploy); a dry run only warns when the runner is busy, `--apply` refuses. The dev clone also gets an old-path symlink (worktrees and the runner env file point at it), and the printed `sudo` lines leave symlinks too so the engineerfamily compose keeps working until M16.
 
 ## Validation
 - `scripts/validate.sh --full` passes (ruff, pytest, dashboard tests and build, docker build).
