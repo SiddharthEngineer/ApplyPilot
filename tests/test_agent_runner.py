@@ -183,9 +183,9 @@ def plan_gate(tmp_path, files: str) -> tuple[int, dict]:
 
 
 def test_gate_plan_low_listing_high_risk_file_needs_review(tmp_path):
-    code, verdict = plan_gate(tmp_path, "src/applypilot/web/tasks.py (modify), tests/test_web.py (modify)")
+    code, verdict = plan_gate(tmp_path, "src/strelitzia/web/tasks.py (modify), tests/test_web.py (modify)")
     assert (code, verdict["tier"]) == (1, "review")
-    assert verdict["reasons"] == ["touches high-risk path src/applypilot/web/tasks.py"]
+    assert verdict["reasons"] == ["touches high-risk path src/strelitzia/web/tasks.py"]
 
 
 def test_gate_plan_low_listing_tests_and_docs_stays_low(tmp_path):

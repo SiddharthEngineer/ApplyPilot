@@ -4,9 +4,9 @@ import unittest.mock as mock
 
 import pytest
 
-from applypilot.pipeline import _run_discover
+from strelitzia.pipeline import _run_discover
 
-_PATCH_TARGET = "applypilot.discovery.jobspy.run_discovery"
+_PATCH_TARGET = "strelitzia.discovery.jobspy.run_discovery"
 
 
 _ATS_STATS = {"boards": 2, "fetched": 10, "matched": 3, "new": 3, "existing": 0, "errors": 0, "per_board": {}}
@@ -18,9 +18,9 @@ def _stub_network_scrapers():
 
     _run_discover() imports these inside the function, so patch the source module attributes.
     """
-    with mock.patch("applypilot.discovery.workday.run_workday_discovery", return_value=None) as wd, \
-         mock.patch("applypilot.discovery.smartextract.run_smart_extract", return_value=None) as se, \
-         mock.patch("applypilot.discovery.ats_boards.run_ats_discovery", return_value=dict(_ATS_STATS)) as ats:
+    with mock.patch("strelitzia.discovery.workday.run_workday_discovery", return_value=None) as wd, \
+         mock.patch("strelitzia.discovery.smartextract.run_smart_extract", return_value=None) as se, \
+         mock.patch("strelitzia.discovery.ats_boards.run_ats_discovery", return_value=dict(_ATS_STATS)) as ats:
         yield wd, se, ats
 
 

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from applypilot.scoring import scorer, tailor
+from strelitzia.scoring import scorer, tailor
 
 JOB = {"title": "Data Engineer", "site": "acme", "location": "Remote", "full_description": "SQL"}
 
@@ -26,7 +26,7 @@ def test_score_json_is_clamped():
 
 
 def test_unparseable_score_is_counted(tmp_path):
-    from applypilot.database import init_db
+    from strelitzia.database import init_db
     conn = init_db(tmp_path / "t.db")
     conn.execute("INSERT INTO jobs (url, title, site, full_description) VALUES ('u', 'T', 's', 'd')")
     conn.commit()

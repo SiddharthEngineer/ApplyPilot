@@ -5,8 +5,8 @@ from datetime import date
 import pytest
 from web_helpers import add_job
 
-from applypilot.database import job_key
-from applypilot.web import app as app_mod
+from strelitzia.database import job_key
+from strelitzia.web import app as app_mod
 
 TODAY = date(2026, 10, 5)
 

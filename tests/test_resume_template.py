@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.scoring.content_library import parse_content_library, slugify
-from applypilot.scoring.resume_model import Bullet, RoleEntry, TailoredResume
-from applypilot.scoring.template import (
+from strelitzia.scoring.content_library import parse_content_library, slugify
+from strelitzia.scoring.resume_model import Bullet, RoleEntry, TailoredResume
+from strelitzia.scoring.template import (
     DEFAULT_TEMPLATE_PATH,
     build_contact,
     education_from_resume_text,
@@ -23,7 +23,7 @@ from applypilot.scoring.template import (
     split_trailing_dates,
     write_fixed_yaml,
 )
-from applypilot.scoring.validator import validate_provenance
+from strelitzia.scoring.validator import validate_provenance
 
 SAMPLE_LIBRARY = Path(__file__).resolve().parent / "fixtures" / "content_library_sample.md"
 
@@ -197,7 +197,7 @@ class TestRenderResume:
         assert "Excel" in html
 
     def test_user_template_preferred(self, library, tmp_path, monkeypatch):
-        import applypilot.scoring.template as t
+        import strelitzia.scoring.template as t
         user = tmp_path / "resume_template.html"
         user.write_text("<p>{{ name }}|{% for r in roles %}{{ r.company }}{% endfor %}</p>", encoding="utf-8")
         monkeypatch.setattr(t, "RESUME_TEMPLATE_PATH", user)
@@ -205,7 +205,7 @@ class TestRenderResume:
         assert html == "<p>Alex Q. Tester|Acme Corp</p>"
 
     def test_default_template_without_user_template(self, library, tmp_path, monkeypatch):
-        import applypilot.scoring.template as t
+        import strelitzia.scoring.template as t
         monkeypatch.setattr(t, "RESUME_TEMPLATE_PATH", tmp_path / "missing.html")
         html = render_resume(self._other(library), PROFILE, fixed=FIXED)
         assert 'id="resume-experience"' in html and "@page" in html
@@ -329,11 +329,11 @@ class TestBaseResume:
         assert "ALEX Q. TESTER" in html and "(555) 010-0000" in html
 
     def test_preview_template(self, library, tmp_path, monkeypatch):
-        from applypilot.scoring import pdf
+        from strelitzia.scoring import pdf
         calls = []
         monkeypatch.setattr(pdf, "render_pdf", lambda html, out: calls.append((html, out)) or
                             {"overflow": False, "content_height_pt": 500.0, "usable_height_pt": 741.6, "pages": 1})
-        monkeypatch.setattr("applypilot.scoring.template.load_fixed", lambda: FIXED)
+        monkeypatch.setattr("strelitzia.scoring.template.load_fixed", lambda: FIXED)
         info = preview_template(PROFILE, BASE_RESUME, library, out=tmp_path / "p.pdf",
                                 template_path=DEFAULT_TEMPLATE_PATH)
         assert info["overflow"] is False and info["path"] == tmp_path / "p.pdf"
@@ -343,7 +343,7 @@ class TestBaseResume:
 
 class TestPdfPageCount:
     def test_count_from_page_tree(self):
-        from applypilot.scoring.pdf import _count_pdf_pages
+        from strelitzia.scoring.pdf import _count_pdf_pages
         assert _count_pdf_pages(b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>") == 2
         assert _count_pdf_pages(b"garbage") is None
         assert _count_pdf_pages(None) is None
@@ -417,7 +417,7 @@ class TestFitToOnePage:
         return TailoredResume.from_llm_json(data, library)
 
     def _stub(self, monkeypatch, overflows: int):
-        from applypilot.scoring import pdf
+        from strelitzia.scoring import pdf
         calls = []
 
         def render(html, out):
@@ -429,7 +429,7 @@ class TestFitToOnePage:
         return calls
 
     def test_overflows_twice_drops_two_bullets(self, library, tmp_path, monkeypatch):
-        from applypilot.scoring.tailor import fit_to_one_page
+        from strelitzia.scoring.tailor import fit_to_one_page
         calls = self._stub(monkeypatch, overflows=2)
         r = self._resume(library)
         slots = {"data-engineer-acme": (3, 5), "data-analyst-intern-globex": (0, 2)}
@@ -442,7 +442,7 @@ class TestFitToOnePage:
         assert "Orders pipeline bullet 4" not in calls[-1]
 
     def test_never_below_minimum(self, library, tmp_path, monkeypatch):
-        from applypilot.scoring.tailor import fit_to_one_page
+        from strelitzia.scoring.tailor import fit_to_one_page
         self._stub(monkeypatch, overflows=99)
         r = self._resume(library)
         slots = {"data-engineer-acme": (4, 5), "data-analyst-intern-globex": (2, 2)}
@@ -452,7 +452,7 @@ class TestFitToOnePage:
         assert [len(x.bullets) for x in r.roles] == [4, 2]
 
     def test_max_four_iterations(self, library, tmp_path, monkeypatch):
-        from applypilot.scoring.tailor import fit_to_one_page
+        from strelitzia.scoring.tailor import fit_to_one_page
         calls = self._stub(monkeypatch, overflows=99)
         r = self._resume(library)
         info, dropped = fit_to_one_page(r, PROFILE, FIXED, {}, tmp_path / "x.pdf")

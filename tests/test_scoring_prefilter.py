@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from applypilot.database import init_db
-from applypilot.scoring import scorer
+from strelitzia.database import init_db
+from strelitzia.scoring import scorer
 
 JOBS = {
     "https://example.com/de": "Senior Data Engineer",
@@ -46,7 +46,7 @@ def test_tokens_drop_seniority_and_stopwords():
 
 
 def test_relevant_title_passes_and_nurse_is_filtered(conn, tmp_path, caplog):
-    with caplog.at_level("INFO", logger="applypilot.scoring.scorer"):
+    with caplog.at_level("INFO", logger="strelitzia.scoring.scorer"):
         stats, client = _run(conn, tmp_path)
     assert client.chat.call_count == 1  # only the Data Engineer job reached the LLM
     assert _score(conn, "https://example.com/de")[0] == 7
@@ -77,8 +77,8 @@ def test_no_targets_filters_nothing():
 
 
 def test_cli_flag_reaches_scoring():
-    from applypilot import pipeline
-    with patch("applypilot.scoring.scorer.run_scoring", return_value={}) as rs:
+    from strelitzia import pipeline
+    with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=False)
     rs.assert_called_once_with(prefilter=False)
 
@@ -97,7 +97,7 @@ def test_limit_caps_llm_calls_after_prefilter(tmp_path):
 
 
 def test_limit_reaches_scoring():
-    from applypilot import pipeline
-    with patch("applypilot.scoring.scorer.run_scoring", return_value={}) as rs:
+    from strelitzia import pipeline
+    with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=True, limit=2)
     rs.assert_called_once_with(prefilter=True, limit=2)

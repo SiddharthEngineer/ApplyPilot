@@ -58,7 +58,7 @@ def push(title: str, url: str) -> None:
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         return
-    req = urllib.request.Request(f"https://ntfy.sh/{topic}", data=title.encode(), headers={"Click": url, "Title": "ApplyPilot agent"})
+    req = urllib.request.Request(f"https://ntfy.sh/{topic}", data=title.encode(), headers={"Click": url, "Title": "Strelitzia agent"})
     try:
         urllib.request.urlopen(req, timeout=15)
     except OSError as exc:  # a missed push must never fail the run
@@ -106,7 +106,7 @@ def cmd_poll(_: argparse.Namespace) -> int:
 
 def main() -> int:
     load_env()
-    parser = argparse.ArgumentParser(description="ApplyPilot agent inbox")
+    parser = argparse.ArgumentParser(description="Strelitzia agent inbox")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("ask")
     p.add_argument("slug")

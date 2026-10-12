@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from applypilot.discovery.jobspy import _SiteTracker, _site_counts, _normalize_country
+from strelitzia.discovery.jobspy import _SiteTracker, _site_counts, _normalize_country
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +184,7 @@ class TestFullCrawlTracker:
     def test_disabled_after_consecutive_empty(self):
         """zip_recruiter is disabled after threshold consecutive 0-result searches."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         scrape_returns = [
             _make_df({"indeed": 2, "linkedin": 2, "zip_recruiter": 0}),
@@ -219,7 +219,7 @@ class TestFullCrawlTracker:
     def test_all_sites_return_results_no_disabling(self):
         """No site is disabled when every site returns >=1 result."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         def fake_scrape(**kwargs):
             return _make_df({"indeed": 2, "linkedin": 1, "zip_recruiter": 1})
@@ -237,7 +237,7 @@ class TestFullCrawlTracker:
     def test_threshold_1_is_clamped_to_2(self):
         """site_fail_threshold: 1 is raised to 2, so one empty search doesn't disable a board."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         def fake_scrape(**kwargs):
             return _make_df({"indeed": 2, "linkedin": 1, "zip_recruiter": 0})
@@ -255,7 +255,7 @@ class TestFullCrawlTracker:
     def test_errors_dont_increment_consecutive_empty(self):
         """Hard errors should not penalize a board's consecutive-empty count."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         # zip_recruiter's first two calls raise (simulating network errors), the third
         # returns 0 results. With threshold=2, a real empty board would be disabled
@@ -283,7 +283,7 @@ class TestFullCrawlTracker:
     def test_result_dict_has_disabled_sites_and_site_stats(self):
         """_full_crawl always returns disabled_sites and site_stats keys."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         def fake_scrape(**kwargs):
             return _make_df({"indeed": 1})
@@ -302,7 +302,7 @@ class TestFullCrawlTracker:
     def test_run_discovery_passes_through_keys(self, monkeypatch):
         """run_discovery returns site_stats and disabled_sites from _full_crawl."""
         import unittest.mock as mock
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         monkeypatch.setenv("PROXY", "proxy.example:8080")  # keep zip_recruiter in the crawl
 
@@ -322,7 +322,7 @@ class TestFullCrawlTracker:
 
     def test_run_discovery_empty_config_returns_keys(self):
         """run_discovery returns site_stats and disabled_sites even with empty config."""
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         result = mod.run_discovery({})
 
@@ -336,7 +336,7 @@ class TestBlockedVsEmpty:
     def _crawl(self, fake, threshold=3, n_locations=3, sites=("indeed", "linkedin", "zip_recruiter")):
         from unittest import mock
 
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         scrape = mock.MagicMock(side_effect=fake)
         conn = _make_mock_conn()
@@ -401,7 +401,7 @@ class TestSiteGating:
     def _sites_crawled(self, cfg):
         from unittest import mock
 
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         with mock.patch.object(mod, "_full_crawl", return_value={}) as crawl:
             mod.run_discovery(cfg)
@@ -447,7 +447,7 @@ class TestLinkedinFetchDescription:
     def _linkedin_kwargs(self, defaults_extra):
         from unittest import mock
 
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         scrape = mock.MagicMock(return_value=_make_df({"linkedin": 1}))
         conn = _make_mock_conn()
@@ -528,7 +528,7 @@ class TestProbeBoards:
     def _probe(self, behaviour, **kw):
         from unittest import mock
 
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.jobspy as mod
 
         fake = mock.MagicMock(side_effect=self._fake_scrape(behaviour))
         with mock.patch.object(mod, "scrape_jobs", fake):
@@ -600,8 +600,8 @@ class TestProbeAts:
 
         import httpx
 
-        import applypilot.discovery.ats_boards as ats
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.ats_boards as ats
+        import strelitzia.discovery.jobspy as mod
 
         def fake_fetch(kind, slug, company=None, client=None):
             if kind == "lever":
@@ -627,8 +627,8 @@ class TestProbeAts:
     def test_off_by_default(self):
         from unittest import mock
 
-        import applypilot.discovery.ats_boards as ats
-        import applypilot.discovery.jobspy as mod
+        import strelitzia.discovery.ats_boards as ats
+        import strelitzia.discovery.jobspy as mod
 
         with mock.patch.object(ats, "fetch_board") as fetch, \
                 mock.patch.object(mod, "scrape_jobs", return_value=_make_df({"indeed": 1})):
@@ -637,21 +637,21 @@ class TestProbeAts:
 
 
 class TestDiscoverProbeCli:
-    """`applypilot discover --probe` prints one row per configured board."""
+    """`strelitzia discover --probe` prints one row per configured board."""
 
     def test_cli_probe_uses_config_sites(self):
         from unittest import mock
 
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
-        from applypilot.discovery.jobspy import BoardHealth
+        from strelitzia.cli import app
+        from strelitzia.discovery.jobspy import BoardHealth
 
         health = [BoardHealth("indeed", "ok", 3, 0.9), BoardHealth("zip_recruiter", "blocked", 0, 0.4, "status code 403")]
-        with mock.patch("applypilot.config.load_env"), \
-                mock.patch("applypilot.config.load_search_config",
+        with mock.patch("strelitzia.config.load_env"), \
+                mock.patch("strelitzia.config.load_search_config",
                            return_value={"sites": ["indeed", "zip_recruiter"]}), \
-                mock.patch("applypilot.discovery.jobspy.probe_boards", return_value=health) as probe:
+                mock.patch("strelitzia.discovery.jobspy.probe_boards", return_value=health) as probe:
             result = CliRunner().invoke(app, ["discover", "--probe"])
         assert result.exit_code == 0, result.output
         assert probe.call_args.args[0] == ["indeed", "zip_recruiter"]
@@ -661,7 +661,7 @@ class TestDiscoverProbeCli:
     def test_cli_discover_without_probe_exits_nonzero(self):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         result = CliRunner().invoke(app, ["discover"])
         assert result.exit_code == 1

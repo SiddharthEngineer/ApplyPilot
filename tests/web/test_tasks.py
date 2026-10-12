@@ -8,14 +8,14 @@ from fake_drive import FakeDrive, fake_media
 from fastapi.testclient import TestClient
 from web_helpers import add_job
 
-from applypilot import database
-from applypilot.database import get_connection, init_db, job_key
-from applypilot.llm import LLMQuotaExhausted
-from applypilot.web import tasks
-from applypilot.web.app import create_app
-from applypilot.web.tasks import QUOTA_MESSAGE, TaskRunner
+from strelitzia import database
+from strelitzia.database import get_connection, init_db, job_key
+from strelitzia.llm import LLMQuotaExhausted
+from strelitzia.web import tasks
+from strelitzia.web.app import create_app
+from strelitzia.web.tasks import QUOTA_MESSAGE, TaskRunner
 
-HEADERS = {"X-ApplyPilot": "1"}
+HEADERS = {"X-Strelitzia": "1"}
 URLS = [f"https://example.com/jobs/{i}" for i in range(3)]
 
 
@@ -195,7 +195,7 @@ def default_db(tmp_path, monkeypatch):
 @pytest.fixture
 def fake_stages(tmp_path, monkeypatch):
     """run_tailoring / run_cover_letters stand-ins that write PDFs and record the paths, like the real ones."""
-    from applypilot.scoring import cover_letter, tailor
+    from strelitzia.scoring import cover_letter, tailor
 
     calls = []
 
@@ -228,7 +228,7 @@ def fake_stages(tmp_path, monkeypatch):
 
 @pytest.fixture
 def drive(monkeypatch):
-    from applypilot.storage.drive import DriveClient
+    from strelitzia.storage.drive import DriveClient
 
     fake = FakeDrive()
     monkeypatch.setattr(tasks, "_drive_configured", lambda: True)
@@ -252,7 +252,7 @@ def test_generate_end_to_end_sets_drive_links(default_db, fake_stages, drive):
 
 @pytest.fixture
 def library(tmp_path, monkeypatch):
-    from applypilot import config
+    from strelitzia import config
 
     path = tmp_path / "content_library.md"
     path.write_text("# library")
@@ -299,7 +299,7 @@ def test_generate_without_drive_keeps_local_pdfs(default_db, fake_stages, monkey
     ({"approved": 0}, "No resume was generated (the job has no description)."),
 ])
 def test_generate_failure_messages(default_db, monkeypatch, stats, message):
-    from applypilot.scoring import tailor
+    from strelitzia.scoring import tailor
 
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: stats)
     with pytest.raises(tasks.GenerationFailed, match=message.replace("(", r"\(").replace(")", r"\)")):
@@ -307,8 +307,8 @@ def test_generate_failure_messages(default_db, monkeypatch, stats, message):
 
 
 def test_overload_error_message(db_path):
-    from applypilot.llm import LLMOverloaded
-    from applypilot.web.tasks import OVERLOAD_MESSAGE
+    from strelitzia.llm import LLMOverloaded
+    from strelitzia.web.tasks import OVERLOAD_MESSAGE
 
     init_db(db_path)
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
@@ -319,7 +319,7 @@ def test_overload_error_message(db_path):
 
 
 def test_generate_quota_stop_raises(default_db, monkeypatch):
-    from applypilot.scoring import cover_letter, tailor
+    from strelitzia.scoring import cover_letter, tailor
 
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
     monkeypatch.setattr(cover_letter, "run_cover_letters", lambda **kw: {"generated": 0, "stopped": "daily_quota"})
@@ -328,8 +328,8 @@ def test_generate_quota_stop_raises(default_db, monkeypatch):
 
 
 def test_generate_overload_stop_raises(default_db, monkeypatch):
-    from applypilot.llm import LLMOverloaded
-    from applypilot.scoring import tailor
+    from strelitzia.llm import LLMOverloaded
+    from strelitzia.scoring import tailor
 
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 0, "stopped": "overloaded"})
     with pytest.raises(LLMOverloaded):

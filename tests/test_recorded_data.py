@@ -79,8 +79,8 @@ def test_json_safe():
 
 @pytest.mark.parametrize("site", ["indeed", "linkedin"])
 def test_jobspy_rows_store(site, tmp_path):
-    from applypilot.database import init_db
-    from applypilot.discovery.jobspy import store_jobspy_results
+    from strelitzia.database import init_db
+    from strelitzia.discovery.jobspy import store_jobspy_results
 
     rows = _load(f"jobspy_{site}.json")
     assert 1 <= len(rows) <= 5
@@ -92,18 +92,18 @@ def test_jobspy_rows_store(site, tmp_path):
 
 
 def test_workday_page_parses():
-    from applypilot.discovery.workday import search_employer
+    from strelitzia.discovery.workday import search_employer
 
     sample = _load("workday_search.json")
     employer = {"name": sample["employer_key"], "base_url": "https://x", "tenant": "t", "site_id": "s"}
-    with patch("applypilot.discovery.workday.workday_search", return_value=sample["response"]):
+    with patch("strelitzia.discovery.workday.workday_search", return_value=sample["response"]):
         jobs = search_employer(sample["employer_key"], employer, "software engineer",
                                location_filter=False, max_results=5)
     assert jobs and all(j["title"] and j["external_path"] for j in jobs)
 
 
 def test_gemini_score_response_parses():
-    from applypilot.scoring.scorer import _parse_score_response
+    from strelitzia.scoring.scorer import _parse_score_response
 
     sample = _load("gemini_score_response.json")
     parsed = _parse_score_response(sample["response"])

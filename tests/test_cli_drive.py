@@ -1,4 +1,4 @@
-"""Tests for `applypilot drive` (google-drive-file-library Task 6)."""
+"""Tests for `strelitzia drive` (google-drive-file-library Task 6)."""
 
 import csv
 import re
@@ -7,9 +7,9 @@ import pytest
 from fake_drive import FakeDrive, fake_media
 from typer.testing import CliRunner
 
-from applypilot import config, database
-from applypilot.cli import app
-from applypilot.storage.drive import DriveClient
+from strelitzia import config, database
+from strelitzia.cli import app
+from strelitzia.storage.drive import DriveClient
 
 runner = CliRunner()
 
@@ -68,7 +68,7 @@ def test_links_empty(env):
 
 
 def test_sync_without_token(env, monkeypatch):
-    from applypilot.storage.drive import load_credentials
+    from strelitzia.storage.drive import load_credentials
     monkeypatch.setattr(DriveClient, "from_credentials", classmethod(lambda cls: cls(load_credentials())))
     result = runner.invoke(app, ["drive", "sync"])
     assert result.exit_code == 1
@@ -76,7 +76,7 @@ def test_sync_without_token(env, monkeypatch):
 
 
 def test_drive_status(env, monkeypatch):
-    from applypilot.storage import drive
+    from strelitzia.storage import drive
     monkeypatch.setattr(drive, "drive_libraries_installed", lambda: True)
     assert drive.drive_status()[0] == "not_authorized"
     (env / "google_token.json").write_text("{}")

@@ -1,4 +1,4 @@
-"""Tests for `applypilot db migrate` / `db verify` (SQLite → SQLite always; SQLite → Postgres with the pg tier)."""
+"""Tests for `strelitzia db migrate` / `db verify` (SQLite → SQLite always; SQLite → Postgres with the pg tier)."""
 
 import sqlite3
 from datetime import date
@@ -6,9 +6,9 @@ from datetime import date
 import pytest
 from typer.testing import CliRunner
 
-from applypilot.cli import app
-from applypilot.database import get_connection, init_db, store_jobs
-from applypilot.migrate import backup_source, migrate, verify
+from strelitzia.cli import app
+from strelitzia.database import get_connection, init_db, store_jobs
+from strelitzia.migrate import backup_source, migrate, verify
 
 BACKENDS = pytest.mark.parametrize(
     "db_target", ["sqlite", pytest.param("pg", marks=pytest.mark.pg)], indirect=True

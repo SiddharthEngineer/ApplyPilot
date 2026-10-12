@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-import applypilot.discovery.smartextract as se
-from applypilot.discovery.smartextract import (
+import strelitzia.discovery.smartextract as se
+from strelitzia.discovery.smartextract import (
     build_scrape_targets,
     _get_cache_key,
     _load_strategy_cache,
@@ -150,13 +150,13 @@ class TestRunOneSiteCache:
     def setup_method(self):
         _strategy_cache.clear()
 
-    @patch("applypilot.discovery.smartextract._save_strategy_cache")
-    @patch("applypilot.discovery.smartextract.collect_page_intelligence")
-    @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
-    @patch("applypilot.discovery.smartextract.ask_llm")
+    @patch("strelitzia.discovery.smartextract._save_strategy_cache")
+    @patch("strelitzia.discovery.smartextract.collect_page_intelligence")
+    @patch("strelitzia.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
+    @patch("strelitzia.discovery.smartextract.ask_llm")
     def test_cache_hit_skips_strategy_llm(self, mock_ask, mock_judge, mock_intel, mock_save):
         """Second query to same domain should hit cache and skip the strategy LLM call."""
-        from applypilot.discovery.smartextract import _run_one_site
+        from strelitzia.discovery.smartextract import _run_one_site
 
         intel = {
             "url": "https://www.eluta.ca/search?q=engineer",
@@ -181,14 +181,14 @@ class TestRunOneSiteCache:
         assert r2["strategy"] == "json_ld"
         assert mock_ask.call_count == 1  # No additional LLM calls
 
-    @patch("applypilot.discovery.smartextract.execute_css_selectors", return_value=({}, []))
-    @patch("applypilot.discovery.smartextract._save_strategy_cache")
-    @patch("applypilot.discovery.smartextract.collect_page_intelligence")
-    @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
-    @patch("applypilot.discovery.smartextract.ask_llm")
+    @patch("strelitzia.discovery.smartextract.execute_css_selectors", return_value=({}, []))
+    @patch("strelitzia.discovery.smartextract._save_strategy_cache")
+    @patch("strelitzia.discovery.smartextract.collect_page_intelligence")
+    @patch("strelitzia.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
+    @patch("strelitzia.discovery.smartextract.ask_llm")
     def test_cache_shape_mismatch_falls_back_to_llm(self, mock_ask, mock_judge, mock_intel, mock_save, mock_css):
         """If card_candidates shape changes, cache is bypassed and LLM is called."""
-        from applypilot.discovery.smartextract import _run_one_site
+        from strelitzia.discovery.smartextract import _run_one_site
 
         # First call: cache with child_tag=div
         intel1 = {
@@ -223,13 +223,13 @@ class TestRunOneSiteCache:
         _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer2")
         assert mock_ask.call_count == 2  # LLM called again
 
-    @patch("applypilot.discovery.smartextract._save_strategy_cache")
-    @patch("applypilot.discovery.smartextract.collect_page_intelligence")
-    @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
-    @patch("applypilot.discovery.smartextract.ask_llm")
+    @patch("strelitzia.discovery.smartextract._save_strategy_cache")
+    @patch("strelitzia.discovery.smartextract.collect_page_intelligence")
+    @patch("strelitzia.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
+    @patch("strelitzia.discovery.smartextract.ask_llm")
     def test_captcha_ignores_cache(self, mock_ask, mock_judge, mock_intel, mock_save):
         """CAPTCHA page should bypass cache even if one exists."""
-        from applypilot.discovery.smartextract import _run_one_site
+        from strelitzia.discovery.smartextract import _run_one_site
 
         # Seed cache
         _strategy_cache[("Eluta", "www.eluta.ca")] = {
@@ -255,14 +255,14 @@ class TestRunOneSiteCache:
         # CAPTCHA detected -> cache ignored -> LLM called
         assert mock_ask.call_count == 1
 
-    @patch("applypilot.discovery.smartextract._save_strategy_cache")
-    @patch("applypilot.discovery.smartextract.collect_page_intelligence")
-    @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
-    @patch("applypilot.discovery.smartextract.ask_llm")
+    @patch("strelitzia.discovery.smartextract._save_strategy_cache")
+    @patch("strelitzia.discovery.smartextract.collect_page_intelligence")
+    @patch("strelitzia.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
+    @patch("strelitzia.discovery.smartextract.ask_llm")
     def test_no_cache_flag_disables_cache(self, mock_ask, mock_judge, mock_intel, mock_save):
         """When _strategy_cache_enabled is False, cache is never used."""
-        import applypilot.discovery.smartextract as se
-        from applypilot.discovery.smartextract import _run_one_site
+        import strelitzia.discovery.smartextract as se
+        from strelitzia.discovery.smartextract import _run_one_site
 
         se._strategy_cache_enabled = False
         try:
@@ -289,13 +289,13 @@ class TestRunOneSiteCache:
         finally:
             se._strategy_cache_enabled = True
 
-    @patch("applypilot.discovery.smartextract._save_strategy_cache")
-    @patch("applypilot.discovery.smartextract.collect_page_intelligence")
-    @patch("applypilot.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
-    @patch("applypilot.discovery.smartextract.ask_llm")
+    @patch("strelitzia.discovery.smartextract._save_strategy_cache")
+    @patch("strelitzia.discovery.smartextract.collect_page_intelligence")
+    @patch("strelitzia.discovery.smartextract.judge_api_responses", side_effect=lambda x: x)
+    @patch("strelitzia.discovery.smartextract.ask_llm")
     def test_cache_not_stored_for_api_response_strategy(self, mock_ask, mock_judge, mock_intel, mock_save):
         """api_response strategy should NOT be cached (API responses change per query)."""
-        from applypilot.discovery.smartextract import _run_one_site
+        from strelitzia.discovery.smartextract import _run_one_site
 
         intel = {
             "url": "https://www.eluta.ca/search?q=engineer",

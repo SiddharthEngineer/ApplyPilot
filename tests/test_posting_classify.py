@@ -2,9 +2,9 @@
 
 import pytest
 
-from applypilot.database import init_db
-from applypilot.enrichment.classify import classify_title, classify_work_mode, parse_location, run_classify
-from applypilot.enrichment.posting_model import ROLE_CATEGORIES, Location
+from strelitzia.database import init_db
+from strelitzia.enrichment.classify import classify_title, classify_work_mode, parse_location, run_classify
+from strelitzia.enrichment.posting_model import ROLE_CATEGORIES, Location
 
 
 @pytest.mark.parametrize("title,expected", [

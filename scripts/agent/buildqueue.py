@@ -238,7 +238,7 @@ def cmd_pause(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="ApplyPilot agent build queue")
+    parser = argparse.ArgumentParser(description="Strelitzia agent build queue")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("add")
     p.add_argument("slug")

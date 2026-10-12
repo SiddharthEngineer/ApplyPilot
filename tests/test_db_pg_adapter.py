@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from applypilot.db_pg import PgConnection, PgRow, describe_url, pg_row_factory, translate_sql
+from strelitzia.db_pg import PgConnection, PgRow, describe_url, pg_row_factory, translate_sql
 
 
 class TestTranslateSql:
@@ -178,7 +178,7 @@ class TestTransactions:
 
 
 def test_nul_bytes_are_stripped_from_params():
-    from applypilot.db_pg import _params
+    from strelitzia.db_pg import _params
 
     assert _params(("a\x00b", 1, None)) == ("ab", 1, None)
     assert _params({"t": "x\x00"}) == {"t": "x"}
@@ -191,7 +191,7 @@ def test_describe_url_hides_password():
 def test_database_imports_without_psycopg():
     code = (
         "import sys; sys.modules['psycopg'] = None\n"
-        "import applypilot.database, applypilot.db_pg\n"
+        "import strelitzia.database, strelitzia.db_pg\n"
         "print('ok')"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)

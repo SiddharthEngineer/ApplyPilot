@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from applypilot.llm import (
+from strelitzia.llm import (
     LLMClient,
     LLMQuotaExhausted,
     _detect_provider,
@@ -138,7 +138,7 @@ class TestDetectProvider:
 
 class TestDiscoveryClient:
     def test_discovery_client_uses_flash_lite(self):
-        import applypilot.llm as llm_mod
+        import strelitzia.llm as llm_mod
         with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=False):
             os.environ.pop("LLM_URL", None)
             os.environ.pop("OPENAI_API_KEY", None)
@@ -152,7 +152,7 @@ class TestDiscoveryClient:
                 llm_mod.reset_clients()
 
     def test_discovery_client_independent_singleton(self):
-        import applypilot.llm as llm_mod
+        import strelitzia.llm as llm_mod
         with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key"}, clear=False):
             os.environ.pop("LLM_URL", None)
             os.environ.pop("OPENAI_API_KEY", None)
@@ -178,7 +178,7 @@ class TestPerStageRouting:
 
     @pytest.fixture(autouse=True)
     def _clean(self):
-        import applypilot.llm as llm_mod
+        import strelitzia.llm as llm_mod
         llm_mod.reset_clients()
         yield
         llm_mod.reset_clients()
@@ -221,7 +221,7 @@ class TestPerStageRouting:
             scoring._record_request()
             tailor._record_request()
             # Third request on the same model (from either client) must wait.
-            with patch("applypilot.llm.time.sleep") as mock_sleep:
+            with patch("strelitzia.llm.time.sleep") as mock_sleep:
                 get_client("cover")._throttle_if_needed()
             assert mock_sleep.call_count == 1
 
@@ -305,7 +305,7 @@ class TestGeminiCompatFallback:
         success_resp = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
 
         with patch.object(client._client, "post", side_effect=[rate_limit_resp, success_resp]):
-            with patch("applypilot.llm.time.sleep"):
+            with patch("strelitzia.llm.time.sleep"):
                 result = client.chat([{"role": "user", "content": "hi"}])
                 assert result == "ok"
 
@@ -345,7 +345,7 @@ class TestDailyQuota:
     def test_daily_429_raises_after_one_request(self, wrap_list, caplog):
         client = self._client()
         with patch.object(client._client, "post", return_value=_gemini_429(_DAILY, wrap_list=wrap_list)) as post, \
-                patch("applypilot.llm.time.sleep") as sleep, caplog.at_level("ERROR", logger="applypilot.llm"), \
+                patch("strelitzia.llm.time.sleep") as sleep, caplog.at_level("ERROR", logger="strelitzia.llm"), \
                 pytest.raises(LLMQuotaExhausted) as ei:
             client.chat([{"role": "user", "content": "hi"}])
         assert post.call_count == 1
@@ -372,7 +372,7 @@ class TestDailyQuota:
         client = self._client()
         ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
         with patch.object(client._client, "post", side_effect=[_gemini_429(_MINUTE), _gemini_429(_MINUTE), ok]) as post, \
-                patch("applypilot.llm.time.sleep") as sleep:
+                patch("strelitzia.llm.time.sleep") as sleep:
             assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
         assert post.call_count == 3
         assert [c.args[0] for c in sleep.call_args_list] == [10, 20]
@@ -381,7 +381,7 @@ class TestDailyQuota:
         client = self._client()
         ok = _make_response(200, json_data={"choices": [{"message": {"content": "ok"}}]})
         with patch.object(client._client, "post", side_effect=[_gemini_429(_MINUTE, retry_delay="7s"), ok]), \
-                patch("applypilot.llm.time.sleep") as sleep:
+                patch("strelitzia.llm.time.sleep") as sleep:
             assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
         sleep.assert_called_once_with(8.0)
 
@@ -496,8 +496,8 @@ class TestRPMLimiter:
 
         with (
             patch.object(client._client, "post", return_value=success_resp),
-            patch("applypilot.llm.time.sleep") as mock_sleep,
-            patch("applypilot.llm.time.monotonic", side_effect=[
+            patch("strelitzia.llm.time.sleep") as mock_sleep,
+            patch("strelitzia.llm.time.monotonic", side_effect=[
                 0.0, 0.1,    # call 1: throttle check, record
                 0.2, 0.3,    # call 2: throttle check, record
                 31.0,        # call 3: throttle check (now)
@@ -528,7 +528,7 @@ class TestRPMLimiter:
 
         with (
             patch.object(client._client, "post", return_value=success_resp),
-            patch("applypilot.llm.time.sleep") as mock_sleep,
+            patch("strelitzia.llm.time.sleep") as mock_sleep,
         ):
             for _ in range(10):
                 client.chat([{"role": "user", "content": "hi"}])
@@ -546,14 +546,14 @@ class TestRPMLimiter:
 
         with (
             patch.object(client._client, "post", return_value=success_resp),
-            patch("applypilot.llm.time.sleep") as mock_sleep,
+            patch("strelitzia.llm.time.sleep") as mock_sleep,
         ):
             # t=0: call 1 (no sleep)
-            with patch("applypilot.llm.time.monotonic", side_effect=[0.0, 0.1]):
+            with patch("strelitzia.llm.time.monotonic", side_effect=[0.0, 0.1]):
                 client.chat([{"role": "user", "content": "a"}])
             assert mock_sleep.call_count == 0
             # t=61: window expired, call 2 (no sleep)
-            with patch("applypilot.llm.time.monotonic", side_effect=[61.0, 61.1]):
+            with patch("strelitzia.llm.time.monotonic", side_effect=[61.0, 61.1]):
                 client.chat([{"role": "user", "content": "b"}])
             assert mock_sleep.call_count == 0
 
@@ -563,7 +563,7 @@ class TestRPMLimiter:
                                      "LLM_MODEL": "gemini-unlisted"}, clear=False):
             os.environ.pop("LLM_URL", None)
             os.environ.pop("OPENAI_API_KEY", None)
-            import applypilot.llm as llm_mod
+            import strelitzia.llm as llm_mod
             llm_mod.reset_clients()
             try:
                 client = get_client()
@@ -582,18 +582,18 @@ class TestPerModelLimits:
 
     @pytest.fixture(autouse=True)
     def _isolate(self, tmp_path, monkeypatch):
-        import applypilot.llm as llm_mod
+        import strelitzia.llm as llm_mod
         for k in self._LIMIT_VARS:
             monkeypatch.delenv(k, raising=False)
         monkeypatch.setattr(llm_mod, "daily_usage", llm_mod.DailyUsage(tmp_path / "usage.json"))
         monkeypatch.setattr(llm_mod, "_warned_limit_vars", set())
-        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        monkeypatch.setattr("strelitzia.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
         llm_mod.reset_clients()
         yield llm_mod
         llm_mod.reset_clients()
 
     def test_packaged_defaults_without_env_or_user_file(self):
-        from applypilot.llm import load_model_limits, model_limit_sources, model_limits
+        from strelitzia.llm import load_model_limits, model_limit_sources, model_limits
         assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert model_limits("gemini-3.6-flash") == (5, 20)
         assert model_limits("other-model") == (0, 0)
@@ -602,7 +602,7 @@ class TestPerModelLimits:
         assert model_limit_sources() == [("packaged defaults", False)]
 
     def test_user_file_overrides_one_model(self, tmp_path):
-        from applypilot.llm import model_limit_sources, model_limits
+        from strelitzia.llm import model_limit_sources, model_limits
         (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 10}\nrpd: {my-model: 7}\n")
         assert model_limits("gemini-3.6-flash") == (10, 20)
         assert model_limits("gemini-3.1-flash-lite") == (15, 500)
@@ -610,10 +610,10 @@ class TestPerModelLimits:
         assert model_limit_sources() == [("packaged defaults", False), (str(tmp_path / "llm_limits.yaml"), False)]
 
     def test_env_var_wins_over_user_file_and_warns_once(self, tmp_path, monkeypatch, caplog):
-        from applypilot.llm import model_limit_sources, model_limits
+        from strelitzia.llm import model_limit_sources, model_limits
         (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 10}\n")
         monkeypatch.setenv("LLM_RPM_LIMITS", '{"gemini-3.6-flash": 3}')
-        with caplog.at_level("WARNING", logger="applypilot.llm"):
+        with caplog.at_level("WARNING", logger="strelitzia.llm"):
             assert model_limits("gemini-3.6-flash") == (3, 20)
             assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert caplog.text.count("LLM_RPM_LIMITS in .env is deprecated") == 1
@@ -624,21 +624,21 @@ class TestPerModelLimits:
                                          "rpm: 5\n", "rpm: {gemini-3.6-flash: 0.5}\n",
                                          "rpd: {gemini-3.6-flash: true}\n", "rpm: {gemini-3.6-flash: -1}\n"])
     def test_malformed_user_file_uses_defaults_and_warns_once(self, tmp_path, caplog, content):
-        from applypilot.llm import model_limit_sources, model_limits
+        from strelitzia.llm import model_limit_sources, model_limits
         (tmp_path / "llm_limits.yaml").write_text(content)
-        with caplog.at_level("WARNING", logger="applypilot.llm"):
+        with caplog.at_level("WARNING", logger="strelitzia.llm"):
             assert model_limits("gemini-3.6-flash") == (5, 20)
             assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert caplog.text.count("Ignoring " + str(tmp_path / "llm_limits.yaml")) == 1
         assert model_limit_sources() == [("packaged defaults", False)]
 
     def test_zero_in_user_file_removes_the_limit(self, tmp_path):
-        from applypilot.llm import model_limits
+        from strelitzia.llm import model_limits
         (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 0}\nrpd: {gemini-3.6-flash: 0}\n")
         assert model_limits("gemini-3.6-flash") == (0, 0)
 
     def test_multiline_json_with_trailing_commas(self, monkeypatch):
-        from applypilot.llm import model_limits
+        from strelitzia.llm import model_limits
         monkeypatch.setenv("LLM_RPM_LIMITS", '{\n  "gemini-3.1-flash-lite": 15,\n  "gemini-3.6-flash": 5,\n}')
         monkeypatch.setenv("LLM_RPD_LIMITS", '{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20,}')
         assert model_limits("gemini-3.1-flash-lite") == (15, 500)
@@ -646,16 +646,16 @@ class TestPerModelLimits:
         assert model_limits("other-model") == (0, 0)
 
     def test_global_limit_is_fallback(self, monkeypatch):
-        from applypilot.llm import model_limits
+        from strelitzia.llm import model_limits
         monkeypatch.setenv("LLM_RPM_LIMITS", '{"a": 15}')
         monkeypatch.setenv("LLM_RPM_LIMIT", "10")
         assert model_limits("a") == (15, 0)
         assert model_limits("b") == (10, 0)
 
     def test_unquoted_dotenv_value_warns_once(self, monkeypatch, caplog):
-        from applypilot.llm import model_limits
+        from strelitzia.llm import model_limits
         monkeypatch.setenv("LLM_RPM_LIMITS", "{")  # what python-dotenv reads from an unquoted multi-line value
-        with caplog.at_level("WARNING", logger="applypilot.llm"):
+        with caplog.at_level("WARNING", logger="strelitzia.llm"):
             assert model_limits("a") == (0, 0)
             model_limits("a")
         assert caplog.text.count("Ignoring LLM_RPM_LIMITS") == 1
@@ -678,7 +678,7 @@ class TestPerModelLimits:
         with patch.object(client._client, "post", return_value=ok) as post:
             client.chat([{"role": "user", "content": "1"}])
             client.chat([{"role": "user", "content": "2"}])
-            with caplog.at_level("ERROR", logger="applypilot.llm"), pytest.raises(LLMQuotaExhausted) as ei:
+            with caplog.at_level("ERROR", logger="strelitzia.llm"), pytest.raises(LLMQuotaExhausted) as ei:
                 client.chat([{"role": "user", "content": "3"}])
         assert post.call_count == 2
         assert "2/2 requests today" in ei.value.scope
@@ -734,7 +734,7 @@ class TestOverloadFallback:
         primary, fb = self._pair()
         with patch.object(primary._client, "post", return_value=_make_response(503)) as p_post, \
                 patch.object(fb._client, "post", return_value=self._ok("from lite")) as f_post, \
-                patch("applypilot.llm.time.sleep") as sleep:
+                patch("strelitzia.llm.time.sleep") as sleep:
             assert primary.chat([{"role": "user", "content": "hi"}]) == "from lite"
         assert p_post.call_count == 1 and f_post.call_count == 1
         sleep.assert_not_called()
@@ -756,11 +756,11 @@ class TestOverloadFallback:
         assert p_post.call_count == 2
 
     def test_503_counts_toward_daily_usage(self, tmp_path):
-        from applypilot.llm import DailyUsage
+        from strelitzia.llm import DailyUsage
         usage = DailyUsage(tmp_path / "usage.json")
         primary, fb = self._pair()
         primary._rpd_limit = 20
-        with patch("applypilot.llm.daily_usage", usage), \
+        with patch("strelitzia.llm.daily_usage", usage), \
                 patch.object(primary._client, "post", return_value=_make_response(503)), \
                 patch.object(fb._client, "post", return_value=self._ok("lite")):
             primary.chat([{"role": "user", "content": "a"}])
@@ -769,25 +769,25 @@ class TestOverloadFallback:
     def test_no_fallback_keeps_backoff_retries(self):
         client = LLMClient(base_url=self._BASE, model="gemini-3.6-flash", api_key="k")
         with patch.object(client._client, "post", side_effect=[_make_response(503), self._ok("ok")]) as post, \
-                patch("applypilot.llm.time.sleep") as sleep:
+                patch("strelitzia.llm.time.sleep") as sleep:
             assert client.chat([{"role": "user", "content": "hi"}]) == "ok"
         assert post.call_count == 2 and sleep.call_count == 1
 
     def test_lite_model_overloaded_on_every_retry_stops_the_run(self):
-        from applypilot.llm import LLMOverloaded, LLMStopRun
+        from strelitzia.llm import LLMOverloaded, LLMStopRun
         client = LLMClient(base_url=self._BASE, model="gemini-3.1-flash-lite", api_key="k")
         with patch.object(client._client, "post", return_value=_make_response(503)) as post, \
-                patch("applypilot.llm.time.sleep"), pytest.raises(LLMOverloaded) as err:
+                patch("strelitzia.llm.time.sleep"), pytest.raises(LLMOverloaded) as err:
             client.chat([{"role": "user", "content": "hi"}])
         assert post.call_count == 5
         assert isinstance(err.value, LLMStopRun) and err.value.reason == "overloaded"
 
     def test_fallback_overloaded_too_stops_the_run(self):
-        from applypilot.llm import LLMOverloaded
+        from strelitzia.llm import LLMOverloaded
         primary, fb = self._pair()
         with patch.object(primary._client, "post", return_value=_make_response(503)), \
                 patch.object(fb._client, "post", return_value=_make_response(503)) as f_post, \
-                patch("applypilot.llm.time.sleep"), pytest.raises(LLMOverloaded):
+                patch("strelitzia.llm.time.sleep"), pytest.raises(LLMOverloaded):
             primary.chat([{"role": "user", "content": "hi"}])
         assert f_post.call_count == 5
 
@@ -799,7 +799,7 @@ class TestOverloadFallback:
             client.chat([{"role": "user", "content": "hi"}])
 
     def test_get_client_wires_fallback(self, monkeypatch):
-        from applypilot.llm import reset_clients
+        from strelitzia.llm import reset_clients
         monkeypatch.setenv("GEMINI_API_KEY", "k")
         monkeypatch.setenv("LLM_TAILOR_MODEL", "gemini-3.6-flash")
         monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
@@ -816,7 +816,7 @@ class TestOverloadFallback:
             reset_clients()
 
     def test_lite_model_has_no_fallback_to_itself(self, monkeypatch):
-        from applypilot.llm import reset_clients
+        from strelitzia.llm import reset_clients
         monkeypatch.setenv("GEMINI_API_KEY", "k")
         monkeypatch.setenv("LLM_SCORING_MODEL", "gemini-3.1-flash-lite")
         monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)

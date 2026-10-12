@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from applypilot import tracking
-from applypilot.database import close_connection
+from strelitzia import tracking
+from strelitzia.database import close_connection
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "seed_preprod.py"
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
@@ -93,9 +93,9 @@ def test_seed_twice_wipes_first(seed_mod, db):
 ])
 def test_guard_refuses_anything_but_preprod(seed_mod, monkeypatch, capsys, tmp_path, url):
     if url is None:
-        monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)
+        monkeypatch.delenv("STRELITZIA_DATABASE_URL", raising=False)
     else:
-        monkeypatch.setenv("APPLYPILOT_DATABASE_URL", url)
+        monkeypatch.setenv("STRELITZIA_DATABASE_URL", url)
     monkeypatch.setattr(seed_mod, "init_db", lambda *_: pytest.fail("must not open a database"))
     assert seed_mod.main([]) == 2
     err = capsys.readouterr().err

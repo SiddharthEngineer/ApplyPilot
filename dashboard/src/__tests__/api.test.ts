@@ -23,16 +23,16 @@ describe('api', () => {
     await listJobs({ sort: '-fit_score' });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('/app/api/jobs?sort=-fit_score');
-    expect(init.headers['X-ApplyPilot']).toBeUndefined();
+    expect(init.headers['X-Strelitzia']).toBeUndefined();
   });
 
-  it('sends X-ApplyPilot and JSON on mutating calls', async () => {
+  it('sends X-Strelitzia and JSON on mutating calls', async () => {
     const fetch = mockFetch(200, {});
     await setStatus('abc', 'submitted', '2026-10-01');
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('/app/api/jobs/abc/status');
     expect(init.method).toBe('POST');
-    expect(init.headers['X-ApplyPilot']).toBe('1');
+    expect(init.headers['X-Strelitzia']).toBe('1');
     expect(JSON.parse(init.body)).toEqual({ status: 'submitted', submitted_at: '2026-10-01' });
   });
 

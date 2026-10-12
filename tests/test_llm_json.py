@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from applypilot.llm_json import extract_json
+from strelitzia.llm_json import extract_json
 
 
 def test_plain_object():

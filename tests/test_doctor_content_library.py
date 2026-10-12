@@ -58,10 +58,10 @@ class TestDoctorContentLibraryCheck:
         """When content library exists and parses OK, doctor shows OK with stats."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         runner = CliRunner()
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", valid_content_library):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", valid_content_library):
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
@@ -75,11 +75,11 @@ class TestDoctorContentLibraryCheck:
         """When content library is missing, doctor shows WARN."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         runner = CliRunner()
         missing_path = tmp_path / "nonexistent" / "content_library.md"
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", missing_path):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", missing_path):
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
@@ -90,10 +90,10 @@ class TestDoctorContentLibraryCheck:
         """When content library exists but has no role sections, parses but returns empty."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         runner = CliRunner()
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", malformed_content_library):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", malformed_content_library):
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
@@ -105,15 +105,15 @@ class TestDoctorContentLibraryCheck:
         """When content library file exists but parse raises, doctor shows ERROR."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         bad_file = tmp_path / "content_library.md"
         bad_file.write_text("data", encoding="utf-8")
 
         runner = CliRunner()
         with (
-            patch("applypilot.config.CONTENT_LIBRARY_PATH", bad_file),
-            patch("applypilot.scoring.content_library.parse_content_library", side_effect=RuntimeError("bad file")),
+            patch("strelitzia.config.CONTENT_LIBRARY_PATH", bad_file),
+            patch("strelitzia.scoring.content_library.parse_content_library", side_effect=RuntimeError("bad file")),
         ):
             result = runner.invoke(app, ["doctor"])
 
@@ -126,26 +126,26 @@ class TestDoctorContentLibraryCheck:
         """When content library is present, tier summary shows usage hint."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         runner = CliRunner()
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", valid_content_library):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", valid_content_library):
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
         assert "Content library mode is the default" in result.output
         assert "--source content-library" in result.output
-        assert "applypilot template init" in result.output
+        assert "strelitzia template init" in result.output
 
     def test_tier_summary_no_hint_when_missing(self, tmp_path: Path) -> None:
         """When content library is missing, no usage hint in tier summary."""
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         runner = CliRunner()
         missing_path = tmp_path / "nonexistent" / "content_library.md"
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", missing_path):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", missing_path):
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
@@ -158,7 +158,7 @@ class TestDoctorRateLimitTuning:
     def _invoke(self, tmp_path, monkeypatch, env, models):
         from typer.testing import CliRunner
 
-        from applypilot.cli import app
+        from strelitzia.cli import app
 
         for key in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL",
                     "LLM_MODEL", "LLM_DISCOVERY_MODEL", "LLM_SCORING_MODEL", "LLM_TAILOR_MODEL",
@@ -175,9 +175,9 @@ class TestDoctorRateLimitTuning:
                 return {"models": [{"name": f"models/{m}"} for m in models]}
 
         runner = CliRunner()
-        with patch("applypilot.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"):
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"):
                 with patch("httpx.get", return_value=_Resp()):
-                    with patch("applypilot.config.load_env", lambda: None):
+                    with patch("strelitzia.config.load_env", lambda: None):
                         return runner.invoke(app, ["doctor"])
 
     def test_discovery_model_and_rpm_lines_present(self, tmp_path, monkeypatch) -> None:
@@ -208,7 +208,7 @@ class TestDoctorRateLimitTuning:
 
     def test_per_model_limits_and_usage(self, tmp_path, monkeypatch) -> None:
         """Stage lines show LLM_RPM_LIMITS / LLM_RPD_LIMITS for that stage's model and today's usage."""
-        from applypilot import llm
+        from strelitzia import llm
         monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
         llm.daily_usage.increment("gemini-3.6-flash")
         result = self._invoke(
@@ -225,9 +225,9 @@ class TestDoctorRateLimitTuning:
 
     def test_rate_limit_source_reported(self, tmp_path, monkeypatch) -> None:
         """doctor says where the per-model limits came from, and flags the deprecated env vars."""
-        from applypilot import llm
+        from strelitzia import llm
         monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
-        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        monkeypatch.setattr("strelitzia.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
         models = ["gemini-3.6-flash", "gemini-3.1-flash-lite"]
         result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k"}, models)
         assert result.exit_code == 0
@@ -242,7 +242,7 @@ class TestDoctorRateLimitTuning:
         assert "RPM limit" not in result.output
 
     def test_warns_when_a_stage_model_has_no_rpm_limit(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        monkeypatch.setattr("strelitzia.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
         result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_TAILOR_MODEL": "gemini-unlisted"},
                               ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"])
         assert result.exit_code == 0

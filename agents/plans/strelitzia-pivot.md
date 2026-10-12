@@ -57,7 +57,7 @@ the CLI help no longer lists `apply`.
 **Validate:** new `tests/test_legacy_compat.py`: (a) `env()` precedence, (b) `resolve_app_dir()` for all four cases with `tmp_path` HOME,
 (c) a legacy `applypilot.db` is picked up, (d) both console scripts resolve to the same Typer app. `scripts/validate.sh --full` passes
 (it includes the docker build). `grep -rn "applypilot" src tests | grep -v -i legacy` → only the fallback code and its tests.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit). Also: the dashboard CSRF header is now `X-Strelitzia` (the server still accepts `X-ApplyPilot` from open tabs); Drive `appProperties` keep the `applypilot_` prefix so existing files are still found; the default Drive root folder is `Strelitzia` (set `DRIVE_ROOT_FOLDER=ApplyPilot` or rename the folder to keep one tree). `.github/` is outside the agent's permissions: `ci.yml` still names `src/applypilot/web/static` (left for the user).
 
 ### Task 3: Rename the runner and tooling with fallbacks
 **Runs:** unattended

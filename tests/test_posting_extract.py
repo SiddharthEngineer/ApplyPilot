@@ -6,12 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from applypilot import pipeline
-from applypilot.database import init_db
-from applypilot.enrichment import extract
-from applypilot.enrichment.posting_model import EXTRACT_VERSION
-from applypilot.enrichment.posting_prompt import job_id
-from applypilot.llm import LLMQuotaExhausted
+from strelitzia import pipeline
+from strelitzia.database import init_db
+from strelitzia.enrichment import extract
+from strelitzia.enrichment.posting_model import EXTRACT_VERSION
+from strelitzia.enrichment.posting_prompt import job_id
+from strelitzia.llm import LLMQuotaExhausted
 
 QUOTA = LLMQuotaExhausted("gemini-3.1-flash-lite", "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
 
@@ -164,7 +164,7 @@ def test_quota_stop_keeps_finished_batches(conn):
 
 
 def test_overload_stops_without_charging_attempts(conn):
-    from applypilot.llm import LLMOverloaded
+    from strelitzia.llm import LLMOverloaded
 
     fake = FakeLLM(fail_calls={2: LLMOverloaded("gemini-3.1-flash-lite")})
     stats = _run(conn, fake, batch_size=5)
@@ -207,8 +207,8 @@ def test_pipeline_stage_wiring():
 
 
 def test_pipeline_runner_classifies_then_extracts():
-    with patch("applypilot.enrichment.classify.run_classify") as classify, \
-            patch("applypilot.enrichment.extract.run_extraction", return_value={"stopped": "daily_quota"}) as run:
+    with patch("strelitzia.enrichment.classify.run_classify") as classify, \
+            patch("strelitzia.enrichment.extract.run_extraction", return_value={"stopped": "daily_quota"}) as run:
         result = pipeline._run_extract(limit=10)
     classify.assert_called_once_with(only_missing=True)
     run.assert_called_once_with(limit=10)
@@ -216,7 +216,7 @@ def test_pipeline_runner_classifies_then_extracts():
 
 
 def test_extract_uses_flash_lite_by_default(monkeypatch):
-    from applypilot.llm import _detect_provider
+    from strelitzia.llm import _detect_provider
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     for var in ("LLM_URL", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_MODEL", "LLM_EXTRACT_MODEL"):
         monkeypatch.delenv(var, raising=False)

@@ -6,7 +6,7 @@ from unittest import mock
 import httpx
 import pytest
 
-from applypilot.discovery import ats_boards as ats
+from strelitzia.discovery import ats_boards as ats
 
 # Trimmed samples recorded from each public API on 2026-10-02 (fields the module reads).
 GREENHOUSE = {

@@ -4,8 +4,8 @@ import re
 
 from fastapi.testclient import TestClient
 
-from applypilot.web import app as web_app
-from applypilot.web.app import create_app
+from strelitzia.web import app as web_app
+from strelitzia.web.app import create_app
 
 
 def test_health(client):
@@ -43,7 +43,7 @@ def test_no_path_traversal(client, web_dir):
 
 
 def test_api_only_without_ui(db_path, tmp_path, monkeypatch):
-    monkeypatch.delenv("APPLYPILOT_WEB_DIR", raising=False)
+    monkeypatch.delenv("STRELITZIA_WEB_DIR", raising=False)
     monkeypatch.setattr(web_app, "PACKAGED_STATIC_DIR", tmp_path / "no-bundle")
     with TestClient(create_app(db=db_path)) as c:
         assert c.get("/app/api/health").status_code == 200
@@ -51,7 +51,7 @@ def test_api_only_without_ui(db_path, tmp_path, monkeypatch):
 
 
 def test_packaged_bundle_is_the_default_ui(db_path, tmp_path, monkeypatch):
-    monkeypatch.delenv("APPLYPILOT_WEB_DIR", raising=False)
+    monkeypatch.delenv("STRELITZIA_WEB_DIR", raising=False)
     bundle = tmp_path / "static"
     bundle.mkdir()
     (bundle / "index.html").write_text("<!doctype html><title>packaged</title>")
@@ -66,16 +66,23 @@ def test_mutations_need_the_header(app):
             r = getattr(bare, method)("/app/api/health")
             assert r.status_code == 403, method
         assert bare.get("/app/api/health").status_code == 200
-        r = bare.post("/app/api/health", headers={"X-ApplyPilot": "0"})
+        r = bare.post("/app/api/health", headers={"X-Strelitzia": "0"})
         assert r.status_code == 403
         # With the header the guard lets it through (health has no POST, so the router answers 405).
+        assert bare.post("/app/api/health", headers={"X-Strelitzia": "1"}).status_code == 405
+
+
+def test_legacy_csrf_header_is_accepted(app):
+    """Dashboard tabs opened before the rename still send the old header until they reload."""
+    with TestClient(app) as bare:
         assert bare.post("/app/api/health", headers={"X-ApplyPilot": "1"}).status_code == 405
+        assert bare.post("/app/api/health", headers={"X-ApplyPilot": "0"}).status_code == 403
 
 
 def test_serve_command_is_registered():
     from typer.testing import CliRunner
 
-    from applypilot.cli import app as cli
+    from strelitzia.cli import app as cli
 
     result = CliRunner().invoke(cli, ["serve", "--help"])
     assert result.exit_code == 0

@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from applypilot.scoring.pdf import (
+from strelitzia.scoring.pdf import (
     _USABLE_HEIGHT_PT,
     build_html,
     convert_to_pdf,
@@ -73,7 +73,7 @@ class TestRenderPdfReturns:
 # ── convert_to_pdf return value ───────────────────────────────────────────
 
 class TestConvertToPdfReturns:
-    @patch("applypilot.scoring.pdf.render_pdf")
+    @patch("strelitzia.scoring.pdf.render_pdf")
     def test_returns_dict_with_overflow(self, mock_render):
         mock_render.return_value = {
             "overflow": False,
