@@ -913,7 +913,7 @@ def doctor() -> None:
     if has_gemini or has_openai or has_opencode or has_local:
         from applypilot.llm import PURPOSES, _detect_provider, daily_usage, model_limits
         # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients),
-        # with that model's limits from LLM_RPM_LIMITS / LLM_RPD_LIMITS (or LLM_RPM_LIMIT / LLM_RPD_LIMIT).
+        # with that model's limits from llm_limits.yaml (or LLM_RPM_LIMIT / LLM_RPD_LIMIT for unlisted models).
         for purpose in PURPOSES:
             stage_model = _detect_provider(purpose)[1]
             rpm, rpd = model_limits(stage_model)
@@ -925,8 +925,13 @@ def doctor() -> None:
         fb = {fallback_model(_detect_provider(p)[1], base_url) for p in PURPOSES} - {None}
         if fb:
             results.append(("503 fallback", ok_mark, f"{', '.join(sorted(fb))} (LLM_FALLBACK_MODEL; 'none' disables)"))
-        if not (os.environ.get("LLM_RPM_LIMITS") or os.environ.get("LLM_RPM_LIMIT")):
-            results.append(("RPM limit", warn_mark, "off: set LLM_RPM_LIMITS (per model) in .env"))
+        from applypilot.config import LLM_LIMITS_PATH
+        from applypilot.llm import model_limit_sources
+        sources = model_limit_sources()
+        deprecated = [s for s in sources if s.startswith("LLM_")]
+        results.append(("Rate limits", warn_mark if deprecated else ok_mark,
+                        " + ".join(sources) + (f" ({', '.join(deprecated)} deprecated: move to "
+                                               f"{LLM_LIMITS_PATH})" if deprecated else "")))
         results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))
 
     # --- Tier 3 checks ---
