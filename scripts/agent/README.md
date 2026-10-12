@@ -1,6 +1,6 @@
 # Unattended build runner
 
-Hourly cron → `run.sh`. It checks for due work with plain bash/Python and starts `claude -p` only when a queued plan is due.
+Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python and starts `claude -p` only when a queued plan is due.
 
 | File | Role |
 |---|---|
@@ -12,7 +12,12 @@ Hourly cron → `run.sh`. It checks for due work with plain bash/Python and star
 | `settings.json`, `mcp.json` | Permissions and the Playwright MCP for headless runs (the agent cannot merge, deploy or edit these) |
 
 ## Limits (so it can't run away)
-- Claude starts only if an item is due, the queue isn't paused, there have been fewer than 4 runs in 24h (`AGENT_MAX_RUNS_PER_DAY`), and the item has used fewer than 2 attempts (`AGENT_MAX_ATTEMPTS`).
+- Claude starts only if an item is due, the queue isn't paused, and the item has used fewer than 2 attempts (`AGENT_MAX_ATTEMPTS`).
+  There's no daily run cap by default (`AGENT_MAX_RUNS_PER_DAY=0`; set a number to bring one back).
+- Session-usage gate: before each run, `usage.py` sends one tiny Haiku prompt and reads the "Current session" (5-hour window)
+  usage from its `rate_limit_event`. At or above `AGENT_MAX_SESSION_USAGE` (default `30`, percent; `0` turns it off) the run
+  doesn't start and the queue pauses until the window resets. If the usage can't be read, that tick is skipped.
+  It only gates starts: a run already going finishes even if it pushes usage past the limit.
 - Each run is killed after `AGENT_MAX_RUNTIME` (3h). A `flock` allows one run at a time.
 - A usage-limit exit pauses the queue for 5h and gives the attempt back.
 - A run that ends without a result file, or whose `ready` fails `validate.sh --full`, counts as a failed attempt. After 2 failures the item is `blocked` and you get a notice.
@@ -31,10 +36,10 @@ Hourly cron → `run.sh`. It checks for due work with plain bash/Python and star
    PREPROD_HEALTH_URL=http://127.0.0.1:8080/app/api/health
    PREPROD_NETRC=/home/dev/.config/applypilot-agent/preprod.netrc   # mode 600: machine 127.0.0.1 login … password … (preprod basic auth)
    ```
-4. Install the cron line (`crontab -e`): `23 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh`
+4. Install the cron line (`crontab -e`): `*/5 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh`
 
 ## Day to day
 - Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00]`). `/schedule-build list` shows the queue and the preprod holder.
 - Logs: `~/.local/state/applypilot-agent/runs.log` (one line per event) and `logs/<time>-<slug>.log` (full JSON output).
-- When an agent asks a question, reply on the inbox issue. The next hourly tick re-queues the item with your answer.
+- When an agent asks a question, reply on the inbox issue. The next tick (within 5 minutes) re-queues the item with your answer.
 - Merging or closing the PR on preprod frees the lock. The next tick resets preprod to trunk and deploys the next waiting PR.

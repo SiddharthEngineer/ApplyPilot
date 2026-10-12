@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Cron entry point for unattended builds. Installed hourly in the `dev` crontab:
-#   23 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh
+# Cron entry point for unattended builds. Installed every 5 minutes in the `dev` crontab:
+#   */5 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh
 # Everything before `claude -p` is plain bash/Python, so an empty queue costs no Claude usage.
 #
 # 1. Upkeep: pick up your inbox replies, release/advance the preprod lock.
-# 2. `buildqueue.py next` picks a due item (honours pause, daily cap, attempt limit) or we exit.
+# 2. `buildqueue.py next` picks a due item (honours pause, optional daily cap, attempt limit) or we exit.
+#    Then usage.py checks the Claude "Current session" usage (one tiny Haiku probe): at or above
+#    AGENT_MAX_SESSION_USAGE (default 30%) the queue pauses until the 5-hour window resets.
 # 3. The agent runs `/implement <plan> --unattended` in its own worktree on branch agent/<slug>, validates,
 #    pushes and opens a PR, then writes a result file. It cannot merge.
 # 4. This script decides the merge: gate.py (plan risk + diff checks) and green CI → rebase-merge;
@@ -33,6 +35,16 @@ flock -n 9 || exit 0
 "$HERE/preprod.sh" tick >> "$STATE/runs.log" 2>&1
 
 slug=$("${Q[@]}" next) || exit 0
+
+gate=$(python3 "$HERE/usage.py" check 2>&1)
+case $? in
+    0) ;;
+    10) "${Q[@]}" pause "$(echo "$gate" | tail -n1)" >> "$STATE/runs.log"
+        say "$slug: not started, $(echo "$gate" | head -n1); queue paused until the window resets"
+        exit 0 ;;
+    *) say "$slug: not started, $(echo "$gate" | head -n1)"
+       exit 0 ;;
+esac
 
 notify() { [ -n "${AGENT_INBOX_REPO:-}" ] && python3 "$HERE/inbox.py" notify --slug "$slug" --title "$1" --body "$2" >/dev/null; }
 

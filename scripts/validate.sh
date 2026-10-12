@@ -21,9 +21,6 @@ for arg in "$@"; do
     esac
 done
 
-ROOT=$(git rev-parse --show-toplevel) || exit 2
-cd "$ROOT" || exit 2
-
 step() {  # step <name> <command...>
     local name=$1; shift
     local out
@@ -37,6 +34,7 @@ step() {  # step <name> <command...>
 }
 
 if [ "$MODE" = preprod ]; then
+    # Only curls the deployed service, so no checkout is needed (preprod.sh runs this from cron, whose cwd is $HOME).
     # Settings come from ~/.config/applypilot-agent/env (see scripts/agent/README.md).
     [ -f "$HOME/.config/applypilot-agent/env" ] && . "$HOME/.config/applypilot-agent/env"
     : "${PREPROD_HEALTH_URL:?PREPROD_HEALTH_URL is not set; preprod is not configured yet (agents/plans/vps-layout-migration.md)}"
@@ -45,6 +43,9 @@ if [ "$MODE" = preprod ]; then
     step "preprod health ($PREPROD_HEALTH_URL)" bash -c "curl -fsS --max-time 20 ${netrc[*]} '$PREPROD_HEALTH_URL' | grep -q '\"ok\": *true'"
     exit 0
 fi
+
+ROOT=$(git rev-parse --show-toplevel) || exit 2
+cd "$ROOT" || exit 2
 
 if [ ! -x .venv/bin/python ]; then
     if [ "$SETUP" = 1 ]; then
