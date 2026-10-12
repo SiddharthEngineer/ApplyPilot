@@ -57,6 +57,38 @@ def test_question_then_answer_requeues_with_fresh_attempts(q):
     assert q("next").stdout.strip() == "plan-a"
 
 
+def test_answer_sets_resume_and_failed_attempt_clears_it(q):
+    q("add", "plan-a")
+    q("start", "plan-a")
+    q("set", "plan-a", "session_id=abc-123")
+    q("finish", "plan-a", q.result({"status": "question"}))
+    q("answer", "plan-a", "use option B")
+    assert q("get", "plan-a", "resume").stdout.strip() == "1"
+    assert q("get", "plan-a", "session_id").stdout.strip() == "abc-123"
+    q("start", "plan-a")
+    assert q("finish", "plan-a", "/nonexistent").stdout.strip() == "queued"
+    assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "session_id").returncode == 1
+
+
+def test_add_starts_without_resume(q):
+    q("add", "plan-a")
+    q("start", "plan-a")
+    q("set", "plan-a", "session_id=abc-123", "resume=1")
+    q("finish", "plan-a", q.result({"status": "blocked"}))
+    q("add", "plan-a")
+    assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "session_id").returncode == 1
+
+
+def test_unset_removes_the_key(q):
+    q("add", "plan-a")
+    q("set", "plan-a", "resume=1")
+    q("unset", "plan-a", "resume")
+    assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "status").stdout.strip() == "queued"
+
+
 def test_no_daily_cap_by_default(q, monkeypatch):
     monkeypatch.delenv("AGENT_MAX_RUNS_PER_DAY", raising=False)
     for slug in ("plan-a", "plan-b", "plan-c", "plan-d", "plan-e", "plan-f"):
@@ -141,6 +173,36 @@ def test_gate_respects_declared_review(repo):
     (repo.path / "plan.md").write_text("# Plan\n**Risk:** review (schema)\n")
     repo("docs/notes.md", "hello\n")
     assert gate(repo)["tier"] == "review"
+
+
+def plan_gate(tmp_path, files: str) -> tuple[int, dict]:
+    plan = tmp_path / "p.md"
+    plan.write_text(f"# Plan\n**Risk:** low (small)\n\n### Task 1: x\n**Files:** {files}\n")
+    out = subprocess.run([sys.executable, str(AGENT / "gate.py"), str(plan), "--plan"], capture_output=True, text=True)
+    return out.returncode, json.loads(out.stdout)
+
+
+def test_gate_plan_low_listing_high_risk_file_needs_review(tmp_path):
+    code, verdict = plan_gate(tmp_path, "src/applypilot/web/tasks.py (modify), tests/test_web.py (modify)")
+    assert (code, verdict["tier"]) == (1, "review")
+    assert verdict["reasons"] == ["touches high-risk path src/applypilot/web/tasks.py"]
+
+
+def test_gate_plan_low_listing_tests_and_docs_stays_low(tmp_path):
+    code, verdict = plan_gate(tmp_path, "tests/test_x.py (new), docs/notes.md (modify), `README.md` (modify)")
+    assert (code, verdict) == (0, {"tier": "low", "reasons": []})
+
+
+def test_planned_files_strips_suffixes_across_tasks(tmp_path):
+    spec = importlib.util.spec_from_file_location("gate", AGENT / "gate.py")
+    gate_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate_mod)
+    plan = tmp_path / "p.md"
+    plan.write_text(
+        "**Files:** a.py (new), b/c.py (modify)\n**What:** x, y\n\n**Files:** a.py (modify), `d.md` (modify); e.py,\n"
+        "f.py (new, user data)\n**Status:** x\n**Files:**\n- g.py (new)\n- `h.py` (modify)\n\nother, text\n"
+    )
+    assert gate_mod.planned_files(plan) == ["a.py", "b/c.py", "d.md", "e.py", "f.py", "g.py", "h.py"]
 
 
 def _usage():

@@ -9,6 +9,8 @@
 #    AGENT_MAX_SESSION_USAGE (default 70%) the queue pauses until the 5-hour window resets.
 # 3. The agent runs `/implement <plan> --unattended` in its own worktree on branch agent/<slug>, validates,
 #    pushes and opens a PR, then writes a result file. It cannot merge.
+#    After you answer its question, the next run resumes that agent's session (`--resume <session_id>`),
+#    falling back to a fresh run if Claude can't find the session.
 # 4. This script decides the merge: gate.py (plan risk + diff checks) and green CI → rebase-merge;
 #    otherwise the PR waits for preprod (preprod.sh) and you.
 #    AGENT_MERGE_POLICY=all (env file) merges every ready PR after green CI, whatever its tier, merges PRs already
@@ -107,23 +109,68 @@ result=$STATE/results/$slug.json
 log=$STATE/logs/$(date -u +%Y%m%dT%H%MZ)-$slug.log
 rm -f "$result"
 notes=$("${Q[@]}" get "$slug" notes 2>/dev/null || echo "[]")
-say "$slug: run start (log $log)"
 
 prompt="/implement agents/plans/$slug.md --unattended
 
 Result file: $result
 Notes from the queue (including the user's answers to earlier questions): $notes"
 
-(
-    cd "$wt" || exit 1
-    AGENT_SLUG=$slug AGENT_RESULT_FILE=$result timeout --kill-after=2m "$MAX_RUNTIME" claude -p "$prompt" \
-        --model claude-opus-5-5 \
-        --settings "$wt/scripts/agent/settings.json" \
-        --mcp-config "$wt/scripts/agent/mcp.json" \
-        --permission-mode auto --permission-prompts none \
-        --output-format json
-) > "$log" 2>&1
-code=$?
+# After an answer (`resume=1`), resume the session that asked instead of rebuilding its context.
+resume_id=
+[ "$("${Q[@]}" get "$slug" resume 2>/dev/null)" = 1 ] && resume_id=$("${Q[@]}" get "$slug" session_id 2>/dev/null)
+
+# run_claude <prompt> [extra claude args]: one agent run in the worktree, appended to $log.
+run_claude() {
+    local p=$1
+    shift
+    (
+        cd "$wt" || exit 1
+        AGENT_SLUG=$slug AGENT_RESULT_FILE=$result timeout --kill-after=2m "$MAX_RUNTIME" claude -p "$@" "$p" \
+            --model claude-opus-5-5 \
+            --settings "$wt/scripts/agent/settings.json" \
+            --mcp-config "$wt/scripts/agent/mcp.json" \
+            --permission-mode auto --permission-prompts none \
+            --output-format json
+    ) >> "$log" 2>&1
+}
+
+: > "$log"
+if [ -n "$resume_id" ]; then
+    answer=$(echo "$notes" | python3 -c 'import json,sys; n=json.load(sys.stdin); print(n[-1] if n else "")' 2>/dev/null)
+    say "$slug: run start, resuming session $resume_id (log $log)"
+    echo "claude -p --resume $resume_id" >> "$log"
+    run_claude "The user answered your question. $answer
+
+Result file: $result
+All queue notes: $notes
+Continue the plan (agents/plans/$slug.md, --unattended) from where you stopped." --resume "$resume_id"
+    code=$?
+    if [ "$code" -ne 0 ] && [ ! -f "$result" ] && grep -qi 'no conversation found' "$log"; then
+        # Keep the failed resume's output apart, so the usage-limit check and session_id below see only the fresh run.
+        mv "$log" "$log.resume-failed"
+        say "$slug: resume failed, fresh run"
+        echo "resume failed, fresh run (resume output: $log.resume-failed)" > "$log"
+        run_claude "$prompt"
+        code=$?
+    fi
+else
+    say "$slug: run start (log $log)"
+    run_claude "$prompt"
+    code=$?
+fi
+# Read session_id now: later steps append validate.sh output to $log. The last JSON line with the key wins.
+session_id=$(python3 -c '
+import json, sys
+for line in reversed(open(sys.argv[1], errors="replace").read().splitlines()):
+    try:
+        data = json.loads(line)
+    except ValueError:
+        continue
+    if isinstance(data, dict) and data.get("session_id"):
+        print(data["session_id"])
+        break
+' "$log")
+[ -n "$session_id" ] && "${Q[@]}" set "$slug" "session_id=$session_id"
 say "$slug: claude exit $code"
 
 # A usage-limit exit isn't the plan's fault: give the attempt back and pause the queue.
@@ -132,8 +179,9 @@ if [ ! -f "$result" ] && grep -qiE 'usage limit|rate.limit|limit reached' "$log"
     "${Q[@]}" set "$slug" status=queued "attempts=$((attempts - 1))"
     "${Q[@]}" pause 5 >> "$STATE/runs.log"
     say "$slug: usage limit hit, queue paused 5h"
-    exit 0
+    exit 0  # keeps `resume`, so the next tick resumes again
 fi
+"${Q[@]}" unset "$slug" resume
 
 # The agent reports `ready` (PR open, validated) / `question` / `blocked`. Turn `ready` into merged or review.
 status=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$result" 2>/dev/null)

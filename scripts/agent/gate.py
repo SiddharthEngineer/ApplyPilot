@@ -2,6 +2,7 @@
 """Risk gate: may this branch merge to trunk without human review?
 
 Usage: python scripts/agent/gate.py <plan.md> [--base origin/trunk]
+       python scripts/agent/gate.py <plan.md> --plan   (no git: checks the plan's **Files:** lines, for /plan)
 
 The plan declares `**Risk:** low` or `**Risk:** review` (set with the user in /plan). A `low` plan still goes to
 review if the diff touches a high-risk path, is larger than the budget, or weakens tests. Prints JSON
@@ -65,11 +66,41 @@ def declared_risk(plan: Path) -> str | None:
     return m.group(1).lower() if m else None
 
 
-def evaluate(plan: Path, base: str) -> dict:
-    reasons: list[str] = []
+def risk_reasons(plan: Path) -> list[str]:
     risk = declared_risk(plan)
-    if risk != "low":
-        reasons.append(f"plan declares risk {risk or 'missing'}")
+    return [] if risk == "low" else [f"plan declares risk {risk or 'missing'}"]
+
+
+def planned_files(plan: Path) -> list[str]:
+    """Paths from every `**Files:** path (new|modify), path (modify)` field, in order, without duplicates.
+
+    A field runs until the next `**Field:**`, heading or blank line, so wrapped lines and `- path` bullets count too.
+    """
+    fields: list[str] = []
+    for line in plan.read_text().splitlines():
+        if line.startswith("**Files:**"):
+            fields.append(line.removeprefix("**Files:**"))
+        elif fields and fields[-1] is not None and line.strip() and not line.startswith(("**", "#")):
+            fields[-1] += "," + line.strip().removeprefix("- ")
+        elif fields:
+            fields.append(None)  # field ended
+    files: list[str] = []
+    for field in filter(None, fields):
+        for entry in re.split(r"[,;]", re.sub(r"\([^)]*\)", "", field)):
+            path = entry.strip().strip("`").strip()
+            if path and path not in files:
+                files.append(path)
+    return files
+
+
+def evaluate_plan(plan: Path) -> dict:
+    reasons = risk_reasons(plan)
+    reasons += [f"touches high-risk path {path}" for path in planned_files(plan) if matches(path, HIGH_RISK)]
+    return {"tier": "review" if reasons else "low", "reasons": reasons}
+
+
+def evaluate(plan: Path, base: str) -> dict:
+    reasons = risk_reasons(plan)
 
     merge_base = git("merge-base", base, "HEAD").strip()
     code_lines = 0
@@ -94,11 +125,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("plan", type=Path)
     parser.add_argument("--base", default="origin/trunk")
+    parser.add_argument("--plan", dest="plan_only", action="store_true", help="check the plan's declared files instead of the diff")
     args = parser.parse_args()
     if not args.plan.is_file():
         print(f"no such plan: {args.plan}", file=sys.stderr)
         return 2
-    result = evaluate(args.plan, args.base)
+    result = evaluate_plan(args.plan) if args.plan_only else evaluate(args.plan, args.base)
     print(json.dumps(result, indent=2))
     return 0 if result["tier"] == "low" else 1
 
