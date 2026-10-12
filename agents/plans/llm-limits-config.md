@@ -44,7 +44,7 @@ rpd: {gemini-3.1-flash-lite: 500, gemini-3.6-flash: 20}
 **Validate:** new tests: packaged defaults apply with no env and no user file; a user file overrides one model and leaves the rest;
 the env var still wins and warns once; a malformed user file → defaults plus one warning. The existing `tests/test_llm.py` limit tests pass unchanged.
 `.venv/bin/pytest tests/test_llm.py -q` → pass; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ Complete (2026-10-12, this commit: "Task 1 Packaged limits + override file"). Two existing tests that relied on the global `LLM_RPM_LIMIT` reaching the default Gemini models now use an unlisted model (asserts unchanged).
 
 ### Task 2: Docs
 **Runs:** unattended
