@@ -8,7 +8,7 @@ ApplyPilot runs inside the engineerfamily Docker stack (`SiddharthEngineer/engin
 |---|---|
 | `~/src/ApplyPilot` | Dev clone (`AGENT_REPO`). All edits, branches and commits happen here; unattended agents work in worktrees under `~/.local/state/applypilot-agent/worktrees/`. Nothing builds from it. |
 | `~/src/engineerfamily` | engineerfamily dev clone (`main`). Commit here. |
-| `/srv/ApplyPilot-prod` | Prod build context, detached at a trunk commit. Moved only by `make applypilot-deploy`; never edited by hand. Its untracked `.env` duplicates `~/.applypilot/.env` and goes away in R16 (`plans/llm-limits-config.md`). |
+| `/srv/ApplyPilot-prod` | Prod build context, detached at a trunk commit. Moved only by `make applypilot-deploy`; never edited by hand. Its untracked `.env` duplicates `~/.applypilot/.env` and goes away with manual step M13 (`plans/done/llm-limits-config.md`, "After merge"). |
 | `/srv/ApplyPilot-preprod` | Preprod build context, moved to a review PR's head by `scripts/agent/preprod.sh`. |
 | `/srv/engineerfamily-prod` | prod checkout (branch `prod`, compose project `engineerfamily`). |
 | `/srv/engineerfamily-preprod` | preprod checkout (branch `preprod`, compose project `engineerfamily-preprod`, port 8080). |

@@ -9,10 +9,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| R0 | Test tiers: commit synthetic recorded-response samples (Task 4) | [test-tiers-and-qc](plans/test-tiers-and-qc.md) | low | ✅ | none |
-| R13 | Code health cleanup: pyflakes enforced, one `extract_json`, faster tests, jobspy extra, dashboard CI job | [code-health-cleanup](plans/code-health-cleanup.md) | review | ✅ merged | none |
-| R15 | Runner follow-ups: resume the agent session after an answer, `gate.py --plan` check in `/plan` | [runner-followups](plans/runner-followups.md) | review | ✅ merged; live `--resume` check left for you | none |
-| R16 | LLM rate limits out of `.env` (packaged defaults + `~/.applypilot/llm_limits.yaml`), one `.env` per environment | [llm-limits-config](plans/llm-limits-config.md) | review | ✅ merged (PR #28); then M13 | none |
+| — | Nothing active. R0, R13, R15, R16 merged 2026-10-12 (PRs #31, #32, #30, #28) and archived in `plans/done/`. | | | | |
 
 ## Manual steps (you)
 
@@ -24,7 +21,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M8 | Google Cloud OAuth desktop client with the Drive API, saved to `~/.applypilot/google_client_secret.json`, then `applypilot drive auth --no-browser`, `applypilot drive sync` and `DRIVE_SYNC=1` (R6 code is done and archived; checklist in `plans/done/google-drive-file-library.md` Task 8). | ☐ |
 | M11 | Rerun `applypilot run extract` daily until the backfill count reaches 0 (until a pipeline cron exists). | ☐ |
 | M12 | Agent runner setup: inbox repo, ntfy topic, `~/.config/applypilot-agent/env`, crontab line (`scripts/agent/README.md`). | ☐ |
-| M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/llm-limits-config.md), "After merge"). | ☐ |
+| M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/done/llm-limits-config.md), "After merge"). | ☐ |
 
 ## Decisions (current)
 - 2026-10-12 (user): Every active plan runs unattended. Work only a human can do (Google setup, VPS `.env`, prod deploys) lives in Manual steps, not in plan tasks.
