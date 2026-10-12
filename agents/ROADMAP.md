@@ -9,7 +9,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| — | Nothing active. R0, R13, R15, R16 merged 2026-10-12 (PRs #31, #32, #30, #28) and archived in `plans/done/`. | | | | |
+| R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | ⏳ | M14 |
 
 ## Manual steps (you)
 
@@ -21,6 +21,10 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M8 | Google Cloud OAuth desktop client with the Drive API, saved to `~/.applypilot/google_client_secret.json`, then `applypilot drive auth --no-browser`, `applypilot drive sync` and `DRIVE_SYNC=1` (R6 code is done and archived; checklist in `plans/done/google-drive-file-library.md` Task 8). | ☐ |
 | M11 | Rerun `applypilot run extract` daily until the backfill count reaches 0 (until a pipeline cron exists). | ☐ |
 | M12 | Agent runner setup: inbox repo, ntfy topic, `~/.config/applypilot-agent/env`, crontab line (`scripts/agent/README.md`). | ☐ |
+| M14 | Before R18 runs: GitHub Settings → Danger Zone → **Leave fork network** on SiddharthEngineer/ApplyPilot, then rename it to **Strelitzia**. In Cloudflare, add `strelitzia` and `strelitzia-preprod` DNS records (proxied, copy of the `applypilot*` ones). | ☑ |
+| M15 | After R18 merges: `scripts/migrate_to_strelitzia.sh` (dry run), then `--apply`, then run the `sudo` lines it prints for `/srv` and `/var/log`. | ☐ |
+| M16 | After M15: engineerfamily PR (nginx `strelitzia*` server_names + 301 from `applypilot*`, compose service/context/mounts/`STRELITZIA_DATABASE_URL`, Makefile `strelitzia-*` targets, restyled homepage/privacy page), then `make deploy-prod`, then `make strelitzia-deploy`. | ☐ |
+| M17 | After M16: Google Cloud OAuth consent screen: app name "Strelitzia", homepage and privacy URLs on `strelitzia.engineerfamily.net`. Before commercializing: USPTO search for "Strelitzia" (classes 9/35/42). | ☐ |
 | M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/done/llm-limits-config.md), "After merge"). Done 2026-10-12: engineerfamily v1.0.3 (PR #25) dropped the `/app/.env` mount, the OAuth token left `~/.applypilot/.env`, ApplyPilot prod at f5fae69. | ☑ |
 
 ## Decisions (current)
