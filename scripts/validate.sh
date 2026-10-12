@@ -49,7 +49,7 @@ cd "$ROOT" || exit 2
 
 if [ ! -x .venv/bin/python ]; then
     if [ "$SETUP" = 1 ]; then
-        step "venv setup" bash -c 'uv venv -q .venv && uv pip install -q --python .venv/bin/python -e ".[dev,web]" "python-jobspy==1.2.0"'
+        step "venv setup" bash -c 'uv venv -q .venv && uv pip install -q --python .venv/bin/python -e ".[dev,web,jobspy]"'
     else
         echo "FAIL  no .venv here; rerun with --setup"; exit 1
     fi

@@ -112,7 +112,7 @@ Leave `README.md:28` and the `Dockerfile` alone (see Context).
 **Validate:** `grep -rn "python-jobspy" pyproject.toml scripts/validate.sh .github/workflows/ci.yml README.md` → the pin appears only in `pyproject.toml`
 (README may keep the "Older installs" note); in a scratch venv, `uv venv -q /tmp/jp && uv pip install -q --python /tmp/jp/bin/python -e ".[jobspy]" && /tmp/jp/bin/python -c "import jobspy"`
 → exits 0 (use the scratch dir your session allows if `/tmp` is not writable); `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** 🚧 2026-10-12: extra, `validate.sh`, README done (this commit). The CI Install step is not changed: the unattended agent's permissions deny edits under `.github/`. Needed in `.github/workflows/ci.yml`: comment `# Same as scripts/validate.sh --setup. The jobspy extra pins python-jobspy (pyproject.toml).` and `uv pip install -e ".[dev,web,jobspy]"`.
 
 ### Task 7: Dashboard job in CI
 **Runs:** unattended
