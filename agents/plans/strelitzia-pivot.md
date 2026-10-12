@@ -1,5 +1,5 @@
 # Plan: Strelitzia pivot (rename, drop auto-apply, bird-of-paradise theme)
-**Status:** ❌ Not started
+**Status:** 🔄 In progress
 **Risk:** review (renames the package, CLI, env vars and data dir, deletes the apply stage, and redesigns the dashboard)
 
 ## Goal
@@ -38,7 +38,7 @@ the apply-only config keys and the `CAPSOLVER_*`/apply env vars. In `doctor`, dr
 and the dashboard's manual status actions. Grep for `apply.` imports, `capsolver` and `launcher` until nothing apply-related is left.
 **Validate:** `grep -rniE 'capsolver|cred_server|launcher' src tests` → no hits; `scripts/validate.sh` passes;
 the CLI help no longer lists `apply`.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit). Also removed the apply-only site passwords (wizard step, `SITE_PASSWORDS`, profile migration) and `sites.yaml` `manual_ats`/`blocked_sso`.
 
 ### Task 2: Rename the package and CLI to `strelitzia`, with deprecated fallbacks
 **Runs:** unattended

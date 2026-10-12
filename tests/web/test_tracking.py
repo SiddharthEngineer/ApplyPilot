@@ -91,7 +91,7 @@ def test_days_since_submitted():
     # Only while Submitted.
     assert days_since_submitted({**job, "user_status": "rejected"}, TODAY) is None
     assert days_since_submitted({"submitted_at": "2026-09-28"}, TODAY) is None
-    # `applypilot apply` submissions count from applied_at.
+    # Legacy auto-apply submissions count from applied_at.
     assert days_since_submitted({"apply_status": "applied", "applied_at": "2026-10-01T09:00:00"}, TODAY) == 4
 
 

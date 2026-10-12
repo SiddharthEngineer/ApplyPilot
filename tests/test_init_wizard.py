@@ -191,114 +191,6 @@ class TestIntegration:
             assert dest_path.exists()
 
 
-class TestSetupSitePasswords:
-    """Test the site-specific password setup."""
-
-    @patch("applypilot.wizard.init.Prompt.ask")
-    def test_prompts_for_each_ats(self, mock_ask):
-        """Test that _setup_site_passwords prompts for all 4 ATS platforms."""
-        from applypilot.wizard.init import _setup_site_passwords
-
-        mock_ask.side_effect = ["pw1", "pw2", "pw3", "pw4"]
-        result = _setup_site_passwords()
-
-        assert mock_ask.call_count == 4
-        assert result == {
-            "workday": "pw1",
-            "greenhouse": "pw2",
-            "lever": "pw3",
-            "ashby": "pw4",
-        }
-
-    @patch("applypilot.wizard.init.Prompt.ask")
-    def test_all_blank_passwords(self, mock_ask):
-        """Test that leaving all passwords blank is valid."""
-        from applypilot.wizard.init import _setup_site_passwords
-
-        mock_ask.side_effect = ["", "", "", ""]
-        result = _setup_site_passwords()
-
-        assert result == {
-            "workday": "",
-            "greenhouse": "",
-            "lever": "",
-            "ashby": "",
-        }
-
-    @patch("applypilot.wizard.init.Prompt.ask")
-    def test_partial_passwords(self, mock_ask):
-        """Test that some passwords can be filled while others are blank."""
-        from applypilot.wizard.init import _setup_site_passwords
-
-        mock_ask.side_effect = ["workday_pass", "", "lever_pass", ""]
-        result = _setup_site_passwords()
-
-        assert result["workday"] == "workday_pass"
-        assert result["greenhouse"] == ""
-        assert result["lever"] == "lever_pass"
-        assert result["ashby"] == ""
-
-
-class TestProfileMigration:
-    """Test backward-compat migration of personal.password -> site_passwords."""
-
-    def test_migration_when_site_passwords_missing(self, tmp_path):
-        """Test that load_profile migrates personal.password to site_passwords."""
-        from applypilot.config import load_profile
-
-        profile_data = {
-            "personal": {"password": "old_pass", "email": "test@test.com"},
-            "work_authorization": {},
-        }
-        profile_path = tmp_path / "profile.json"
-        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
-
-        with patch("applypilot.config.PROFILE_PATH", profile_path):
-            result = load_profile()
-
-        assert "site_passwords" in result
-        assert result["site_passwords"]["workday"] == "old_pass"
-        assert result["site_passwords"]["greenhouse"] == ""
-        assert result["site_passwords"]["lever"] == ""
-        assert result["site_passwords"]["ashby"] == ""
-
-    def test_no_migration_when_site_passwords_exists(self, tmp_path):
-        """Test that existing site_passwords are preserved."""
-        from applypilot.config import load_profile
-
-        profile_data = {
-            "personal": {"password": "old_pass", "email": "test@test.com"},
-            "site_passwords": {"workday": "keep_this", "greenhouse": "", "lever": "", "ashby": ""},
-        }
-        profile_path = tmp_path / "profile.json"
-        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
-
-        with patch("applypilot.config.PROFILE_PATH", profile_path):
-            result = load_profile()
-
-        assert result["site_passwords"]["workday"] == "keep_this"
-
-    def test_migration_with_empty_legacy_password(self, tmp_path):
-        """Test migration when legacy password is empty."""
-        from applypilot.config import load_profile
-
-        profile_data = {
-            "personal": {"password": "", "email": "test@test.com"},
-        }
-        profile_path = tmp_path / "profile.json"
-        profile_path.write_text(json.dumps(profile_data), encoding="utf-8")
-
-        with patch("applypilot.config.PROFILE_PATH", profile_path):
-            result = load_profile()
-
-        assert result["site_passwords"] == {"workday": "", "greenhouse": "", "lever": "", "ashby": ""}
-
-
-# ---------------------------------------------------------------------------
-# Pre-fill helpers
-# ---------------------------------------------------------------------------
-
-
 class TestStrToBool:
     """Test the _str_to_bool helper."""
 
@@ -422,56 +314,13 @@ class TestLoadExistingEnv:
 # ---------------------------------------------------------------------------
 
 
-class TestSetupSitePasswordsPrefill:
-    """Test that _setup_site_passwords uses existing passwords as defaults."""
-
-    @patch("applypilot.wizard.init.Prompt.ask")
-    def test_existing_passwords_used_as_defaults(self, mock_ask):
-        """When existing passwords are provided, they become the defaults."""
-        from applypilot.wizard.init import _setup_site_passwords
-
-        existing = {"workday": "old_pw", "greenhouse": "", "lever": "lever_pw", "ashby": ""}
-        mock_ask.side_effect = ["new_wd", "", "new_lever", ""]
-        result = _setup_site_passwords(existing=existing)
-
-        calls = mock_ask.call_args_list
-        assert calls[0].kwargs.get("default") == "old_pw"
-        assert calls[1].kwargs.get("default") == ""
-        assert calls[2].kwargs.get("default") == "lever_pw"
-        assert calls[3].kwargs.get("default") == ""
-
-        assert result == {
-            "workday": "new_wd",
-            "greenhouse": "",
-            "lever": "new_lever",
-            "ashby": "",
-        }
-
-    @patch("applypilot.wizard.init.Prompt.ask")
-    def test_no_existing_passwords_default_to_empty(self, mock_ask):
-        """When no existing passwords, all defaults are empty."""
-        from applypilot.wizard.init import _setup_site_passwords
-
-        mock_ask.side_effect = ["", "", "", ""]
-        _setup_site_passwords(existing=None)
-
-        for call in mock_ask.call_args_list:
-            assert call.kwargs.get("default") == ""
-
-
-# ---------------------------------------------------------------------------
-# Pre-fill behaviour: profile
-# ---------------------------------------------------------------------------
-
-
 class TestSetupProfilePrefill:
     """Test that _setup_profile uses existing profile values as defaults."""
 
-    @patch("applypilot.wizard.init._setup_site_passwords")
     @patch("applypilot.wizard.init.Confirm.ask")
     @patch("applypilot.wizard.init.Prompt.ask")
     @patch("applypilot.wizard.init.PROFILE_PATH")
-    def test_personal_info_prefilled(self, mock_path, mock_ask, mock_confirm, mock_sp):
+    def test_personal_info_prefilled(self, mock_path, mock_ask, mock_confirm):
         """Existing personal info is used as defaults for prompts."""
         from applypilot.wizard.init import _setup_profile
 
@@ -491,7 +340,6 @@ class TestSetupProfilePrefill:
                 "portfolio_url": "",
                 "website_url": "",
             },
-            "site_passwords": {"workday": "", "greenhouse": "", "lever": "", "ashby": ""},
             "work_authorization": {
                 "legally_authorized_to_work": "Yes",
                 "require_sponsorship": "No",
@@ -529,7 +377,6 @@ class TestSetupProfilePrefill:
             "availability": {"earliest_start_date": "In 2 weeks"},
         }
 
-        mock_sp.return_value = existing["site_passwords"]
         mock_confirm.side_effect = [True, False]  # authorized=True, sponsorship=False
         # Return existing values for all prompts (press Enter to keep)
         mock_ask.side_effect = [
@@ -574,15 +421,13 @@ class TestSetupProfilePrefill:
         email_call = mock_ask.call_args_list[2]
         assert email_call.kwargs.get("default") == "jane@example.com"
 
-    @patch("applypilot.wizard.init._setup_site_passwords")
     @patch("applypilot.wizard.init.Confirm.ask")
     @patch("applypilot.wizard.init.Prompt.ask")
     @patch("applypilot.wizard.init.PROFILE_PATH")
-    def test_empty_profile_allows_fresh_input(self, mock_path, mock_ask, mock_confirm, mock_sp):
+    def test_empty_profile_allows_fresh_input(self, mock_path, mock_ask, mock_confirm):
         """When no existing profile, all defaults are empty."""
         from applypilot.wizard.init import _setup_profile
 
-        mock_sp.return_value = {"workday": "", "greenhouse": "", "lever": "", "ashby": ""}
         mock_confirm.side_effect = [True, False]
 
         # All prompts get empty defaults
