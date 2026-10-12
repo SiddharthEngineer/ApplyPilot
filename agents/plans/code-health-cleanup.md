@@ -101,7 +101,7 @@ Don't change `cred_server.py`. Every existing assert stays.
 Don't edit the existing LLM rate-limit block (R16 owns it).
 **Validate:** `for v in EXTRACT_BATCH_SIZE LLM_API_KEY APPLYPILOT_WEB_DIR APPLYPILOT_DIR CHROME_PATH; do grep -q "$v" .env.example || echo missing $v; done` → no output;
 `git diff origin/trunk -- .env.example | grep '^-[^-]'` → no output (only additions); `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 6: `python-jobspy` as a declared extra
 **Runs:** unattended
