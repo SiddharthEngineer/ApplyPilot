@@ -11,15 +11,18 @@ PR #24 (2026-10-12) already fixed the preprod health check under cron, replaced 
 and changed the docs to the 5-minute cron, so those are out of scope here.
 
 ## Context
-- **Run logs (Task 1).** `run.sh:71-77` writes `claude -p --output-format json` to `$log`, and the final JSON object carries `session_id`.
-  `run.sh:92` then *appends* `validate.sh --full` output to the same `$log`, so the JSON is not always the last line.
-  Read `session_id` right after `claude` exits (line 78), before anything else is appended.
+- **Run logs (Task 1).** In `run.sh`, the `( cd "$wt" … claude -p "$prompt" … --output-format json ) > "$log"` subshell writes the run's
+  output, and the final JSON object carries `session_id`. Later, the `status = ready` branch *appends* `validate.sh --full` output to the same `$log`,
+  so the JSON is not always the last line. Read `session_id` right after `code=$?`, before anything else is appended. (Line numbers moved in PR #24
+  and PR #26; find these by the quoted code, not by number.)
 - **Session storage.** Claude stores sessions per cwd (`~/.claude/projects/-home-dev--local-state-applypilot-agent-worktrees-<slug>/`).
-  `--resume` only finds the session when run from the same worktree path. The worktree survives `waiting-answer`, because
-  `run.sh:124-129` removes it only on `done` or `awaiting-preprod`, so the path matches.
+  `--resume` only finds the session when run from the same worktree path. The worktree survives `waiting-answer`, because the
+  `case "$new" in done|awaiting-preprod) … worktree remove` block at the end of `run.sh` removes it only on those two states, so the path matches.
+- **Usage-limit branch.** The `grep -qiE 'usage limit|rate.limit|limit reached' "$log"` branch gives the attempt back. A resumed run must go through it
+  unchanged, and it must not clear `resume`/`session_id` there (the next tick should resume again).
 - **Queue.** `buildqueue.py` `cmd_answer` re-queues an item with `attempts=0`. Tests live in `tests/test_agent_runner.py` (fixture `q` runs the script with a temp `APPLYPILOT_AGENT_STATE`). Re-read `run.sh` and `buildqueue.py` first; PR #24 changed both.
 - **Gate (Task 2).** `scripts/agent/gate.py`: `HIGH_RISK` patterns and `matches()`. Plans list files as
-  `**Files:** path (new|modify), path (modify)` (see `.claude/commands/plan.md` step 3). Mirror the `repo` fixture tests at `tests/test_agent_runner.py:76-130`.
+  `**Files:** path (new|modify), path (modify)` (see `.claude/commands/plan.md` step 3). Mirror the tests that use the `repo` fixture (`def repo(tmp_path)` in `tests/test_agent_runner.py`).
 ## Tasks
 ### Task 1: Resume the agent's session after an answer
 **Runs:** unattended
@@ -32,7 +35,7 @@ and changed the docs to the 5-minute cron, so those are out of scope here.
   prompt is short: the user's latest answer, the result-file path, and "continue the plan from where you stopped".
 - If the resumed run exits non-zero without writing a result file, and the log shows the session wasn't found, `run.sh` immediately
   re-runs fresh with the normal prompt, in the same tick and attempt, and logs `resume failed, fresh run`.
-- `run.sh` clears `resume` after either path.
+- `run.sh` clears `resume` after either path, except when the usage-limit branch gives the attempt back (then the next tick resumes again).
 **Validate:** queue tests: `answer` sets `resume=1`; a failed-attempt `finish` clears it and `session_id`. `bash -n scripts/agent/run.sh` passes.
 `scripts/validate.sh` → ALL PASS. The live check is the human step below.
 **Status:** ❌

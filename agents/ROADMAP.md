@@ -28,6 +28,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M8 | Google Cloud OAuth desktop client with the Drive API, saved to `~/.applypilot/google_client_secret.json`, then `applypilot drive auth --no-browser` and `applypilot drive sync` (R6). | ☐ |
 | M11 | Rerun `applypilot run extract` daily until the backfill count reaches 0 (until a pipeline cron exists). | ☐ |
 | M12 | Agent runner setup: inbox repo, ntfy topic, `~/.config/applypilot-agent/env`, crontab line (`scripts/agent/README.md`). | ☐ |
+| M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/llm-limits-config.md), "After merge"). | ☐ |
 
 ## Decisions (current)
 - 2026-10-11 (user): PIV loop. Planning is always interactive (`/plan`). Implementation runs either interactively or unattended from an hourly VPS

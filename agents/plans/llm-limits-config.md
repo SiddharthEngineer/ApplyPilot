@@ -1,6 +1,6 @@
 # Plan: LLM rate limits out of .env (packaged defaults + override file), one .env per environment
 **Status:** ❌ Not started
-**Risk:** review (touches `config.py` and the prod `.env`; Task 3 is on prod)
+**Risk:** review (touches `config.py`, `cli.py` and the limit defaults; the VPS cleanup after merge is manual step M13)
 
 ## Goal
 The per-model Gemini limits stop being multi-line JSON inside `.env` files. The free-tier limits ship with ApplyPilot as
@@ -15,9 +15,9 @@ environment has exactly one: the host CLI and the prod dashboard read `~/.applyp
 - Mirror the packaged-YAML pattern: `config.py:40` `CONFIG_DIR`, plus `sites.yaml` / `searches.example.yaml` loading at `config.py:183-200`.
   `APP_DIR` (`config.py:10`) honours `APPLYPILOT_DIR`, so tests can point the override file at `tmp_path`.
 - Starting defaults: the values in `.env.example:14-21` (`gemini-3.1-flash-lite` rpm 15 / rpd 500, `gemini-3.6-flash` rpm 5 / rpd 20).
-  Task 3 reconciles them with the live values on the VPS. Unattended agents can't read `~/.applypilot`.
+  Manual step M13 (after merge) reconciles them with the live values on the VPS. Unattended agents can't read `~/.applypilot`, so don't try.
 - `cli.py:916-930` (`applypilot doctor`) warns "RPM limit off: set LLM_RPM_LIMITS (per model) in .env" when the env var is absent.
-- **Env file duplication on the VPS (Task 3).** There are three copies with the same keys: `~/.applypilot/.env` (read by `load_env()`, `config.py:263`),
+- **Env file duplication on the VPS (background for M13; not part of this plan's code).** There are three copies with the same keys: `~/.applypilot/.env` (read by `load_env()`, `config.py:263`),
   `~/src/ApplyPilot/.env` (only reached through the `load_dotenv()` CWD fallback), and `/srv/ApplyPilot-prod/.env`. That last one is mounted at
   `/app/.env` by engineerfamily `docker-compose.prod.yml` ("Gemini key + LLM limits (multi-line JSON values, so not env_file)").
   The prod container also mounts `/home/dev/.applypilot`, and its HOME is `/home/dev` (checked 2026-10-12), so `load_env()` already reads
@@ -54,11 +54,19 @@ the env var still wins and warns once; a malformed user file → defaults plus o
 **Validate:** `grep -n "LLM_RPM_LIMITS\|LLM_RPD_LIMITS" .env.example README.md` → only the deprecation mention; `scripts/validate.sh` → ALL PASS.
 **Status:** ❌
 
-### Task 3: Clean up the VPS env files and redeploy prod
-**Runs:** interactive (prod `.env`, engineerfamily compose, prod redeploy)
-**Files:** ~/.applypilot/.env, ~/.applypilot/llm_limits.yaml (new, only if needed), /srv/ApplyPilot-prod/.env, ~/src/ApplyPilot/.env (all on the VPS, never committed);
-engineerfamily `docker-compose.prod.yml` (modify)
-**What:** With the user, after Tasks 1-2 are on trunk:
+## Validation
+- `scripts/validate.sh --full` → ALL PASS.
+- `.venv/bin/pytest tests/test_llm.py -q` → pass, including the new limit-source tests.
+
+## Human test steps (preprod)
+1. On preprod (`https://applypilot-preprod.engineerfamily.net/app/`, once the Cloudflare route is fixed, or `http://127.0.0.1:8080/app/`), the dashboard
+   loads and the job list renders. Preprod has no LLM key, so don't expect scoring to work there.
+2. On the VPS, with the PR branch checked out in a scratch worktree: `APPLYPILOT_DIR=$(mktemp -d) .venv/bin/applypilot doctor` shows the
+   rate limits as coming from the packaged defaults.
+3. After merge, do manual step M13 in `agents/ROADMAP.md` (VPS `.env` cleanup and prod redeploy).
+
+## After merge (you, ROADMAP M13; not for the agent)
+Done by the user with an interactive Claude session once this plan's PR is merged:
 1. Compare the live `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` in `~/.applypilot/.env` with the packaged defaults. Write `~/.applypilot/llm_limits.yaml` only for models that differ.
 2. Remove both JSON vars from `~/.applypilot/.env`.
 3. Confirm `~/src/ApplyPilot/.env` and `/srv/ApplyPilot-prod/.env` add nothing that `~/.applypilot/.env` lacks (compare key names; the prod copy's `APPLYPILOT_DATABASE_URL` is overridden by compose anyway), then delete both.
@@ -67,18 +75,9 @@ engineerfamily `docker-compose.prod.yml` (modify)
 6. Run `make applypilot-deploy`.
 **Validate:** `applypilot doctor` → limits from packaged defaults (or the user file); `curl -s -u … https://applypilot.engineerfamily.net/app/api/health` → `"ok": true`;
 `ls /srv/ApplyPilot-prod/.env ~/src/ApplyPilot/.env` → no such file; `docker exec engineerfamily-applypilot-1 python -c 'from applypilot.config import load_env; import os; load_env(); print("CLAUDE_CODE_OAUTH_TOKEN" in os.environ)'` → False (if removed in step 5).
-**Status:** ❌
-
-## Validation
-- `scripts/validate.sh --full` → ALL PASS.
-- `.venv/bin/pytest tests/test_llm.py -q` → pass, including the new limit-source tests.
-
-## Human test steps (preprod)
-1. On preprod (`https://applypilot-preprod.engineerfamily.net/app/`, once the Cloudflare route is fixed, or `http://127.0.0.1:8080/app/`), the dashboard
-   loads and the job list renders. Preprod has no LLM key, so don't expect scoring to work there.
-2. On the VPS, with the PR branch checked out: `applypilot doctor` shows the rate limits as "packaged defaults" when the env vars are absent.
 
 ## Decisions
 1. Limits are committed defaults, not secrets. `.env` is only for secrets and per-host settings (user, 2026-10-12).
 2. The legacy env vars keep working with a deprecation warning, so an old `.env` doesn't silently lose its limits.
 3. Preprod stays keyless (user, 2026-10-12).
+4. The VPS `.env` cleanup and prod redeploy are manual step M13, not a task, so the whole plan runs unattended (user, 2026-10-12).
