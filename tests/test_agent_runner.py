@@ -1,6 +1,9 @@
-"""Tests for the unattended runner's queue (scripts/agent/buildqueue.py) and risk gate (scripts/agent/gate.py)."""
+"""Tests for the unattended runner's queue (scripts/agent/buildqueue.py), risk gate (scripts/agent/gate.py),
+session-usage gate (scripts/agent/usage.py) and preprod health check (scripts/validate.sh --preprod)."""
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -52,6 +55,16 @@ def test_question_then_answer_requeues_with_fresh_attempts(q):
     assert q("get", "plan-a", "attempts").stdout.strip() == "0"
     assert "use option B" in q("get", "plan-a", "notes").stdout
     assert q("next").stdout.strip() == "plan-a"
+
+
+def test_no_daily_cap_by_default(q, monkeypatch):
+    monkeypatch.delenv("AGENT_MAX_RUNS_PER_DAY", raising=False)
+    for slug in ("plan-a", "plan-b", "plan-c", "plan-d", "plan-e", "plan-f"):
+        q("add", slug)
+    for slug in ("plan-a", "plan-b", "plan-c", "plan-d", "plan-e"):
+        q("start", slug)
+    assert q("next").stdout.strip() == "plan-f"
+    assert "no daily cap" in q("list").stdout
 
 
 def test_daily_cap_and_pause_stop_runs(q, monkeypatch):
@@ -128,3 +141,56 @@ def test_gate_respects_declared_review(repo):
     (repo.path / "plan.md").write_text("# Plan\n**Risk:** review (schema)\n")
     repo("docs/notes.md", "hello\n")
     assert gate(repo)["tier"] == "review"
+
+
+def _usage():
+    spec = importlib.util.spec_from_file_location("agent_usage", AGENT / "usage.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _rate_event(utilization, resets_at=2_000_000_000):
+    info = {"status": "allowed", "rateLimitType": "five_hour", "resetsAt": resets_at,
+            "unifiedWindows": {"five_hour": {"utilization": utilization, "resetsAt": resets_at},
+                               "seven_day": {"utilization": 0.9, "resetsAt": resets_at}}}
+    return json.dumps({"type": "rate_limit_event", "rate_limit_info": info})
+
+
+def test_usage_reads_five_hour_window_not_seven_day():
+    lines = ['{"type": "system", "subtype": "init"}', "not json", _rate_event(0.11), '{"type": "result"}']
+    assert _usage().five_hour_window(lines) == (0.11, 2_000_000_000)
+
+
+def test_usage_missing_event_is_unknown():
+    assert _usage().five_hour_window(['{"type": "result"}']) is None
+
+
+@pytest.mark.parametrize(("utilization", "code"), [(0.29, 0), (0.30, 10), (0.95, 10)])
+def test_usage_check_against_limit(monkeypatch, capsys, utilization, code):
+    usage = _usage()
+    monkeypatch.setenv("AGENT_MAX_SESSION_USAGE", "30")
+    monkeypatch.setattr(usage, "probe", lambda: [_rate_event(utilization)])
+    assert usage.cmd_check() == code
+    if code == 10:
+        assert float(capsys.readouterr().out.splitlines()[-1]) > 0  # hours until reset, for buildqueue.py pause
+
+
+def test_usage_check_unknown_and_disabled(monkeypatch):
+    usage = _usage()
+    monkeypatch.setattr(usage, "probe", lambda: [])
+    monkeypatch.setenv("AGENT_MAX_SESSION_USAGE", "30")
+    assert usage.cmd_check() == 11
+    monkeypatch.setenv("AGENT_MAX_SESSION_USAGE", "0")
+    monkeypatch.setattr(usage, "probe", lambda: pytest.fail("probe must not run when the check is disabled"))
+    assert usage.cmd_check() == 0
+
+
+def test_validate_preprod_runs_outside_a_checkout(tmp_path):
+    # preprod.sh calls it from cron, whose cwd ($HOME) is not a git repo. Unset URL → its own error, not git's.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PREPROD_")}
+    env["HOME"] = str(tmp_path)
+    out = subprocess.run(["bash", str(AGENT.parent / "validate.sh"), "--preprod"], cwd=tmp_path, env=env,
+                         capture_output=True, text=True)
+    assert "not a git repository" not in out.stderr
+    assert "PREPROD_HEALTH_URL is not set" in out.stderr

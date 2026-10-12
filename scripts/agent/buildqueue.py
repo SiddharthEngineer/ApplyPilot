@@ -3,7 +3,7 @@
 
 State lives in $APPLYPILOT_AGENT_STATE (default ~/.local/state/applypilot-agent):
   queue.json   items keyed by plan slug
-  runs.jsonl   one line per started run (drives the daily cap)
+  runs.jsonl   one line per started run (drives the optional daily cap)
 
 Usage:
   buildqueue.py add <slug> [--at 2026-10-12T02:00 | --in 3h] [--note TEXT]
@@ -35,7 +35,8 @@ STATE = Path(os.environ.get("APPLYPILOT_AGENT_STATE", Path.home() / ".local/stat
 QUEUE = STATE / "queue.json"
 RUNS = STATE / "runs.jsonl"
 MAX_ATTEMPTS = int(os.environ.get("AGENT_MAX_ATTEMPTS", "2"))
-MAX_RUNS_PER_DAY = int(os.environ.get("AGENT_MAX_RUNS_PER_DAY", "4"))
+# 0 (the default) = no daily cap: runs are bounded by MAX_ATTEMPTS per item and by usage.py's session-usage gate.
+MAX_RUNS_PER_DAY = int(os.environ.get("AGENT_MAX_RUNS_PER_DAY", "0") or 0)
 
 # Result statuses the agent may write, mapped to the item status they leave behind.
 RESULT_TO_STATUS = {
@@ -118,7 +119,7 @@ def cmd_list(_: argparse.Namespace) -> int:
     data = load()
     if data.get("paused_until"):
         print(f"paused until {data['paused_until']}")
-    print(f"runs in last 24h: {runs_last_day()}/{MAX_RUNS_PER_DAY}")
+    print(f"runs in last 24h: {runs_last_day()}" + (f"/{MAX_RUNS_PER_DAY}" if MAX_RUNS_PER_DAY else " (no daily cap)"))
     for slug, it in sorted(data["items"].items(), key=lambda kv: kv[1]["not_before"]):
         extra = " ".join(f"{k}={it[k]}" for k in ("pr", "issue") if it.get(k))
         print(f"{it['status']:<17} {slug:<40} attempts={it['attempts']}/{MAX_ATTEMPTS} not_before={it['not_before']} {extra}")
@@ -129,7 +130,7 @@ def cmd_next(_: argparse.Namespace) -> int:
     data = load()
     if data.get("paused_until") and datetime.fromisoformat(data["paused_until"]) > now():
         return 1
-    if runs_last_day() >= MAX_RUNS_PER_DAY:
+    if MAX_RUNS_PER_DAY and runs_last_day() >= MAX_RUNS_PER_DAY:
         return 1
     due = [
         (it["not_before"], slug)
