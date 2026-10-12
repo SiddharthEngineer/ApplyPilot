@@ -15,7 +15,7 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 - Claude starts only if an item is due, the queue isn't paused, and the item has used fewer than 2 attempts (`AGENT_MAX_ATTEMPTS`).
   There's no daily run cap by default (`AGENT_MAX_RUNS_PER_DAY=0`; set a number to bring one back).
 - Session-usage gate: before each run, `usage.py` sends one tiny Haiku prompt and reads the "Current session" (5-hour window)
-  usage from its `rate_limit_event`. At or above `AGENT_MAX_SESSION_USAGE` (default `30`, percent; `0` turns it off) the run
+  usage from its `rate_limit_event`. At or above `AGENT_MAX_SESSION_USAGE` (default `70`, percent; `0` turns it off) the run
   doesn't start and the queue pauses until the window resets. If the usage can't be read, that tick is skipped.
   It only gates starts: a run already going finishes even if it pushes usage past the limit.
 - Each run is killed after `AGENT_MAX_RUNTIME` (3h). A `flock` allows one run at a time.

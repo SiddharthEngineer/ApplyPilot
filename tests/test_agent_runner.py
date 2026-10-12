@@ -176,6 +176,14 @@ def test_usage_check_against_limit(monkeypatch, capsys, utilization, code):
         assert float(capsys.readouterr().out.splitlines()[-1]) > 0  # hours until reset, for buildqueue.py pause
 
 
+@pytest.mark.parametrize(("utilization", "code"), [(0.69, 0), (0.70, 10)])
+def test_usage_check_default_limit_is_70(monkeypatch, utilization, code):
+    usage = _usage()
+    monkeypatch.delenv("AGENT_MAX_SESSION_USAGE", raising=False)
+    monkeypatch.setattr(usage, "probe", lambda: [_rate_event(utilization)])
+    assert usage.cmd_check() == code
+
+
 def test_usage_check_unknown_and_disabled(monkeypatch):
     usage = _usage()
     monkeypatch.setattr(usage, "probe", lambda: [])

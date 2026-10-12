@@ -5,7 +5,7 @@ argument-hint: <slug> [at <time> | in <3h>] | list | cancel <slug> | answer <slu
 
 The queue is machine-local (`~/.local/state/applypilot-agent/queue.json`). Cron runs `scripts/agent/run.sh` every 5 minutes. It
 starts Claude only when an item is due, there's no pause, the item has used fewer than 2 attempts, and the Claude
-"Current session" usage is below `AGENT_MAX_SESSION_USAGE` (default 30%; above it the queue pauses until the window resets).
+"Current session" usage is below `AGENT_MAX_SESSION_USAGE` (default 70%; above it the queue pauses until the window resets).
 
 Arguments: `$ARGUMENTS`
 
