@@ -63,7 +63,7 @@ If the finding list differs from the 29 in Context (trunk moved), fix whatever `
 **Files:** pyproject.toml (modify)
 **What:** Change `select` to `["E9", "F"]` and update its comment ("Real errors and pyflakes (unused imports/variables)…"). Nothing else in `pyproject.toml`.
 **Validate:** `.venv/bin/ruff check src tests scripts` → `All checks passed!`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 3: One `extract_json`
 **Runs:** unattended
