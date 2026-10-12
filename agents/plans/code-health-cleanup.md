@@ -82,7 +82,7 @@ Delete both old bodies. In `tailor.py` and `smartextract.py`, `from applypilot.l
 the JSON; an invalid `\_` escape; trailing junk after the closing brace; nothing parseable → `json.JSONDecodeError`, which is also a `ValueError`.
 **Validate:** `.venv/bin/pytest tests/test_llm_json.py tests/test_content_library_tailor.py tests/test_smartextract_cache.py tests/test_smartextract_heuristic.py -q` → pass;
 `grep -rn "def extract_json" src` → only `src/applypilot/llm_json.py`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 4: Stop the captcha tests sleeping
 **Runs:** unattended
