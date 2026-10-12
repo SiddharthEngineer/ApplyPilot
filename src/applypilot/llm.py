@@ -128,14 +128,21 @@ _GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
 # ---------------------------------------------------------------------------
-# Per-model limits (LLM_RPM_LIMITS / LLM_RPD_LIMITS)
+# Per-model limits: packaged llm_limits.yaml <- ~/.applypilot/llm_limits.yaml <- LLM_RPM_LIMITS / LLM_RPD_LIMITS
 # ---------------------------------------------------------------------------
 
+_LIMIT_ENV_VARS = {"rpm": "LLM_RPM_LIMITS", "rpd": "LLM_RPD_LIMITS"}
 _warned_limit_vars: set[str] = set()
 
 
+def _warn_once(key: str, msg: str, *args: object) -> None:
+    if key not in _warned_limit_vars:
+        _warned_limit_vars.add(key)
+        log.warning(msg, *args)
+
+
 def _parse_model_limits(var: str) -> dict[str, int]:
-    """Read a ``{"model": n, ...}`` env var. Trailing commas are allowed; a bad value logs once and is ignored.
+    """Read a legacy ``{"model": n, ...}`` env var. Trailing commas are allowed; a bad value logs once and is ignored.
 
     In a .env file a multi-line value must be wrapped in single quotes, or python-dotenv reads only ``{``.
     """
@@ -148,22 +155,77 @@ def _parse_model_limits(var: str) -> dict[str, int]:
             raise TypeError("not an object")
         return {str(k): int(v) for k, v in data.items()}
     except (ValueError, TypeError) as e:
-        if var not in _warned_limit_vars:
-            _warned_limit_vars.add(var)
-            log.warning(
-                "Ignoring %s (%s): expected {\"model\": number, ...}. In .env, wrap a multi-line value "
-                "in single quotes: %s='{ ... }'", var, e, var,
-            )
+        _warn_once(
+            var,
+            "Ignoring %s (%s): expected {\"model\": number, ...}. In .env, wrap a multi-line value "
+            "in single quotes: %s='{ ... }'", var, e, var,
+        )
         return {}
+
+
+def _read_limits_file(path: Path) -> dict[str, dict[str, int]]:
+    """``{"rpm": {model: n}, "rpd": {model: n}}`` from a YAML file. Raises on a malformed file."""
+    import yaml
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise TypeError("not a mapping")
+    limits: dict[str, dict[str, int]] = {}
+    for kind in _LIMIT_ENV_VARS:
+        section = data.get(kind) or {}
+        if not isinstance(section, dict):
+            raise TypeError(f"{kind} is not a mapping")
+        for model, n in section.items():
+            if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+                raise TypeError(f"{kind}.{model} = {n!r} is not a whole number >= 0")
+        limits[kind] = {str(k): v for k, v in section.items()}
+    return limits
+
+
+def _load_limits() -> tuple[dict[str, dict[str, int]], list[str]]:
+    """Merged per-model limits and the sources that contributed, lowest precedence first."""
+    import yaml
+
+    from applypilot import config
+    limits = _read_limits_file(config.CONFIG_DIR / "llm_limits.yaml")
+    sources = ["packaged defaults"]
+    user_path = config.LLM_LIMITS_PATH
+    if user_path.exists():
+        try:
+            user = _read_limits_file(user_path)
+        except (OSError, ValueError, TypeError, yaml.YAMLError) as e:
+            _warn_once(str(user_path), "Ignoring %s (%s); using the packaged limits.", user_path, e)
+        else:
+            for kind, per_model in user.items():
+                limits[kind].update(per_model)
+            sources.append(str(user_path))
+    for kind, var in _LIMIT_ENV_VARS.items():
+        per_model = _parse_model_limits(var)
+        if per_model:
+            _warn_once(f"{var}:deprecated", "%s in .env is deprecated: move per-model limits to %s "
+                       "(same shape as the packaged applypilot/config/llm_limits.yaml).", var, user_path)
+            limits[kind].update(per_model)
+            sources.append(var)
+    return limits, sources
+
+
+def load_model_limits() -> dict[str, dict[str, int]]:
+    """``{"rpm": {model: n}, "rpd": {model: n}}``: packaged defaults <- user llm_limits.yaml <- legacy env vars."""
+    return _load_limits()[0]
+
+
+def model_limit_sources() -> list[tuple[str, bool]]:
+    """(source, deprecated) for each place the per-model limits came from, lowest precedence first (for doctor)."""
+    return [(src, src in _LIMIT_ENV_VARS.values()) for src in _load_limits()[1]]
 
 
 def model_limits(model: str) -> tuple[int, int]:
     """(requests/minute, requests/day) for a model; 0 = no limit.
 
-    LLM_RPM_LIMITS / LLM_RPD_LIMITS (per model) win over LLM_RPM_LIMIT / LLM_RPD_LIMIT (all models).
+    Per-model limits (load_model_limits) win over LLM_RPM_LIMIT / LLM_RPD_LIMIT (all other models).
     """
-    rpm = _parse_model_limits("LLM_RPM_LIMITS").get(model, int(os.environ.get("LLM_RPM_LIMIT", "0") or 0))
-    rpd = _parse_model_limits("LLM_RPD_LIMITS").get(model, int(os.environ.get("LLM_RPD_LIMIT", "0") or 0))
+    limits = load_model_limits()
+    rpm = limits["rpm"].get(model, int(os.environ.get("LLM_RPM_LIMIT", "0") or 0))
+    rpd = limits["rpd"].get(model, int(os.environ.get("LLM_RPD_LIMIT", "0") or 0))
     return rpm, rpd
 
 
@@ -324,7 +386,7 @@ class LLMClient:
         self._request_timestamps: deque[float] = (
             request_timestamps if request_timestamps is not None else deque()
         )
-        # Client-side daily cap (LLM_RPD_LIMITS), counted in the shared DailyUsage file.
+        # Client-side daily cap (rpd in llm_limits.yaml), counted in the shared DailyUsage file.
         self._rpd_limit: int = rpd_limit
         # 503 failover (see _DEFAULT_FALLBACK_MODEL); None = retry with backoff as before.
         self.fallback = fallback
@@ -367,12 +429,12 @@ class LLMClient:
             daily_usage.increment(self.model)
 
     def _check_daily_limit(self) -> None:
-        """Raise LLMQuotaExhausted before sending if today's LLM_RPD_LIMITS budget is used up."""
+        """Raise LLMQuotaExhausted before sending if today's rpd budget for this model is used up."""
         if self._rpd_limit <= 0:
             return
         used = daily_usage.count(self.model)
         if used >= self._rpd_limit:
-            scope = f"LLM_RPD_LIMITS: {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
+            scope = f"daily limit: {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
             log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.", self.model, scope)
             raise LLMQuotaExhausted(self.model, scope)
 
@@ -570,7 +632,7 @@ class LLMClient:
                         wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
 
                     reason = (
-                        "rate limited; check LLM_RPM_LIMITS for this model"
+                        "rate limited; check this model's rpm limit (applypilot doctor)"
                         if resp.status_code == 429 else "model overloaded"
                     )
                     log.warning(

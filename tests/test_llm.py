@@ -558,9 +558,10 @@ class TestRPMLimiter:
             assert mock_sleep.call_count == 0
 
     def test_get_client_reads_env_vars(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_RPM_LIMIT": "20", "LLM_RPM_WINDOW": "30"}, clear=False):
+        # A model with no packaged per-model limit, so the global LLM_RPM_LIMIT applies.
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "g-key", "LLM_RPM_LIMIT": "20", "LLM_RPM_WINDOW": "30",
+                                     "LLM_MODEL": "gemini-unlisted"}, clear=False):
             os.environ.pop("LLM_URL", None)
-            os.environ.pop("LLM_MODEL", None)
             os.environ.pop("OPENAI_API_KEY", None)
             import applypilot.llm as llm_mod
             llm_mod.reset_clients()
@@ -586,9 +587,55 @@ class TestPerModelLimits:
             monkeypatch.delenv(k, raising=False)
         monkeypatch.setattr(llm_mod, "daily_usage", llm_mod.DailyUsage(tmp_path / "usage.json"))
         monkeypatch.setattr(llm_mod, "_warned_limit_vars", set())
+        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
         llm_mod.reset_clients()
         yield llm_mod
         llm_mod.reset_clients()
+
+    def test_packaged_defaults_without_env_or_user_file(self):
+        from applypilot.llm import load_model_limits, model_limit_sources, model_limits
+        assert model_limits("gemini-3.1-flash-lite") == (15, 500)
+        assert model_limits("gemini-3.6-flash") == (5, 20)
+        assert model_limits("other-model") == (0, 0)
+        assert load_model_limits() == {"rpm": {"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5},
+                                       "rpd": {"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}}
+        assert model_limit_sources() == [("packaged defaults", False)]
+
+    def test_user_file_overrides_one_model(self, tmp_path):
+        from applypilot.llm import model_limit_sources, model_limits
+        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 10}\nrpd: {my-model: 7}\n")
+        assert model_limits("gemini-3.6-flash") == (10, 20)
+        assert model_limits("gemini-3.1-flash-lite") == (15, 500)
+        assert model_limits("my-model") == (0, 7)
+        assert model_limit_sources() == [("packaged defaults", False), (str(tmp_path / "llm_limits.yaml"), False)]
+
+    def test_env_var_wins_over_user_file_and_warns_once(self, tmp_path, monkeypatch, caplog):
+        from applypilot.llm import model_limit_sources, model_limits
+        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 10}\n")
+        monkeypatch.setenv("LLM_RPM_LIMITS", '{"gemini-3.6-flash": 3}')
+        with caplog.at_level("WARNING", logger="applypilot.llm"):
+            assert model_limits("gemini-3.6-flash") == (3, 20)
+            assert model_limits("gemini-3.1-flash-lite") == (15, 500)
+        assert caplog.text.count("LLM_RPM_LIMITS in .env is deprecated") == 1
+        assert "llm_limits.yaml" in caplog.text
+        assert model_limit_sources()[-1] == ("LLM_RPM_LIMITS", True)
+
+    @pytest.mark.parametrize("content", ["rpm: [1, 2", "- just\n- a list\n", "rpm: {gemini-3.6-flash: lots}\n",
+                                         "rpm: 5\n", "rpm: {gemini-3.6-flash: 0.5}\n",
+                                         "rpd: {gemini-3.6-flash: true}\n", "rpm: {gemini-3.6-flash: -1}\n"])
+    def test_malformed_user_file_uses_defaults_and_warns_once(self, tmp_path, caplog, content):
+        from applypilot.llm import model_limit_sources, model_limits
+        (tmp_path / "llm_limits.yaml").write_text(content)
+        with caplog.at_level("WARNING", logger="applypilot.llm"):
+            assert model_limits("gemini-3.6-flash") == (5, 20)
+            assert model_limits("gemini-3.1-flash-lite") == (15, 500)
+        assert caplog.text.count("Ignoring " + str(tmp_path / "llm_limits.yaml")) == 1
+        assert model_limit_sources() == [("packaged defaults", False)]
+
+    def test_zero_in_user_file_removes_the_limit(self, tmp_path):
+        from applypilot.llm import model_limits
+        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 0}\nrpd: {gemini-3.6-flash: 0}\n")
+        assert model_limits("gemini-3.6-flash") == (0, 0)
 
     def test_multiline_json_with_trailing_commas(self, monkeypatch):
         from applypilot.llm import model_limits
