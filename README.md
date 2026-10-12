@@ -292,7 +292,8 @@ no config change: every old name below is still read as a deprecated fallback th
    logs that once). If database rows hold absolute paths under `~/.applypilot` (tailored resumes, cover letters),
    leave a symlink: `ln -s ~/.strelitzia ~/.applypilot`. An existing `applypilot.db` is used when there's no
    `strelitzia.db`.
-4. Optional: rename the env vars. `STRELITZIA_<NAME>` wins; `APPLYPILOT_<NAME>` is read when it's unset.
+4. Optional: rename the env vars. `STRELITZIA_<NAME>` wins; `APPLYPILOT_<NAME>` is read when it's unset. A variable
+   set in the real process environment (shell, docker compose) beats one read from a `.env` file, whichever name it uses.
 
 | Old (deprecated) | New |
 |---|---|

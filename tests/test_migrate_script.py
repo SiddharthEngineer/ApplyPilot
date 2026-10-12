@@ -29,7 +29,7 @@ def vps(tmp_path):
     (home / ".config/applypilot-agent/env").write_text("NTFY_TOPIC=x\n")
     (home / "applypilot-dashboard-credentials.txt").write_text("secret")
     (home / ".ssh/config").write_text(
-        "Host github-applypilot\n  HostName github.com\n  IdentityFile ~/.ssh/key\nHost other\n  HostName example.com\n")
+        "Host github-applypilot\n  HostName github.com\n  IdentityFile ~/.ssh/key\nHost other\n  HostName example.com")
     memory = home / ".claude/projects" / (str(home).replace("/", "-") + "-src-ApplyPilot")
     memory.mkdir()
     (memory / "MEMORY.md").write_text("- note\n")
@@ -94,6 +94,7 @@ def test_apply_moves_everything_and_leaves_symlinks(vps):
     ssh = (home / ".ssh/config").read_text()
     assert "Host github-strelitzia\n  HostName github.com\n  IdentityFile ~/.ssh/key\n" in ssh
     assert ssh.count("Host other") == 1
+    assert "  HostName example.com\nHost github-strelitzia\n" in ssh  # no trailing newline before: one added
     new_memory = vps.memory.parent / vps.memory.name.replace("-src-ApplyPilot", "-src-Strelitzia")
     assert (new_memory / "MEMORY.md").read_text() == "- note\n" and vps.memory.is_dir()
     cron = vps.crontab.read_text()
@@ -126,6 +127,13 @@ def test_refuses_while_preprod_is_locked(vps):
     assert snapshot(vps.home.parent) == before
     dry = vps()  # a dry run still prints the plan, with a warning
     assert dry.returncode == 0 and "WARN: --apply would refuse now" in dry.stdout and "would: mv" in dry.stdout
+
+
+def test_refuses_when_the_queue_cannot_be_read(vps):
+    (vps.home / ".local/state/applypilot-agent/queue.json").write_text("{not json")
+    out = vps("--apply")
+    assert out.returncode == 1 and "can't read the build queue" in out.stderr
+    assert not (vps.home / ".strelitzia").exists()
 
 
 def test_refuses_while_a_build_is_running(vps):

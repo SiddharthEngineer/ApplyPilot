@@ -197,7 +197,7 @@ details.card > summary h2 { display: inline; }
 .flower .sway { transform-origin: 32px 63px; }
 .flower .bloom > * { transform-origin: 27px 36px; }
 .flower .sun { transform-origin: 30px 22px; }
-.loader-state, .loader-state, .empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; text-align: center; color: var(--muted); }
+.loader-state, .empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; text-align: center; color: var(--muted); }
 .empty-state .notice { padding: 0; }
 
 /* Hero banner (components/Hero.tsx) */

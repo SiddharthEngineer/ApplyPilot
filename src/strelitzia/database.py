@@ -481,10 +481,9 @@ def get_stats(conn: Connection | None = None) -> dict:
         "AND (cover_letter_path IS NULL OR cover_letter_path = '')"
     ).fetchone()[0]
 
-    # Application stage
-    stats["applied"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE applied_at IS NOT NULL"
-    ).fetchone()[0]
+    # Applications: tracked in the dashboard (user_status). applied_at is only set on jobs the removed auto-apply stage sent.
+    applied = "(COALESCE(user_status, '') IN ('submitted', 'rejected', 'heard_back') OR applied_at IS NOT NULL)"
+    stats["applied"] = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {applied}").fetchone()[0]
 
     stats["apply_errors"] = conn.execute(
         "SELECT COUNT(*) FROM jobs WHERE apply_error IS NOT NULL"
@@ -493,7 +492,7 @@ def get_stats(conn: Connection | None = None) -> dict:
     stats["ready_to_apply"] = conn.execute(
         "SELECT COUNT(*) FROM jobs "
         "WHERE tailored_resume_path IS NOT NULL "
-        "AND applied_at IS NULL "
+        f"AND NOT {applied} "
         "AND application_url IS NOT NULL"
     ).fetchone()[0]
 
