@@ -46,7 +46,7 @@ This replaces Task 4 of `vps-layout-migration.md`.
 **Validate:** `.venv/bin/pytest tests/test_seed_preprod.py -q` → passes. Tests (SQLite in `tmp_path`): 18 jobs with every stage and every user status present;
 running twice still leaves 18 (wipe works); the guard refuses `…/applypilot`, `…/applypilot_test`, no URL without `--sqlite`, and non-postgres URLs (exit 2, no writes).
 `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (commit `feat(seed-preprod-data): Task 1`). Fixtures fill the later stages (so detailed rows have real descriptions); rejected and heard_back jobs go through `submitted` first, so each has a submitted date.
 
 ### Task 2: Seed on every preprod deploy
 **Runs:** unattended
