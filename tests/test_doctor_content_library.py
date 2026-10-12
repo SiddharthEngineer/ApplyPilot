@@ -239,6 +239,14 @@ class TestDoctorRateLimitTuning:
         assert "Rate limits         WARN" in result.output
         assert "LLM_RPD_LIMITS deprecated" in result.output
         assert "gemini-3.6-flash (4 RPM" in result.output
+        assert "RPM limit" not in result.output
+
+    def test_warns_when_a_stage_model_has_no_rpm_limit(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_TAILOR_MODEL": "gemini-unlisted"},
+                              ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"])
+        assert result.exit_code == 0
+        assert "RPM limit           WARN  off for gemini-unlisted" in result.output
 
     def test_bad_discovery_model_warns_with_available(self, tmp_path, monkeypatch) -> None:
         """Bad discovery model triggers a WARN with an Available: model list."""

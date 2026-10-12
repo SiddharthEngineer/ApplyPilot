@@ -599,7 +599,7 @@ class TestPerModelLimits:
         assert model_limits("other-model") == (0, 0)
         assert load_model_limits() == {"rpm": {"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5},
                                        "rpd": {"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}}
-        assert model_limit_sources() == ["packaged defaults"]
+        assert model_limit_sources() == [("packaged defaults", False)]
 
     def test_user_file_overrides_one_model(self, tmp_path):
         from applypilot.llm import model_limit_sources, model_limits
@@ -607,7 +607,7 @@ class TestPerModelLimits:
         assert model_limits("gemini-3.6-flash") == (10, 20)
         assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert model_limits("my-model") == (0, 7)
-        assert model_limit_sources() == ["packaged defaults", str(tmp_path / "llm_limits.yaml")]
+        assert model_limit_sources() == [("packaged defaults", False), (str(tmp_path / "llm_limits.yaml"), False)]
 
     def test_env_var_wins_over_user_file_and_warns_once(self, tmp_path, monkeypatch, caplog):
         from applypilot.llm import model_limit_sources, model_limits
@@ -618,10 +618,11 @@ class TestPerModelLimits:
             assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert caplog.text.count("LLM_RPM_LIMITS in .env is deprecated") == 1
         assert "llm_limits.yaml" in caplog.text
-        assert model_limit_sources()[-1] == "LLM_RPM_LIMITS"
+        assert model_limit_sources()[-1] == ("LLM_RPM_LIMITS", True)
 
     @pytest.mark.parametrize("content", ["rpm: [1, 2", "- just\n- a list\n", "rpm: {gemini-3.6-flash: lots}\n",
-                                         "rpm: 5\n"])
+                                         "rpm: 5\n", "rpm: {gemini-3.6-flash: 0.5}\n",
+                                         "rpd: {gemini-3.6-flash: true}\n", "rpm: {gemini-3.6-flash: -1}\n"])
     def test_malformed_user_file_uses_defaults_and_warns_once(self, tmp_path, caplog, content):
         from applypilot.llm import model_limit_sources, model_limits
         (tmp_path / "llm_limits.yaml").write_text(content)
@@ -629,7 +630,12 @@ class TestPerModelLimits:
             assert model_limits("gemini-3.6-flash") == (5, 20)
             assert model_limits("gemini-3.1-flash-lite") == (15, 500)
         assert caplog.text.count("Ignoring " + str(tmp_path / "llm_limits.yaml")) == 1
-        assert model_limit_sources() == ["packaged defaults"]
+        assert model_limit_sources() == [("packaged defaults", False)]
+
+    def test_zero_in_user_file_removes_the_limit(self, tmp_path):
+        from applypilot.llm import model_limits
+        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 0}\nrpd: {gemini-3.6-flash: 0}\n")
+        assert model_limits("gemini-3.6-flash") == (0, 0)
 
     def test_multiline_json_with_trailing_commas(self, monkeypatch):
         from applypilot.llm import model_limits

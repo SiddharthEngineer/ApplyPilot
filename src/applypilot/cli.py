@@ -914,9 +914,12 @@ def doctor() -> None:
         from applypilot.llm import PURPOSES, _detect_provider, daily_usage, model_limits
         # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients),
         # with that model's limits from llm_limits.yaml (or LLM_RPM_LIMIT / LLM_RPD_LIMIT for unlisted models).
+        unlimited: set[str] = set()
         for purpose in PURPOSES:
             stage_model = _detect_provider(purpose)[1]
             rpm, rpd = model_limits(stage_model)
+            if not rpm:
+                unlimited.add(stage_model)
             rpd_text = f"{daily_usage.count(stage_model)}/{rpd} today" if rpd else "no RPD limit"
             rpm_text = f"{rpm} RPM" if rpm else "no RPM limit"
             results.append((f"{purpose.title()} model", ok_mark, f"{stage_model} ({rpm_text}, {rpd_text})"))
@@ -928,10 +931,14 @@ def doctor() -> None:
         from applypilot.config import LLM_LIMITS_PATH
         from applypilot.llm import model_limit_sources
         sources = model_limit_sources()
-        deprecated = [s for s in sources if s.startswith("LLM_")]
-        results.append(("Rate limits", warn_mark if deprecated else ok_mark,
-                        " + ".join(sources) + (f" ({', '.join(deprecated)} deprecated: move to "
-                                               f"{LLM_LIMITS_PATH})" if deprecated else "")))
+        deprecated = [src for src, old in sources if old]
+        note = " + ".join(src for src, _ in sources)
+        if deprecated:
+            note += f" ({', '.join(deprecated)} deprecated: move to {LLM_LIMITS_PATH})"
+        results.append(("Rate limits", warn_mark if deprecated else ok_mark, note))
+        if unlimited:
+            results.append(("RPM limit", warn_mark, f"off for {', '.join(sorted(unlimited))}: add it to "
+                            f"{LLM_LIMITS_PATH} (or set LLM_RPM_LIMIT)"))
         results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))
 
     # --- Tier 3 checks ---

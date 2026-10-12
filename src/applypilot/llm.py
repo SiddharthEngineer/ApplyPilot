@@ -174,7 +174,10 @@ def _read_limits_file(path: Path) -> dict[str, dict[str, int]]:
         section = data.get(kind) or {}
         if not isinstance(section, dict):
             raise TypeError(f"{kind} is not a mapping")
-        limits[kind] = {str(k): int(v) for k, v in section.items()}
+        for model, n in section.items():
+            if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+                raise TypeError(f"{kind}.{model} = {n!r} is not a whole number >= 0")
+        limits[kind] = {str(k): v for k, v in section.items()}
     return limits
 
 
@@ -210,9 +213,9 @@ def load_model_limits() -> dict[str, dict[str, int]]:
     return _load_limits()[0]
 
 
-def model_limit_sources() -> list[str]:
-    """Where the per-model limits came from, lowest precedence first (for ``applypilot doctor``)."""
-    return _load_limits()[1]
+def model_limit_sources() -> list[tuple[str, bool]]:
+    """(source, deprecated) for each place the per-model limits came from, lowest precedence first (for doctor)."""
+    return [(src, src in _LIMIT_ENV_VARS.values()) for src in _load_limits()[1]]
 
 
 def model_limits(model: str) -> tuple[int, int]:
@@ -426,12 +429,12 @@ class LLMClient:
             daily_usage.increment(self.model)
 
     def _check_daily_limit(self) -> None:
-        """Raise LLMQuotaExhausted before sending if today's rpd budget (llm_limits.yaml) is used up."""
+        """Raise LLMQuotaExhausted before sending if today's rpd budget for this model is used up."""
         if self._rpd_limit <= 0:
             return
         used = daily_usage.count(self.model)
         if used >= self._rpd_limit:
-            scope = f"rpd limit (llm_limits.yaml): {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
+            scope = f"daily limit: {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
             log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.", self.model, scope)
             raise LLMQuotaExhausted(self.model, scope)
 
@@ -629,7 +632,7 @@ class LLMClient:
                         wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
 
                     reason = (
-                        "rate limited; check this model's rpm in llm_limits.yaml"
+                        "rate limited; check this model's rpm limit (applypilot doctor)"
                         if resp.status_code == 429 else "model overloaded"
                     )
                     log.warning(

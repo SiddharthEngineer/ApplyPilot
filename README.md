@@ -137,7 +137,7 @@ Pick a model per stage in `~/.applypilot/.env`. Each falls back to `LLM_MODEL`, 
   rpm: {gemini-3.6-flash: 10}
   rpd: {gemini-3.6-flash: 250}
   ```
-  The old `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` JSON vars in `.env` still work (and win over both files), but are deprecated and log a warning. The requests-per-minute limiter is shared by every stage on the same model. Requests per day are counted per model in `~/.applypilot/llm_usage.json`, across runs, and reset at midnight Pacific. `LLM_RPM_LIMIT` / `LLM_RPD_LIMIT` apply to models not listed. `applypilot doctor` shows each stage's limits, today's count, and where the limits came from.
+  A limit of `0` means no limit (for example on a paid-tier key). The old `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` JSON vars in `.env` still work (and win over both files), but are deprecated and log a warning. The requests-per-minute limiter is shared by every stage on the same model. Requests per day are counted per model in `~/.applypilot/llm_usage.json`, across runs, and reset at midnight Pacific. `LLM_RPM_LIMIT` / `LLM_RPD_LIMIT` apply to models not listed. `applypilot doctor` shows each stage's limits, today's count, and where the limits came from.
 - **Daily quota**: when a model reaches its `rpd` limit, or Google returns a per-day 429, the stage stops before spending more requests (`Gemini daily quota exhausted for <model>`). The remaining jobs are left as they are, and the next run picks them up.
 - **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1 without an LLM call. Use `--no-prefilter` to score them anyway.
 - **Structured output**: scoring and tailoring ask Gemini for schema-constrained JSON, so malformed replies don't cost retries.
