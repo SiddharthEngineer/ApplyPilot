@@ -1,5 +1,5 @@
 # Plan: LLM rate limits out of .env (packaged defaults + override file), one .env per environment
-**Status:** ✅ Complete (2026-10-12); PR awaiting review, then manual step M13
+**Status:** ✅ Complete (2026-10-12): PR #28 merged; M13 done the same day (prod at f5fae69, validation passed)
 **Risk:** review (touches `config.py`, `cli.py` and the limit defaults; the VPS cleanup after merge is manual step M13)
 
 ## Goal

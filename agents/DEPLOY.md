@@ -8,7 +8,7 @@ ApplyPilot runs inside the engineerfamily Docker stack (`SiddharthEngineer/engin
 |---|---|
 | `~/src/ApplyPilot` | Dev clone (`AGENT_REPO`). All edits, branches and commits happen here; unattended agents work in worktrees under `~/.local/state/applypilot-agent/worktrees/`. Nothing builds from it. |
 | `~/src/engineerfamily` | engineerfamily dev clone (`main`). Commit here. |
-| `/srv/ApplyPilot-prod` | Prod build context, detached at a trunk commit. Moved only by `make applypilot-deploy`; never edited by hand. Its untracked `.env` duplicates `~/.applypilot/.env` and goes away with manual step M13 (`plans/done/llm-limits-config.md`, "After merge"). |
+| `/srv/ApplyPilot-prod` | Prod build context, detached at a trunk commit. Moved only by `make applypilot-deploy`; never edited by hand. It has no `.env`: the dashboard reads `~/.applypilot/.env` through its `~/.applypilot` mount (M13, 2026-10-12). |
 | `/srv/ApplyPilot-preprod` | Preprod build context, moved to a review PR's head by `scripts/agent/preprod.sh`. |
 | `/srv/engineerfamily-prod` | prod checkout (branch `prod`, compose project `engineerfamily`). |
 | `/srv/engineerfamily-preprod` | preprod checkout (branch `preprod`, compose project `engineerfamily-preprod`, port 8080). |
@@ -21,9 +21,9 @@ Untracked server files (`.env`, `services/nginx/ssl/`, `.htpasswd*`) exist only 
 | Change | Preprod | Prod (the user approves each one) |
 |---|---|---|
 | ApplyPilot (this repo) | Review PRs only: the runner's `preprod.sh` deploys the PR head (see below). Low-risk PRs auto-merge and skip preprod. | `make -C ~/src/engineerfamily applypilot-deploy [ref=<sha>]`: moves `/srv/ApplyPilot-prod` to `origin/trunk` (or `ref`) and rebuilds only the dashboard. |
-| engineerfamily | Merge to `main`, then `make tag-preprod v=X.Y.Z` | Merge to `main`, then `make tag-prod v=X.Y.Z` |
+| engineerfamily | Merge to `main`, then `make tag-preprod v=X.Y.Z` and `make deploy-preprod ref=vX.Y.Z-preprod` | Merge to `main`, then `make tag-prod v=X.Y.Z` and `make deploy-prod ref=vX.Y.Z` |
 
-The engineerfamily tags dispatch its `deploy.yml` workflow. That workflow resets the `preprod`/`prod` branch to the tag and SSHes to the
+Tagging alone deploys nothing: `make deploy-{preprod,prod} ref=<tag>` dispatches engineerfamily's `deploy.yml` workflow. That workflow resets the `preprod`/`prod` branch to the tag and SSHes to the
 locked-down `deploy` account, which pulls the branch into `/srv/engineerfamily-{preprod,prod}` and rebuilds the stack (`scripts/vps/engineerfamily-deploy`).
 Nobody edits or merges inside `/srv` by hand.
 
@@ -33,7 +33,7 @@ and `make up` from `~/src/engineerfamily` operate on what's deployed, never on t
 
 ## Prod checks
 1. Check that `https://engineerfamily.net`, `https://umami.engineerfamily.net` and `https://applypilot.engineerfamily.net` return 200 (`/app/` returns 401 without credentials).
-2. If one doesn't: for ApplyPilot, run `make -C ~/src/engineerfamily applypilot-deploy ref=<previous sha>`. For engineerfamily, re-tag the previous version with `make tag-prod`.
+2. If one doesn't: for ApplyPilot, run `make -C ~/src/engineerfamily applypilot-deploy ref=<previous sha>`. For engineerfamily, run `make deploy-prod ref=<previous tag>`.
 
 ## Preprod (review PRs)
 `scripts/agent/preprod.sh` holds a one-PR lock: `deploy <pr>` checks the PR head out in `/srv/ApplyPilot-preprod`, runs
