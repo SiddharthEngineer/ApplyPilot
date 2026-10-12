@@ -30,6 +30,20 @@ def pdf(tmp_path):
     return p
 
 
+def test_existing_legacy_root_folder_is_reused(drive, client, monkeypatch):
+    """Files synced before the rename sit under ApplyPilot/ (the old default root): new files join that tree."""
+    monkeypatch.delenv("DRIVE_ROOT_FOLDER", raising=False)
+    legacy = DriveClient(drive).ensure_folder_path(("ApplyPilot", "Acme"))
+    assert client.ensure_folder_path(("Strelitzia", "Acme")) == legacy
+    assert len(drive.folders()) == 2
+
+
+def test_new_root_folder_without_a_legacy_one(drive, client, monkeypatch):
+    monkeypatch.delenv("DRIVE_ROOT_FOLDER", raising=False)
+    client.ensure_folder_path(("Strelitzia", "Acme"))
+    assert sorted(f["name"] for f in drive.folders()) == ["Acme", "Strelitzia"]
+
+
 def test_folders_created_once(drive, client):
     a = client.ensure_folder_path(("Strelitzia", "Acme", "Data Engineer", "2026-09-30"))
     b = DriveClient(drive).ensure_folder_path(("Strelitzia", "Acme", "Data Engineer", "2026-09-30"))

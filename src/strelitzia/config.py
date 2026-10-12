@@ -13,9 +13,18 @@ LEGACY_DIR_NAME = ".applypilot"
 LEGACY_DB_NAME = "applypilot.db"
 
 
+# Names set by the process environment (shell, compose) before load_env() reads any .env file.
+_PROCESS_ENV = frozenset(os.environ)
+
+
 def env(name: str, default: str | None = None) -> str | None:
-    """STRELITZIA_<name>, else the deprecated APPLYPILOT_<name>, else default. Empty values count as unset."""
-    return os.environ.get(f"STRELITZIA_{name}") or os.environ.get(f"{LEGACY_ENV_PREFIX}{name}") or default
+    """STRELITZIA_<name>, else the deprecated APPLYPILOT_<name>, else default. Empty values count as unset.
+
+    A name set by the process environment beats one that only came from a .env file, whichever name it is, so a compose
+    `APPLYPILOT_DATABASE_URL` still overrides a renamed `STRELITZIA_DATABASE_URL` line in the mounted .env.
+    """
+    names = sorted((f"STRELITZIA_{name}", f"{LEGACY_ENV_PREFIX}{name}"), key=lambda n: n not in _PROCESS_ENV)
+    return next((os.environ[n] for n in names if os.environ.get(n)), default)
 
 
 _legacy_dir_logged = False
@@ -34,7 +43,7 @@ def resolve_app_dir() -> Path:
         return current
     if legacy.exists():
         if not _legacy_dir_logged:
-            log.info("Using the legacy data dir %s (move it to %s; see README, Migrating from Strelitzia)",
+            log.info("Using the legacy data dir %s (move it to %s; see README, Migrating from ApplyPilot; legacy)",
                      legacy, current)
             _legacy_dir_logged = True
         return legacy

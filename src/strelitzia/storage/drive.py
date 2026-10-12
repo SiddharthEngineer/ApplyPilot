@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from strelitzia import config
-from strelitzia.storage.drive_layout import DriveTarget
+from strelitzia.storage.drive_layout import DEFAULT_ROOT, LEGACY_ROOT, DriveTarget
 
 log = logging.getLogger(__name__)
 
@@ -155,10 +156,10 @@ class DriveClient:
         for name in folders:
             key = (parent, name)
             if key not in self._folders:
-                found = self._list(
-                    f"name = {_q(name)} and mimeType = {_q(FOLDER_MIME)} "
-                    f"and {_q(parent)} in parents and trashed = false"
-                )
+                found = self._find_folder(name, parent)
+                if not found and parent == "root" and name == DEFAULT_ROOT and not os.environ.get("DRIVE_ROOT_FOLDER"):
+                    # Files synced before the rename live under the legacy default root: keep one tree.
+                    found = self._find_folder(LEGACY_ROOT, parent)
                 if found:
                     self._folders[key] = found[0]["id"]
                 else:
@@ -166,6 +167,9 @@ class DriveClient:
                     self._folders[key] = self._service.files().create(body=body, fields="id").execute()["id"]
             parent = self._folders[key]
         return parent
+
+    def _find_folder(self, name: str, parent: str) -> list[dict]:
+        return self._list(f"name = {_q(name)} and mimeType = {_q(FOLDER_MIME)} and {_q(parent)} in parents and trashed = false")
 
     def _get(self, file_id: str) -> dict | None:
         try:

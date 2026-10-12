@@ -43,6 +43,16 @@ def test_env_default_and_empty_values(monkeypatch):
     assert config.env("PROBE", "fallback") == "legacy"
 
 
+def test_process_env_beats_a_dotenv_value_under_the_new_name(monkeypatch):
+    """compose sets APPLYPILOT_DATABASE_URL; a renamed line in the mounted .env must not override it."""
+    monkeypatch.setattr(config, "_PROCESS_ENV", frozenset({"APPLYPILOT_PROBE"}))
+    monkeypatch.setenv("APPLYPILOT_PROBE", "from-compose")
+    monkeypatch.setenv("STRELITZIA_PROBE", "from-dotenv")
+    assert config.env("PROBE") == "from-compose"
+    monkeypatch.setattr(config, "_PROCESS_ENV", frozenset({"APPLYPILOT_PROBE", "STRELITZIA_PROBE"}))
+    assert config.env("PROBE") == "from-dotenv"  # both real: the new name wins
+
+
 def test_database_url_reads_the_legacy_name(monkeypatch):
     monkeypatch.delenv("STRELITZIA_DATABASE_URL", raising=False)
     monkeypatch.setenv("APPLYPILOT_DATABASE_URL", "postgresql://u:p@127.0.0.1/db")

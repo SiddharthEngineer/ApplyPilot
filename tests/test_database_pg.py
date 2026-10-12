@@ -126,6 +126,12 @@ def test_get_stats(db_target):
     assert stats["tailored"] == 1
     assert stats["untailored_eligible"] == 1
     assert stats["ready_to_apply"] == 1
+    assert stats["applied"] == 0
+    # A job submitted in the dashboard counts as applied and is no longer ready to apply.
+    conn.execute("UPDATE jobs SET user_status = 'submitted' WHERE url = ?", ("https://example.com/job/0",))
+    conn.commit()
+    stats = get_stats(conn)
+    assert (stats["ready_to_apply"], stats["applied"]) == (0, 1)
 
 
 @BACKENDS

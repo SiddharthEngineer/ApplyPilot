@@ -27,8 +27,12 @@ def clean_name(s: str | None, max_len: int = 80) -> str:
     return cleaned or "Untitled"
 
 
+DEFAULT_ROOT = "Strelitzia"
+LEGACY_ROOT = "ApplyPilot"  # the default before the rename; DriveClient keeps using an existing one
+
+
 def root_folder() -> str:
-    return clean_name(os.environ.get("DRIVE_ROOT_FOLDER") or "Strelitzia")
+    return clean_name(os.environ.get("DRIVE_ROOT_FOLDER") or DEFAULT_ROOT)
 
 
 def _local_date(value: str | None) -> str | None:

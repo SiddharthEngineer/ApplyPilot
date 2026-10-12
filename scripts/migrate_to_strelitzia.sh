@@ -69,7 +69,9 @@ state=$HOME/.local/state/strelitzia-agent
 # Read-only checks: `preprod.sh status` could release the lock and redeploy, so read the lock file instead.
 # A dry run only warns, so the plan can be reviewed while the runner is busy.
 busy=
-if STRELITZIA_AGENT_STATE=$state python3 "$HERE/agent/buildqueue.py" list 2>/dev/null | grep -q '^running '; then
+if ! queue=$(STRELITZIA_AGENT_STATE=$state python3 "$HERE/agent/buildqueue.py" list 2>&1); then
+    busy="can't read the build queue (buildqueue.py list: $(printf '%s\n' "$queue" | tail -n1))."
+elif printf '%s\n' "$queue" | grep -q '^running '; then
     busy="a build is running (buildqueue.py list). Rerun when it finishes."
 elif [ -f "$state/preprod.lock" ]; then
     busy="preprod is held by PR #$(cut -f1 "$state/preprod.lock") ($state/preprod.lock). Merge or close it (the next runner tick releases the lock), then rerun."
@@ -109,9 +111,10 @@ if grep -q '^Host github-strelitzia$' "$ssh_config" 2>/dev/null; then
     skip "Host github-strelitzia in $ssh_config"
 elif grep -q '^Host github-applypilot$' "$ssh_config" 2>/dev/null; then
     # Same deploy key as github-applypilot: copy that block under the new alias.
-    block=$(awk '/^Host /{inside = ($0 == "Host github-applypilot")} inside && !/^Host /' "$ssh_config")
+    block=$(awk '/^(Host|Match) /{inside = ($0 == "Host github-applypilot")} inside && !/^(Host|Match) /' "$ssh_config")
     act "append Host github-strelitzia (same key as github-applypilot) to $ssh_config" \
-        bash -c 'printf "Host github-strelitzia\n%s\n" "$1" >> "$2"' _ "$block" "$ssh_config"
+        bash -c '[ -z "$(tail -c1 "$2")" ] || echo >> "$2"; printf "Host github-strelitzia\n%s\n" "$1" >> "$2"' \
+        _ "$block" "$ssh_config"
 else
     echo "   WARN: no Host github-applypilot in $ssh_config; add a github-strelitzia alias by hand"
 fi

@@ -29,6 +29,7 @@ HIGH_RISK = [
     ".claude/settings.json",
     "scripts/agent/*",
     "scripts/validate.sh",
+    "scripts/migrate_to_strelitzia.sh",  # moves the data dirs, rewrites crontab and ~/.ssh/config
     "src/strelitzia/database.py",
     "src/strelitzia/db_pg.py",
     "src/strelitzia/migrate.py",
