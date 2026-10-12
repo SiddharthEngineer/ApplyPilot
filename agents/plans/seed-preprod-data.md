@@ -1,5 +1,5 @@
 # Plan: Seed preprod with fake jobs on every deploy
-**Status:** ❌ Not started
+**Status:** 🟡 Code done (Tasks 1–2, 2026-10-12); Task 3 (turn it on, interactive) left for the user
 **Risk:** review (touches `scripts/agent/preprod.sh`, which `gate.py` treats as high-risk, and wipes a database)
 
 ## Goal
