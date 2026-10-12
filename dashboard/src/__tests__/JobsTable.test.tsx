@@ -72,6 +72,7 @@ describe('JobsPage', () => {
 
   it('shows the total and loads page 1 sorted by found date', async () => {
     renderPage();
+    expect(screen.getByText('Loading jobs…').querySelector('.flower-loader')).not.toBeNull();
     expect(await screen.findByTestId('total')).toHaveTextContent('1–50 of 120');
     expect(api.listJobs).toHaveBeenLastCalledWith({ page_size: 50 }, expect.any(AbortSignal));
   });
@@ -109,6 +110,7 @@ describe('JobsPage', () => {
     vi.mocked(api.listJobs).mockResolvedValueOnce(jobList([]));
     const { unmount } = renderPage();
     expect(await screen.findByText('No jobs match these filters.')).toBeInTheDocument();
+    expect(document.querySelector('.flower-seedling')).not.toBeNull();
     unmount();
     vi.mocked(api.listJobs).mockRejectedValueOnce(new Error('boom'));
     renderPage();

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getFacets, listJobs } from '../api';
 import Filters from '../components/Filters';
+import Flower from '../components/Flower';
+import Hero from '../components/Hero';
 import JobsTable from '../components/JobsTable';
 import type { Facets, JobList } from '../types';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
@@ -44,6 +46,7 @@ export default function JobsPage() {
 
   return (
     <section>
+      <Hero facets={facets} />
       <div className="list-header">
         <h1>Jobs</h1>
         {data && !error && (
@@ -56,9 +59,15 @@ export default function JobsPage() {
       {error ? (
         <p className="notice error" role="alert">Couldn't load jobs: {error}</p>
       ) : !data && loading ? (
-        <p className="notice">Loading jobs…</p>
+        <div className="loader-state" aria-live="polite" aria-busy="true">
+          <Flower variant="loader" size={64} />
+          Loading jobs…
+        </div>
       ) : data && data.items.length === 0 ? (
-        <p className="notice">No jobs match these filters.</p>
+        <div className="empty-state">
+          <Flower variant="seedling" size={64} />
+          <p className="notice">No jobs match these filters.</p>
+        </div>
       ) : data ? (
         <div className={loading ? 'loading' : undefined} aria-busy={loading}>
           <JobsTable items={data.items} sort={sort} onSort={(s) => update({ sort: s })} />

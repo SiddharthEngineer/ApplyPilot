@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import ActionBar from '../components/ActionBar';
+import Flower from '../components/Flower';
 import StatusBadge from '../components/StatusBadge';
 import TaskProgress from '../components/TaskProgress';
 import { day, humanize, roleLabel, STATUS_LABELS, WORK_MODE_LABELS } from '../labels';
@@ -173,7 +174,14 @@ export default function JobPage() {
   if (error) {
     return <p className="notice error" role="alert">Couldn't load this job: {error}. <Link to="/">Back to jobs</Link></p>;
   }
-  if (!job) return <p className="notice">Loading job…</p>;
+  if (!job) {
+    return (
+      <div className="loader-state" aria-live="polite" aria-busy="true">
+        <Flower variant="loader" size={64} />
+        Loading job…
+      </div>
+    );
+  }
 
   const generating = task?.state === 'queued' || task?.state === 'running';
   const d = job.details;
