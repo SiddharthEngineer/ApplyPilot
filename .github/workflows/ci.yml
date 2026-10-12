@@ -66,8 +66,8 @@ jobs:
       - name: Committed bundle is current
         # Same check as scripts/validate.sh --full.
         run: |
-          if [ -n "$(git status --porcelain -- src/applypilot/web/static)" ]; then
-            git status --porcelain -- src/applypilot/web/static
-            echo "::error::The committed dashboard bundle is stale. Run 'npm run build --prefix dashboard' and commit src/applypilot/web/static."
+          if [ -n "$(git status --porcelain -- src/strelitzia/web/static)" ]; then
+            git status --porcelain -- src/strelitzia/web/static
+            echo "::error::The committed dashboard bundle is stale. Run 'npm run build --prefix dashboard' and commit src/strelitzia/web/static."
             exit 1
           fi

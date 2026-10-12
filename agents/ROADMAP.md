@@ -9,7 +9,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| R19 | Fix CI: `test_qc_script` reads a plan that was archived to `done/` | [fix-ci-archived-plan-path](plans/fix-ci-archived-plan-path.md) | low | ⏳ | none |
+| R19 | Fix CI: archived-plan test path, stale bundle-check path in `ci.yml` | [fix-ci-archived-plan-path](plans/fix-ci-archived-plan-path.md) | low | 🔄 | none |
 | R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | 🟡 PR open; you: delete `.github/workflows/publish.yml`, fix the `ci.yml` bundle path | M14 |
 
 ## Manual steps (you)
