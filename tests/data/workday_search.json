@@ -1,0 +1,35 @@
+{
+  "employer_key": "examplecorp",
+  "response": {
+    "total": 3,
+    "jobPostings": [
+      {
+        "title": "Software Engineer",
+        "externalPath": "/job/Remote-USA/Software-Engineer_R10001",
+        "locationsText": "Remote, USA",
+        "postedOn": "Posted 3 Days Ago",
+        "bulletFields": [
+          "R10001"
+        ]
+      },
+      {
+        "title": "Senior Software Engineer",
+        "externalPath": "/job/Remote-USA/Senior-Software-Engineer_R10002",
+        "locationsText": "Austin, TX",
+        "postedOn": "Posted 3 Days Ago",
+        "bulletFields": [
+          "R10002"
+        ]
+      },
+      {
+        "title": "Software Engineer, Data Platform",
+        "externalPath": "/job/Remote-USA/Software-Engineer-Data-Platform_R10003",
+        "locationsText": "2 Locations",
+        "postedOn": "Posted 3 Days Ago",
+        "bulletFields": [
+          "R10003"
+        ]
+      }
+    ]
+  }
+}
