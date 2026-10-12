@@ -1,5 +1,5 @@
 # Plan: VPS layout migration (dev clones out of /srv, pinned prod/preprod checkouts, preprod ApplyPilot)
-**Status:** ⏳ Tasks 1-3, 5 and 6 done (2026-10-12); Task 4 open (queued as `seed-preprod-data`)
+**Status:** ✅ Complete (2026-10-12): Tasks 1-3, 5 and 6 done; Task 4 moved to `seed-preprod-data` (R17)
 **Risk:** review (touches prod infra; every task is interactive)
 
 ## Goal
@@ -61,7 +61,7 @@ Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `
 **What:** Clone ApplyPilot to `/home/dev/src/ApplyPilot` (move `personal/` and `.env` over by hand, and recreate `.venv`). Copy the Claude memory dir.
 Point the crontab and `AGENT_REPO` at the new path. With Task 1 done, `sudo mv /srv/engineerfamily /srv/engineerfamily-prod` and update the paths in the deploy script and workflow. Remove `/srv/ApplyPilot` once everything is verified.
 **Validate:** the prod URLs return 200, `docker volume ls` is unchanged, `crontab -l` shows the new path, and a `/schedule-build` of a low-risk docs plan completes.
-**Status:** ✅ 2026-10-12: `/srv/ApplyPilot` and `/srv/espn-predraft-api` moved to `~/src` (venv rebuilt, validate.sh passes), `/srv/engineerfamily` renamed to `-prod` and the deploy script reinstalled, crontab, `AGENT_REPO` and Claude memory updated. Still to do: a `/schedule-build` of a low-risk docs plan.
+**Status:** ✅ 2026-10-12: `/srv/ApplyPilot` and `/srv/espn-predraft-api` moved to `~/src` (venv rebuilt, validate.sh passes), `/srv/engineerfamily` renamed to `-prod` and the deploy script reinstalled, crontab, `AGENT_REPO` and Claude memory updated. The unattended-build check was covered by R14 (`remove-dead-enrichment-code`, PR #22), which went through the queue end to end.
 
 ## Validation
 - Prod URLs are healthy and the volumes are unchanged after every task.

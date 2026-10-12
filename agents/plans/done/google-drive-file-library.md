@@ -1,6 +1,6 @@
 # Plan: Google Drive File Library
 **Started:** 2026-10-02
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete (2026-10-12): code done. The Google Cloud setup, first sync and live check (Task 8) are ROADMAP manual step M8.
 **Risk:** review (OAuth setup and moving real files)
 
 ## Goal
@@ -157,7 +157,7 @@ then `applypilot drive sync`, then set `DRIVE_SYNC=1`.
 - `applypilot doctor` shows Drive as authorized on both machines.
 - Drive shows `ApplyPilot/<Company>/<Role>/<date>/` for each tailored job, and a second `drive sync` reports `uploaded 0`.
 - `sqlite3 ~/.applypilot/applypilot.db "select count(*) from jobs where tailored_resume_path is not null and resume_drive_url is null"` → 0.
-**Status:** ❌ Not started
+**Status:** 🟡 Docs done (2026-10-02); the Google setup and live check moved to ROADMAP M8 (2026-10-12)
 
 ## Implementation Order
 ```
@@ -202,3 +202,4 @@ T1 (company) ──► T2 (layout) ──► T3 (client) ──► T4 (move + DB
 - 2026-10-02: Task 6 done. `applypilot drive auth|sync|links`, doctor row. Fixed `_jobs_with_files` resetting the shared connection's row_factory. Live check is Task 8.
 - 2026-10-02: Task 7 done. `DRIVE_SYNC=1` moves PDFs after the tailor and cover stages (errors only logged). The pdf stage no longer rebuilds PDFs that were moved.
 - 2026-10-02: Task 8 docs written (README "Google Drive file library", `.env.example`, `.gitignore` for OAuth files). The Google Cloud setup and live checks are the user's (M8).
+- 2026-10-12: Plan archived with the user. No code is left; Task 8's setup and live check are ROADMAP manual step M8.

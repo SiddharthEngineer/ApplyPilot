@@ -1,7 +1,7 @@
 # Plan: Test Tiers + Morning QC
 **Started:** 2026-10-01
-**Status:** 🟡 Code done, M6 capture pending
-**Risk:** low (test data only)
+**Status:** 🔄 Tasks 1-3 and 5 done; Task 4 (synthetic samples) queued for an unattended run
+**Risk:** low (test data and docs only)
 
 ## Goal
 Plans are implemented by unattended agents and reviewed by the user afterwards. That only works if the automated gate is trustworthy. Today:
@@ -70,19 +70,38 @@ version the local `.venv` reports.
 - Success Criterion 4: the workflow run on the PR that adds this change is green.
 **Status:** ✅ Complete (2026-10-02)
 
-### Task 4: Committed recorded-response data
-**Runs:** local (capture needs network), then cloud for the tests
-**Files:** `scripts/capture_fixtures.py` (modify), `tests/data/` (new dir), `tests/test_filtering_smoke.py` (modify)
-**What:** Add `--out tests/data --scrub` to `capture_fixtures.py`. It writes small JSON (not pickle)
-samples: 5 rows per JobSpy board, one Workday listing page, and one Gemini scoring response. Scrubbing
-removes anything from `profile.json`/`resume.txt` (name, email, phone, URLs) and caps descriptions at
-2,000 characters. Tests that currently skip when gitignored pickles are missing use `tests/data/` instead.
-The user runs the capture locally and commits the output after checking it with
-`grep -ri "<own email>" tests/data` (expect no matches).
-**Acceptance:**
-- `pytest tests/test_filtering_smoke.py -v` runs (not skips) in a fresh clone.
-- `grep -rli "applypilot" tests/data/*.json` shows no personal data. The user confirms in Historical Record.
-**Status:** 🟡 Cloud part done (2026-10-02), local steps pending (run the capture + commit `tests/data/`)
+### Task 4: Committed recorded-response data (synthetic samples)
+**Runs:** unattended
+**Files:** tests/data/jobspy_indeed.json (new), tests/data/jobspy_linkedin.json (new), tests/data/workday_search.json (new),
+tests/data/gemini_score_response.json (new), tests/data/README.md (new), tests/test_recorded_data.py (modify: module docstring only)
+**What:** The capture code from 2026-10-02 stays, but the committed samples are now **hand-written synthetic data** (user decision,
+2026-10-12) instead of a live capture (old M6). No network, no `~/.applypilot`, no personal data. Write the four files so that the
+replay tests in `tests/test_recorded_data.py` run instead of skipping:
+- `jobspy_indeed.json`, `jobspy_linkedin.json`: a JSON list of 5 rows each, shaped like `scrape_jobs(...).to_dict("records")` after
+  `capture_fixtures._json_safe` (see `_capture_jobspy_samples`). Keys `store_jobspy_results` reads (`src/applypilot/discovery/jobspy.py`,
+  the `row.get(...)` calls in that function): `job_url`, `job_url_direct`, `title`, `company`, `location`, `min_amount`, `max_amount`,
+  `interval`, `currency`, `description`, `site`, `is_remote`, plus `date_posted`. Use distinct `https://www.indeed.com/viewjob?jk=synthetic<n>`
+  / `https://www.linkedin.com/jobs/view/90000000<n>` URLs, fictional companies (`Example Robotics Co`, …), a mix of US cities and
+  `Remote`, null salary on some rows, and 300-1,500 character markdown descriptions. `site` is `indeed` / `linkedin`.
+  Include at least one location that `TestLocationOkJobspy` and friends would reject (e.g. `London, UK`), since `tests/test_filtering_smoke.py`
+  switches from its 3-row fallback to these rows once they exist.
+- `workday_search.json`: `{"employer_key": "examplecorp", "response": {"total": 3, "jobPostings": [...]}}` with 3 postings that have
+  `title`, `externalPath` (`/job/Remote-USA/Software-Engineer_R1000<n>`), `locationsText`, `postedOn` ("Posted 3 Days Ago"),
+  `bulletFields`. `total` must equal the number of postings so `search_employer`'s paging loop stops after one page.
+- `gemini_score_response.json`: `{"model": "synthetic", "job_url": <the first indeed row's job_url>, "response": "<text>"}` where the
+  response is what Gemini returns under `SCORE_SCHEMA` (`src/applypilot/scoring/scorer.py`): a JSON string
+  `{"score": 7, "keywords": "Python, distributed systems, ...", "reasoning": "<2 sentences>"}`, which `_parse_score_json` handles.
+- No email addresses or phone numbers anywhere (`test_committed_data_has_no_personal_markers` checks emails).
+- `tests/data/README.md`: 3-5 lines: these samples are synthetic, written to match the live shapes on 2026-10-12; `postings/` holds
+  real public postings; a live refresh is `python scripts/capture_fixtures.py --out tests/data --scrub` run by the user, followed by a
+  personal-data grep before committing.
+- Update the module docstring of `tests/test_recorded_data.py` to say the samples are synthetic (and how to refresh them live). Don't change any test.
+If a replay test fails because the synthetic shape is wrong, fix the data, not the test. If it fails because of a real parser bug,
+stop and ask through the inbox (don't fix `src/` in this low-risk plan).
+**Validate:** `.venv/bin/pytest tests/test_recorded_data.py tests/test_filtering_smoke.py -v -rs` → every test passes and **none is
+skipped** with "not captured yet"; `grep -rEn "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}" tests/data/*.json` → no output;
+`scripts/validate.sh` → ALL PASS.
+**Status:** ❌ (the code part from 2026-10-02 is done; this is the data)
 
 ### Task 5: Morning QC script
 **Runs:** cloud (write), local (use)
@@ -103,13 +122,13 @@ under Testing, as the first thing to run when reviewing a nightly PR.
 ```
 Task 1 ──► Task 2 ──► Task 3
               └─────► Task 5
-Task 4 (local capture; any time after Task 2)
+Task 4 (synthetic data; any time after Task 2)
 ```
 1. Task 1: unblock the suite (the nightly routine can't run tests until this lands)
 2. Task 2: hermetic guard
 3. Task 3: CI on PRs
 4. Task 5: QC script
-5. Task 4: committed recorded data (needs the user)
+5. Task 4: committed synthetic recorded data (unattended)
 
 ## Key Design Decisions
 1. This is roadmap item 0, because an unattended builder is only as trustworthy as the tests it runs.
@@ -117,6 +136,7 @@ Task 4 (local capture; any time after Task 2)
 3. Use GitHub Actions as a second gate, so a PR's status doesn't rely only on the routine reporting its own results.
 4. Live and LLM tiers stay local, because cloud environments only reach an allowlist (no job boards, no Gemini) and shouldn't hold API keys.
 5. Committed data is JSON and scrubbed because the fork is public.
+6. The committed JobSpy/Workday/Gemini samples are synthetic, not captured (user, 2026-10-12): it lets an unattended agent finish R0, and synthetic data can't leak anything. `capture_fixtures.py` stays for an optional live refresh.
 
 ## Historical Record
 - 2026-10-01: Plan created (roadmap initiative R0). Suite hang diagnosed with `-o faulthandler_timeout=60`: `workday.py:158 _urlopen` reached from `tests/test_pipeline.py:16`.
@@ -125,3 +145,12 @@ Task 4 (local capture; any time after Task 2)
 - 2026-10-02: Task 3 done (VPS session). `.github/workflows/ci.yml` runs on `pull_request`/`push` to `trunk` + `workflow_dispatch`, Python 3.12 via `astral-sh/setup-uv@v6` (matches the local `.venv`), installs jobspy `--no-deps` + its runtime deps like `scripts/cloud_setup.sh`. Deviation: lint is `ruff check src/ tests/ scripts/ --select E9,F63,F7,F82` (real errors only), because ruff 0.16's default rule set reports ~150 pre-existing style findings in `src/`; full-lint cleanup is not planned yet. CI green on PR #3.
 - 2026-10-02: Task 5 done (VPS session). `scripts/qc.py` (stdlib only) + `tests/test_qc_script.py` (5 tests). `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` prints 5 criteria and exits 0. README Testing section starts with it.
 - 2026-10-02: Task 4 code done (VPS session). `scripts/capture_fixtures.py --out <dir> --scrub` writes `jobspy_<site>.json` (5 raw rows), `workday_search.json` (one CXS page) and `gemini_score_response.json` (scored against the script's fake `SAMPLE_RESUME`, so the real resume never enters the prompt). Scrubbing removes profile `personal.*` identifiers, name parts, `site_passwords`, `resume_facts` companies/projects/school, emails/phones/URLs from `resume.txt`, and every email address; description fields capped at 2,000 chars. New `tests/test_recorded_data.py`: scrubber tests always run; replay tests (JobSpy rows → `store_jobspy_results`, Workday page → `search_employer`, Gemini reply → `_parse_score_response`) skip until the samples are committed. `tests/test_filtering_smoke.py` prefers `tests/data/jobspy_*.json`. The live capture itself was blocked by this session's auto-mode permission classifier, so it stays with the user (M6).
+- 2026-10-12: Task 4 rescoped to synthetic samples written by an unattended agent; ROADMAP M6 dropped.
+
+## Validation
+- `scripts/validate.sh --full` → ALL PASS.
+- `.venv/bin/pytest tests/test_recorded_data.py -v -rs` → 0 skipped.
+- `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` → exits 0.
+
+## Human test steps (preprod)
+None (low risk; test data only).
