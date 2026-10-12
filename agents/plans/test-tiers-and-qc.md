@@ -101,7 +101,7 @@ stop and ask through the inbox (don't fix `src/` in this low-risk plan).
 **Validate:** `.venv/bin/pytest tests/test_recorded_data.py tests/test_filtering_smoke.py -v -rs` → every test passes and **none is
 skipped** with "not captured yet"; `grep -rEn "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}" tests/data/*.json` → no output;
 `scripts/validate.sh` → ALL PASS.
-**Status:** ❌ (the code part from 2026-10-02 is done; this is the data)
+**Status:** ✅ Complete (2026-10-12, synthetic samples)
 
 ### Task 5: Morning QC script
 **Runs:** cloud (write), local (use)

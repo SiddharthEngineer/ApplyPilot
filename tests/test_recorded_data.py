@@ -1,7 +1,8 @@
-"""Recorded-response tier: real board/LLM samples committed in tests/data/ (no network).
+"""Recorded-response tier: board/LLM samples committed in tests/data/ (no network).
 
-Samples are written by `python scripts/capture_fixtures.py --out tests/data --scrub`. Tests for a sample
-skip until it has been captured and committed; the scrubber tests always run.
+The committed samples are synthetic (hand-written to match the live response shapes; see tests/data/README.md).
+To refresh them live, run `python scripts/capture_fixtures.py --out tests/data --scrub` and check the output for
+personal data before committing. Tests for a missing sample skip; the scrubber tests always run.
 """
 
 import importlib.util
