@@ -52,7 +52,7 @@ the env var still wins and warns once; a malformed user file → defaults plus o
 **What:** Replace the `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` JSON block in `.env.example` with a two-line pointer to `src/applypilot/config/llm_limits.yaml` and
 `~/.applypilot/llm_limits.yaml`. In the README configuration section, say that `.env` is for secrets and per-host settings only.
 **Validate:** `grep -n "LLM_RPM_LIMITS\|LLM_RPD_LIMITS" .env.example README.md` → only the deprecation mention; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ Complete (2026-10-12, this commit: "Task 2 Docs")
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.
