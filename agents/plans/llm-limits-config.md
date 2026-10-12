@@ -1,5 +1,5 @@
 # Plan: LLM rate limits out of .env (packaged defaults + override file), one .env per environment
-**Status:** ❌ Not started
+**Status:** ✅ Complete (2026-10-12); PR awaiting review, then manual step M13
 **Risk:** review (touches `config.py`, `cli.py` and the limit defaults; the VPS cleanup after merge is manual step M13)
 
 ## Goal
@@ -44,7 +44,7 @@ rpd: {gemini-3.1-flash-lite: 500, gemini-3.6-flash: 20}
 **Validate:** new tests: packaged defaults apply with no env and no user file; a user file overrides one model and leaves the rest;
 the env var still wins and warns once; a malformed user file → defaults plus one warning. The existing `tests/test_llm.py` limit tests pass unchanged.
 `.venv/bin/pytest tests/test_llm.py -q` → pass; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ Complete (2026-10-12, this commit: "Task 1 Packaged limits + override file"). Two existing tests that relied on the global `LLM_RPM_LIMIT` reaching the default Gemini models now use an unlisted model (asserts unchanged).
 
 ### Task 2: Docs
 **Runs:** unattended
@@ -52,7 +52,7 @@ the env var still wins and warns once; a malformed user file → defaults plus o
 **What:** Replace the `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` JSON block in `.env.example` with a two-line pointer to `src/applypilot/config/llm_limits.yaml` and
 `~/.applypilot/llm_limits.yaml`. In the README configuration section, say that `.env` is for secrets and per-host settings only.
 **Validate:** `grep -n "LLM_RPM_LIMITS\|LLM_RPD_LIMITS" .env.example README.md` → only the deprecation mention; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ Complete (2026-10-12, this commit: "Task 2 Docs")
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.

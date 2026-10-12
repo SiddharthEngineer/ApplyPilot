@@ -6,7 +6,7 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 |---|---|
 | `run.sh` | Cron entry: upkeep (inbox replies, preprod lock), pick the next item, run `/implement --unattended` in a worktree, re-validate, then merge or send to review |
 | `buildqueue.py` | Queue state, attempt and daily caps, pause (`~/.local/state/applypilot-agent/`) |
-| `gate.py` | Risk gate: the plan's `**Risk:**` line plus diff checks decide auto-merge vs review |
+| `gate.py` | Risk gate: the plan's `**Risk:**` line plus diff checks decide auto-merge vs review (`--plan`: checks the plan's `**Files:**` lines, used by `/plan`) |
 | `preprod.sh` | Single-occupant preprod lock: deploy a PR, health-check it, release it on merge or close |
 | `inbox.py` | Questions and notices as issues in a private repo, plus an ntfy push |
 | `settings.json`, `mcp.json` | Permissions and the Playwright MCP for headless runs (the agent cannot merge, deploy or edit these) |
@@ -47,4 +47,5 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 - Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00]`). `/schedule-build list` shows the queue and the preprod holder.
 - Logs: `~/.local/state/applypilot-agent/runs.log` (one line per event) and `logs/<time>-<slug>.log` (full JSON output).
 - When an agent asks a question, reply on the inbox issue. The next tick (within 5 minutes) re-queues the item with your answer.
+  That run resumes the agent's own session (`claude --resume`), or starts fresh if Claude can't find it.
 - Merging or closing the PR on preprod frees the lock. The next tick resets preprod to trunk and deploys the next waiting PR.

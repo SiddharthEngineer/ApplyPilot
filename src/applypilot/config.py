@@ -23,6 +23,8 @@ RESUME_TEMPLATE_PATH = APP_DIR / "resume_template.html"
 RESUME_FIXED_PATH = APP_DIR / "resume_fixed.yaml"
 TEMPLATE_PREVIEW_PATH = APP_DIR / "template_preview.pdf"
 ENV_PATH = APP_DIR / ".env"
+# Per-model LLM rate limits; overrides the packaged CONFIG_DIR / "llm_limits.yaml"
+LLM_LIMITS_PATH = APP_DIR / "llm_limits.yaml"
 GOOGLE_CLIENT_SECRET_PATH = APP_DIR / "google_client_secret.json"
 GOOGLE_TOKEN_PATH = APP_DIR / "google_token.json"
 

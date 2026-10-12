@@ -184,8 +184,9 @@ class TestDoctorRateLimitTuning:
         """doctor prints Discovery model: and RPM limit: lines for Gemini."""
         result = self._invoke(
             tmp_path, monkeypatch,
-            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-3.1-flash-lite", "LLM_RPM_LIMIT": "12"},
-            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
+            # A model with no packaged per-model limit, so the global LLM_RPM_LIMIT applies.
+            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-unlisted", "LLM_RPM_LIMIT": "12"},
+            ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"],
         )
         assert result.exit_code == 0
         assert "Discovery model" in result.output
@@ -221,6 +222,31 @@ class TestDoctorRateLimitTuning:
         assert "gemini-3.1-flash-lite (15 RPM, 0/500 today)" in result.output
         assert "gemini-3.6-flash (5 RPM, 1/20 today)" in result.output
         assert "RPM limit" not in result.output
+
+    def test_rate_limit_source_reported(self, tmp_path, monkeypatch) -> None:
+        """doctor says where the per-model limits came from, and flags the deprecated env vars."""
+        from applypilot import llm
+        monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
+        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        models = ["gemini-3.6-flash", "gemini-3.1-flash-lite"]
+        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k"}, models)
+        assert result.exit_code == 0
+        assert "Rate limits         OK  packaged defaults" in result.output
+        assert "gemini-3.6-flash (5 RPM, 0/20 today)" in result.output
+
+        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 4}\n")
+        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_RPD_LIMITS": '{"x": 1}'}, models)
+        assert "Rate limits         WARN" in result.output
+        assert "LLM_RPD_LIMITS deprecated" in result.output
+        assert "gemini-3.6-flash (4 RPM" in result.output
+        assert "RPM limit" not in result.output
+
+    def test_warns_when_a_stage_model_has_no_rpm_limit(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("applypilot.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
+        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_TAILOR_MODEL": "gemini-unlisted"},
+                              ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"])
+        assert result.exit_code == 0
+        assert "RPM limit           WARN  off for gemini-unlisted" in result.output
 
     def test_bad_discovery_model_warns_with_available(self, tmp_path, monkeypatch) -> None:
         """Bad discovery model triggers a WARN with an Available: model list."""

@@ -20,6 +20,9 @@ conversation can implement and validate on its own, unattended.
 - `review`: a PR that's deployed to preprod and tested by the user. Use it for everything else, and whenever you're unsure.
 - `scripts/agent/gate.py` re-checks a `low` plan after the code is written and downgrades it to `review` if the diff
   touches high-risk paths (see `HIGH_RISK` there), goes over the size budget, or weakens tests. Tell the user this.
+- After writing the plan (step 3), run `python3 scripts/agent/gate.py agents/plans/<slug>.md --plan`. If a `low` plan
+  comes back `review`, tell the user which files caused it (the `touches high-risk path` reasons), then either change
+  the risk to `review` or narrow the files.
 - Mark a task `Runs: interactive` if it needs the user, prod, engineerfamily, secrets, or live job boards or Gemini.
   Unattended runs skip those tasks and flag them in the PR.
 
