@@ -1,5 +1,5 @@
 # Plan: Fix CI (test reads an archived plan)
-**Status:** 🔄 In progress
+**Status:** ✅ Done 2026-10-12 (Task 1 in 2ef2c7b, Task 2 in PR #34)
 **Risk:** low (one-line test path fix, `tests/` only)
 
 ## Goal
@@ -19,7 +19,7 @@ The "CI" workflow on `trunk` is green again. It has been red since `f5fae69` ("a
 **What:** In `test_real_plan_has_five_criteria`, change the path to `... / "agents" / "plans" / "done" / "test-tiers-and-qc.md"`.
 Keep the assertion as it is.
 **Validate:** `pytest tests/test_qc_script.py -q` → all pass; `scripts/validate.sh` → passes.
-**Status:** ✅ (2026-10-12, 2ef2c7b, landed with R18's PR #33)
+**Status:** ✅ 2026-10-12 (already on trunk via 2ef2c7b; verified 7/7 pass, `--full` passes)
 
 ### Task 2: Point the CI bundle check at the renamed package
 **Runs:** interactive (`.github/` is outside the unattended agent's permissions)
@@ -28,7 +28,7 @@ Keep the assertion as it is.
 (`dashboard/vite.config.*` `outDir`). `git status` on a missing path prints nothing, so the check passes no matter what. Use the new path
 in all three places, matching `scripts/validate.sh:78`.
 **Validate:** `grep -c strelitzia/web/static .github/workflows/ci.yml` → 3; the PR's CI `dashboard` job is green.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (PR #34)
 
 ## Validation
 - `scripts/validate.sh` passes (ruff + full pytest).
