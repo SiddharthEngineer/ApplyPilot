@@ -81,11 +81,12 @@ def test_add_starts_without_resume(q):
     assert q("get", "plan-a", "session_id").returncode == 1
 
 
-def test_set_with_empty_value_removes_the_key(q):
+def test_unset_removes_the_key(q):
     q("add", "plan-a")
     q("set", "plan-a", "resume=1")
-    q("set", "plan-a", "resume=")
+    q("unset", "plan-a", "resume")
     assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "status").stdout.strip() == "queued"
 
 
 def test_no_daily_cap_by_default(q, monkeypatch):
@@ -197,8 +198,11 @@ def test_planned_files_strips_suffixes_across_tasks(tmp_path):
     gate_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gate_mod)
     plan = tmp_path / "p.md"
-    plan.write_text("**Files:** a.py (new), b/c.py (modify)\ntext\n**Files:** a.py (modify), `d.md` (modify)\n")
-    assert gate_mod.planned_files(plan) == ["a.py", "b/c.py", "d.md"]
+    plan.write_text(
+        "**Files:** a.py (new), b/c.py (modify)\n**What:** x, y\n\n**Files:** a.py (modify), `d.md` (modify); e.py,\n"
+        "f.py (new, user data)\n**Status:** x\n**Files:**\n- g.py (new)\n- `h.py` (modify)\n\nother, text\n"
+    )
+    assert gate_mod.planned_files(plan) == ["a.py", "b/c.py", "d.md", "e.py", "f.py", "g.py", "h.py"]
 
 
 def _usage():

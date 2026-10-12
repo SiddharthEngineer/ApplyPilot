@@ -72,11 +72,22 @@ def risk_reasons(plan: Path) -> list[str]:
 
 
 def planned_files(plan: Path) -> list[str]:
-    """Paths from every `**Files:** path (new|modify), path (modify)` line, in order, without duplicates."""
+    """Paths from every `**Files:** path (new|modify), path (modify)` field, in order, without duplicates.
+
+    A field runs until the next `**Field:**`, heading or blank line, so wrapped lines and `- path` bullets count too.
+    """
+    fields: list[str] = []
+    for line in plan.read_text().splitlines():
+        if line.startswith("**Files:**"):
+            fields.append(line.removeprefix("**Files:**"))
+        elif fields and fields[-1] is not None and line.strip() and not line.startswith(("**", "#")):
+            fields[-1] += "," + line.strip().removeprefix("- ")
+        elif fields:
+            fields.append(None)  # field ended
     files: list[str] = []
-    for m in re.finditer(r"^\*\*Files:\*\*(.*)$", plan.read_text(), re.MULTILINE):
-        for entry in m.group(1).split(","):
-            path = re.sub(r"\s*\([^)]*\)\s*$", "", entry.strip()).strip("` ")
+    for field in filter(None, fields):
+        for entry in re.split(r"[,;]", re.sub(r"\([^)]*\)", "", field)):
+            path = entry.strip().strip("`").strip()
             if path and path not in files:
                 files.append(path)
     return files

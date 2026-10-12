@@ -1,5 +1,5 @@
 # Plan: Runner follow-ups from the first PIV smoke test
-**Status:** 🚧 In progress (Task 1 done)
+**Status:** ✅ Complete (2026-10-12); human test steps after merge
 **Risk:** review (both tasks touch `scripts/agent/*`, which `gate.py` treats as high-risk)
 
 ## Goal
@@ -50,7 +50,7 @@ after writing the plan, run `python3 scripts/agent/gate.py agents/plans/<slug>.m
 user which files caused it and either change the risk to `review` or narrow the files.
 **Validate:** tests: a `low` plan listing `src/applypilot/web/tasks.py (modify)` → `review` with that reason; a `low` plan listing only
 `tests/` and `*.md` → `low`. `python3 scripts/agent/gate.py agents/plans/runner-followups.md --plan` → `review`. `scripts/validate.sh` → ALL PASS.
-**Status:** ✅ (2026-10-12, this commit)
+**Status:** ✅ (2026-10-12, b069f9c)
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.

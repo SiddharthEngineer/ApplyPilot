@@ -118,11 +118,6 @@ Notes from the queue (including the user's answers to earlier questions): $notes
 # After an answer (`resume=1`), resume the session that asked instead of rebuilding its context.
 resume_id=
 [ "$("${Q[@]}" get "$slug" resume 2>/dev/null)" = 1 ] && resume_id=$("${Q[@]}" get "$slug" session_id 2>/dev/null)
-answer=$(echo "$notes" | python3 -c 'import json,sys; n=json.load(sys.stdin); print(n[-1] if n else "")' 2>/dev/null)
-resume_prompt="The user answered your question. $answer
-
-Result file: $result
-Continue the plan (agents/plans/$slug.md, --unattended) from where you stopped."
 
 # run_claude <prompt> [extra claude args]: one agent run in the worktree, appended to $log.
 run_claude() {
@@ -141,13 +136,20 @@ run_claude() {
 
 : > "$log"
 if [ -n "$resume_id" ]; then
+    answer=$(echo "$notes" | python3 -c 'import json,sys; n=json.load(sys.stdin); print(n[-1] if n else "")' 2>/dev/null)
     say "$slug: run start, resuming session $resume_id (log $log)"
     echo "claude -p --resume $resume_id" >> "$log"
-    run_claude "$resume_prompt" --resume "$resume_id"
+    run_claude "The user answered your question. $answer
+
+Result file: $result
+All queue notes: $notes
+Continue the plan (agents/plans/$slug.md, --unattended) from where you stopped." --resume "$resume_id"
     code=$?
-    if [ "$code" -ne 0 ] && [ ! -f "$result" ] && grep -qiE 'no conversation found|session.*not found' "$log"; then
+    if [ "$code" -ne 0 ] && [ ! -f "$result" ] && grep -qi 'no conversation found' "$log"; then
+        # Keep the failed resume's output apart, so the usage-limit check and session_id below see only the fresh run.
+        mv "$log" "$log.resume-failed"
         say "$slug: resume failed, fresh run"
-        echo "resume failed, fresh run" >> "$log"
+        echo "resume failed, fresh run (resume output: $log.resume-failed)" > "$log"
         run_claude "$prompt"
         code=$?
     fi
@@ -179,7 +181,7 @@ if [ ! -f "$result" ] && grep -qiE 'usage limit|rate.limit|limit reached' "$log"
     say "$slug: usage limit hit, queue paused 5h"
     exit 0  # keeps `resume`, so the next tick resumes again
 fi
-"${Q[@]}" set "$slug" resume=
+"${Q[@]}" unset "$slug" resume
 
 # The agent reports `ready` (PR open, validated) / `question` / `blocked`. Turn `ready` into merged or review.
 status=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$result" 2>/dev/null)
