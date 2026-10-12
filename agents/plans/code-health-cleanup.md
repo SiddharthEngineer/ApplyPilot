@@ -91,7 +91,7 @@ the JSON; an invalid `\_` escape; trailing junk after the closing brace; nothing
 `patch("applypilot.apply.cred_server.asyncio.sleep", new=AsyncMock())`. If `cred_server` imports `asyncio` differently, patch where it's looked up.
 Don't change `cred_server.py`. Every existing assert stays.
 **Validate:** `.venv/bin/pytest tests/test_cred_server.py -q --durations=3` → all pass, and no listed duration is above 0.5s; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 5: Document every env var in `.env.example`
 **Runs:** unattended
