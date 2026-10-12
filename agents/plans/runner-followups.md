@@ -1,5 +1,5 @@
 # Plan: Runner follow-ups from the first PIV smoke test
-**Status:** ❌ Not started
+**Status:** 🚧 In progress (Task 1 done)
 **Risk:** review (both tasks touch `scripts/agent/*`, which `gate.py` treats as high-risk)
 
 ## Goal
@@ -38,7 +38,7 @@ and changed the docs to the 5-minute cron, so those are out of scope here.
 - `run.sh` clears `resume` after either path, except when the usage-limit branch gives the attempt back (then the next tick resumes again).
 **Validate:** queue tests: `answer` sets `resume=1`; a failed-attempt `finish` clears it and `session_id`. `bash -n scripts/agent/run.sh` passes.
 `scripts/validate.sh` → ALL PASS. The live check is the human step below.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 2: `gate.py --plan` and a check in `/plan`
 **Runs:** unattended

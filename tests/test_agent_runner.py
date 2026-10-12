@@ -57,6 +57,37 @@ def test_question_then_answer_requeues_with_fresh_attempts(q):
     assert q("next").stdout.strip() == "plan-a"
 
 
+def test_answer_sets_resume_and_failed_attempt_clears_it(q):
+    q("add", "plan-a")
+    q("start", "plan-a")
+    q("set", "plan-a", "session_id=abc-123")
+    q("finish", "plan-a", q.result({"status": "question"}))
+    q("answer", "plan-a", "use option B")
+    assert q("get", "plan-a", "resume").stdout.strip() == "1"
+    assert q("get", "plan-a", "session_id").stdout.strip() == "abc-123"
+    q("start", "plan-a")
+    assert q("finish", "plan-a", "/nonexistent").stdout.strip() == "queued"
+    assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "session_id").returncode == 1
+
+
+def test_add_starts_without_resume(q):
+    q("add", "plan-a")
+    q("start", "plan-a")
+    q("set", "plan-a", "session_id=abc-123", "resume=1")
+    q("finish", "plan-a", q.result({"status": "blocked"}))
+    q("add", "plan-a")
+    assert q("get", "plan-a", "resume").returncode == 1
+    assert q("get", "plan-a", "session_id").returncode == 1
+
+
+def test_set_with_empty_value_removes_the_key(q):
+    q("add", "plan-a")
+    q("set", "plan-a", "resume=1")
+    q("set", "plan-a", "resume=")
+    assert q("get", "plan-a", "resume").returncode == 1
+
+
 def test_no_daily_cap_by_default(q, monkeypatch):
     monkeypatch.delenv("AGENT_MAX_RUNS_PER_DAY", raising=False)
     for slug in ("plan-a", "plan-b", "plan-c", "plan-d", "plan-e", "plan-f"):

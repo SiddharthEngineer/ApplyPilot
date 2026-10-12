@@ -12,12 +12,13 @@ Usage:
   buildqueue.py next                 print the next runnable slug, or exit 1 (cron pre-check; no Claude cost)
   buildqueue.py start <slug>         mark running, count an attempt, log the run
   buildqueue.py finish <slug> <result.json>   apply the agent's result (missing file = failed attempt)
-  buildqueue.py set <slug> key=value [...]    used by inbox.py / preprod.sh
-  buildqueue.py answer <slug> TEXT   attach the user's answer and re-queue with fresh attempts
+  buildqueue.py set <slug> key=value [...]    used by inbox.py / preprod.sh / run.sh (`key=` removes the key)
+  buildqueue.py answer <slug> TEXT   attach the user's answer and re-queue with fresh attempts, resuming the session
   buildqueue.py pause <hours>        stop starting runs (e.g. after a usage-limit exit)
   buildqueue.py get <slug> <key>
 
 Item statuses: queued → running → done | pr-open | awaiting-preprod | on-preprod | waiting-answer | blocked | cancelled.
+run.sh stores the agent's `session_id` after each run; `resume=1` (set by `answer`) makes the next run resume that session.
 Standard library only.
 """
 
@@ -167,6 +168,9 @@ def cmd_finish(args: argparse.Namespace) -> int:
     if status is None:  # crashed, timed out or wrote nothing: a failed attempt
         status = "queued" if it["attempts"] < MAX_ATTEMPTS else "blocked"
         result.setdefault("summary", "run ended without a result file")
+        # A failed attempt starts fresh: its context is the thing that went wrong.
+        it.pop("resume", None)
+        it.pop("session_id", None)
     it.update(status=status, updated=iso(now()), last_result=result)
     for key in ("pr", "issue", "branch"):
         if result.get(key):
@@ -181,6 +185,9 @@ def cmd_set(args: argparse.Namespace) -> int:
     it = item(data, args.slug)
     for pair in args.pairs:
         key, _, value = pair.partition("=")
+        if not value:
+            it.pop(key, None)
+            continue
         it[key] = int(value) if value.isdigit() else value
     it["updated"] = iso(now())
     save(data)
@@ -199,8 +206,9 @@ def cmd_answer(args: argparse.Namespace) -> int:
     data = load()
     it = item(data, args.slug)
     it["notes"].append(f"User answer ({iso(now())}): {args.text}")
-    # The answer is new information, so the item gets a fresh set of attempts.
-    it.update(status="queued", attempts=0, not_before=iso(now()), updated=iso(now()))
+    # The answer is new information, so the item gets a fresh set of attempts, and the next run resumes the
+    # session that asked (run.sh falls back to a fresh run if there is no session_id or Claude can't find it).
+    it.update(status="queued", attempts=0, resume=1, not_before=iso(now()), updated=iso(now()))
     it.pop("issue", None)
     save(data)
     return 0
