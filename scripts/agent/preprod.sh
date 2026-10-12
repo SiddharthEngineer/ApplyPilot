@@ -8,7 +8,7 @@
 #
 # Config (~/.config/applypilot-agent/env): PREPROD_APP_DIR (ApplyPilot checkout that preprod builds from),
 # PREPROD_DEPLOY_CMD (rebuilds only the preprod applypilot service), PREPROD_HEALTH_URL, AGENT_REPO.
-# Until agents/plans/vps-layout-migration.md is done these are unset, and deploy exits 3 ("not configured").
+# If these are unset, deploy exits 3 ("not configured"); see agents/DEPLOY.md.
 set -uo pipefail
 
 [ -f "$HOME/.config/applypilot-agent/env" ] && . "$HOME/.config/applypilot-agent/env"

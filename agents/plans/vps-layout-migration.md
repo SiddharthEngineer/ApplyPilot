@@ -1,5 +1,5 @@
 # Plan: VPS layout migration (dev clones out of /srv, pinned prod/preprod checkouts, preprod ApplyPilot)
-**Status:** ❌ Not started
+**Status:** ⏳ Tasks 1-3 and 6 done (2026-10-12); Task 4 open; Task 5 waiting on PR #22's release
 **Risk:** review (touches prod infra; every task is interactive)
 
 ## Goal
@@ -24,7 +24,7 @@ disposable data, so `scripts/agent/preprod.sh` can deploy review PRs there.
 **Files:** engineerfamily `Makefile` and `scripts/vps/engineerfamily-deploy` (modify)
 **What:** Pass `-p engineerfamily` to every prod compose call and `-p engineerfamily-preprod` to every preprod call. Deploy, and confirm `docker ps` shows the same container names and `docker volume ls` the same volumes.
 **Validate:** `docker compose -p engineerfamily ls` shows the running project; the three prod URLs return 200 (`/app/` returns 401).
-**Status:** ❌
+**Status:** ✅ 2026-10-12: `-p` in Makefile, deploy script and init-applypilot-db.sh, plus `COMPOSE_PROJECT_NAME` in each checkout's `.env` (engineerfamily 5263fbd). Same containers and volumes after the rename.
 
 ### Task 2: Pinned prod checkout of ApplyPilot
 **Runs:** interactive (sudo, prod)
@@ -32,14 +32,14 @@ disposable data, so `scripts/agent/preprod.sh` can deploy review PRs there.
 **What:** The user runs `sudo install -d -o deploy -g srv -m 2775 /srv/ApplyPilot-prod`, then clones there and checks out `origin/trunk` detached.
 Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `.env` copied by the user. Add `make applypilot-deploy`, which fetches, checks out `origin/trunk` and rebuilds.
 **Validate:** `make applypilot-deploy` and the URLs are healthy; `docker inspect` shows the image built from the `-prod` commit.
-**Status:** ❌
+**Status:** ✅ 2026-10-12: `/srv/ApplyPilot-prod` at fd33f1b with its own `.env`; `make applypilot-deploy [ref=…]`. Prod jobs DB untouched (3147 rows).
 
 ### Task 3: Preprod ApplyPilot service with disposable data
 **Runs:** interactive (preprod)
 **Files:** engineerfamily `docker-compose.preprod.yml`, nginx preprod config, `Makefile`, an `init-applypilot-db` variant for preprod (modify/new)
 **What:** Update `/srv/engineerfamily-preprod` to current `main`. Add an `applypilot` service building `../ApplyPilot-preprod` (the user creates it like Task 2), using an `applypilot_preprod` DB in the preprod analytics-db and an empty app dir. Add an nginx `/app/` route on :8080 with its own basic auth, and `make applypilot-up` for preprod.
 **Validate:** `curl -fsS --netrc-file … http://127.0.0.1:8080/app/api/health` → `{"ok": true, …}`.
-**Status:** ❌
+**Status:** ✅ 2026-10-11: engineerfamily 5c3a651. `/app/` on applypilot-preprod (and 127.0.0.1:8080), preprod basic auth, `applypilot_preprod` DB, app dir `~/.applypilot-preprod`, no LLM keys.
 
 ### Task 4: Seed preprod data
 **Runs:** interactive
@@ -53,7 +53,7 @@ Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `
 **Files:** `~/.config/applypilot-agent/env` (user; not committed)
 **What:** Set `PREPROD_APP_DIR`, `PREPROD_DEPLOY_CMD`, `PREPROD_HEALTH_URL` and `PREPROD_NETRC`. Open a throwaway docs PR, then `scripts/agent/preprod.sh deploy <n>`, `status`, close the PR, and `status` again (it auto-releases and resets to trunk).
 **Validate:** each command prints the expected state, an ntfy push arrives, and the PR gets the `on-preprod` label and then loses it.
-**Status:** ❌
+**Status:** ⏳ 2026-10-11: env set; `preprod.sh deploy 22` passed (health, `on-preprod` label, PR comment). The release half runs when PR #22 is merged or closed.
 
 ### Task 6: Move the dev clone and rename the prod engineerfamily checkout
 **Runs:** interactive (sudo, prod)
@@ -61,7 +61,7 @@ Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `
 **What:** Clone ApplyPilot to `/home/dev/src/ApplyPilot` (move `personal/` and `.env` over by hand, and recreate `.venv`). Copy the Claude memory dir.
 Point the crontab and `AGENT_REPO` at the new path. With Task 1 done, `sudo mv /srv/engineerfamily /srv/engineerfamily-prod` and update the paths in the deploy script and workflow. Remove `/srv/ApplyPilot` once everything is verified.
 **Validate:** the prod URLs return 200, `docker volume ls` is unchanged, `crontab -l` shows the new path, and a `/schedule-build` of a low-risk docs plan completes.
-**Status:** ❌
+**Status:** ✅ 2026-10-12: `/srv/ApplyPilot` and `/srv/espn-predraft-api` moved to `~/src` (venv rebuilt, validate.sh passes), `/srv/engineerfamily` renamed to `-prod` and the deploy script reinstalled, crontab, `AGENT_REPO` and Claude memory updated. Still to do: a `/schedule-build` of a low-risk docs plan.
 
 ## Validation
 - Prod URLs are healthy and the volumes are unchanged after every task.
