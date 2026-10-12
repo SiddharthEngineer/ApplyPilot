@@ -389,8 +389,6 @@ The goal is to get interviews, not to be a perfect fact-checker. Allow up to 3 m
 Be strict about major lies. Be lenient about minor stretches and learnable skills. Do not fail for style, tone, or restructuring."""
 
 
-# ── JSON Extraction ───────────────────────────────────────────────────────
-
 # ── Resume Assembly (profile-driven header) ──────────────────────────────
 
 def assemble_resume_text(data: dict, profile: dict) -> str:

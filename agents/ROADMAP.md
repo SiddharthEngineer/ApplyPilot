@@ -10,7 +10,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
 | R0 | Test tiers: commit synthetic recorded-response samples (Task 4) | [test-tiers-and-qc](plans/test-tiers-and-qc.md) | low | ⏳ | none |
-| R13 | Code health cleanup: pyflakes enforced, one `extract_json`, faster tests, jobspy extra, dashboard CI job | [code-health-cleanup](plans/code-health-cleanup.md) | review | ⏳ | none (adds to `.env.example` after R16's block) |
+| R13 | Code health cleanup: pyflakes enforced, one `extract_json`, faster tests, jobspy extra, dashboard CI job | [code-health-cleanup](plans/code-health-cleanup.md) | review | ⏸ Tasks 1-5, 8 done (branch agent/code-health-cleanup); Task 7, the CI step of Task 6 and `preprod.sh:73` need write access to `.github/` and `scripts/agent/` | none (adds to `.env.example` after R16's block) |
 | R15 | Runner follow-ups: resume the agent session after an answer, `gate.py --plan` check in `/plan` | [runner-followups](plans/runner-followups.md) | review | ⏳ | none |
 | R16 | LLM rate limits out of `.env` (packaged defaults + `~/.applypilot/llm_limits.yaml`), one `.env` per environment | [llm-limits-config](plans/llm-limits-config.md) | review | ⏳ | none |
 

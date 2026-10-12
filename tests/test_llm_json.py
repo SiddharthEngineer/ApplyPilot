@@ -46,3 +46,16 @@ def test_nothing_parseable_raises():
         extract_json("no json here at all")
     with pytest.raises(ValueError):
         extract_json("{not: valid")
+
+
+def test_prose_around_array_stays_array():
+    assert extract_json('Verdicts: [{"index": 1, "relevant": true}] done') == [{"index": 1, "relevant": True}]
+
+
+def test_null_is_valid_json():
+    assert extract_json("null") is None
+
+
+def test_trailing_junk_in_json_fence_with_later_fence():
+    text = '```json\n{"strategy": "css_selectors"}}\n```\nExample:\n```\nfoo\n```'
+    assert extract_json(text) == {"strategy": "css_selectors"}

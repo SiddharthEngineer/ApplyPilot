@@ -1,5 +1,5 @@
 # Plan: Code health cleanup (from the 2026-10-11 repo audit)
-**Status:** 🚧 In progress
+**Status:** ⏸ Blocked 2026-10-12: Tasks 1-5 done, 6 and 8 partly; the unattended agent cannot write `.github/` or `scripts/agent/` (Task 7, the CI step of Task 6, `preprod.sh:73`)
 **Risk:** review (touches `pyproject.toml`, `.github/`, `scripts/validate.sh`, `scripts/agent/preprod.sh` and `src/applypilot/apply/*`; one PR on preprod, user decision 2026-10-12)
 
 ## Goal
