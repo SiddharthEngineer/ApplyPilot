@@ -35,8 +35,10 @@ step() {  # step <name> <command...>
 
 if [ "$MODE" = preprod ]; then
     # Only curls the deployed service, so no checkout is needed (preprod.sh runs this from cron, whose cwd is $HOME).
-    # Settings come from ~/.config/applypilot-agent/env (see scripts/agent/README.md).
-    [ -f "$HOME/.config/applypilot-agent/env" ] && . "$HOME/.config/applypilot-agent/env"
+    # Settings come from ~/.config/strelitzia-agent/env, else the legacy applypilot-agent dir (scripts/agent/README.md).
+    for env_file in "$HOME/.config/strelitzia-agent/env" "$HOME/.config/applypilot-agent/env"; do
+        [ -f "$env_file" ] && { . "$env_file"; break; }
+    done
     : "${PREPROD_HEALTH_URL:?PREPROD_HEALTH_URL is not set; preprod is not configured yet (agents/DEPLOY.md, Preprod section)}"
     netrc=()
     [ -n "${PREPROD_NETRC:-}" ] && netrc=(--netrc-file "$PREPROD_NETRC")

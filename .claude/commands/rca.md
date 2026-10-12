@@ -5,7 +5,7 @@ argument-hint: <GitHub issue # | bug description>
 
 # Root cause: $ARGUMENTS
 
-1. **Gather:** read the issue (`gh issue view <n> --repo SiddharthEngineer/ApplyPilot`) or ask the user for symptoms,
+1. **Gather:** read the issue (`gh issue view <n> --repo SiddharthEngineer/Strelitzia`) or ask the user for symptoms,
    when it started, and the inputs that trigger it. Check `git log -S`/`git log -- <file>` for recent changes nearby.
 2. **Reproduce:** write the smallest failing test you can in `tests/` (hermetic: mock the network, or use `tests/data/`).
    Run it and show that it fails for the reason you expect. If you can't reproduce it, say so and ask the user for more

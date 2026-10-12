@@ -5,7 +5,7 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 | File | Role |
 |---|---|
 | `run.sh` | Cron entry: upkeep (inbox replies, preprod lock), pick the next item, run `/implement --unattended` in a worktree, re-validate, then merge or send to review |
-| `buildqueue.py` | Queue state, attempt and daily caps, pause (`~/.local/state/applypilot-agent/`) |
+| `buildqueue.py` | Queue state, attempt and daily caps, pause (`~/.local/state/strelitzia-agent/`) |
 | `gate.py` | Risk gate: the plan's `**Risk:**` line plus diff checks decide auto-merge vs review (`--plan`: checks the plan's `**Files:**` lines, used by `/plan`) |
 | `preprod.sh` | Single-occupant preprod lock: deploy a PR, health-check it, release it on merge or close |
 | `inbox.py` | Questions and notices as issues in a private repo, plus an ntfy push |
@@ -26,26 +26,30 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 - A run that ends without a result file, or whose `ready` fails `validate.sh --full`, counts as a failed attempt. After 2 failures the item is `blocked` and you get a notice.
 
 ## One-time setup (you)
+Paths: the runner uses `~/.config/strelitzia-agent` and `~/.local/state/strelitzia-agent` when they exist, else the legacy
+`applypilot-agent` dirs (until the post-merge migration, M15: `scripts/migrate_to_strelitzia.sh`). The engineerfamily names
+(`preprod-applypilot-up`, the compose service `applypilot`) stay until M16.
+
 1. Create the private inbox repo: `gh repo create SiddharthEngineer/agent-inbox --private --description "Agent questions and notices"`.
-2. Install the ntfy app and subscribe to a hard-to-guess topic (e.g. `applypilot-<random>`).
-3. Run `claude setup-token` and write `~/.config/applypilot-agent/env` (mode 600):
+2. Install the ntfy app and subscribe to a hard-to-guess topic (e.g. `strelitzia-<random>`).
+3. Run `claude setup-token` and write `~/.config/strelitzia-agent/env` (mode 600):
    ```bash
    export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-   AGENT_REPO=/home/dev/src/ApplyPilot   # dev clone the runner makes worktrees from
+   AGENT_REPO=/home/dev/src/Strelitzia   # dev clone the runner makes worktrees from
    AGENT_INBOX_REPO=SiddharthEngineer/agent-inbox
-   NTFY_TOPIC=applypilot-<random>
-   PREPROD_APP_DIR=/srv/ApplyPilot-preprod
+   NTFY_TOPIC=strelitzia-<random>
+   PREPROD_APP_DIR=/srv/Strelitzia-preprod
    PREPROD_DEPLOY_CMD="make -C /srv/engineerfamily-preprod preprod-applypilot-up"
    PREPROD_HEALTH_URL=http://127.0.0.1:8080/app/api/health
    # Optional: wipe and reseed the preprod DB (scripts/seed_preprod.py) after every preprod deploy. See agents/DEPLOY.md.
-   PREPROD_SEED_CMD="docker compose -p engineerfamily-preprod --project-directory /srv/engineerfamily-preprod -f /srv/engineerfamily-preprod/docker-compose.base.yml -f /srv/engineerfamily-preprod/docker-compose.preprod.yml run --rm --no-deps -T -v /srv/ApplyPilot-preprod:/seed:ro applypilot python /seed/scripts/seed_preprod.py"
-   PREPROD_NETRC=/home/dev/.config/applypilot-agent/preprod.netrc   # mode 600: machine 127.0.0.1 login … password … (preprod basic auth)
+   PREPROD_SEED_CMD="docker compose -p engineerfamily-preprod --project-directory /srv/engineerfamily-preprod -f /srv/engineerfamily-preprod/docker-compose.base.yml -f /srv/engineerfamily-preprod/docker-compose.preprod.yml run --rm --no-deps -T -v /srv/Strelitzia-preprod:/seed:ro applypilot python /seed/scripts/seed_preprod.py"
+   PREPROD_NETRC=/home/dev/.config/strelitzia-agent/preprod.netrc   # mode 600: machine 127.0.0.1 login … password … (preprod basic auth)
    ```
-4. Install the cron line (`crontab -e`): `*/5 * * * * /home/dev/src/ApplyPilot/scripts/agent/run.sh`
+4. Install the cron line (`crontab -e`): `*/5 * * * * /home/dev/src/Strelitzia/scripts/agent/run.sh`
 
 ## Day to day
 - Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00]`). `/schedule-build list` shows the queue and the preprod holder.
-- Logs: `~/.local/state/applypilot-agent/runs.log` (one line per event) and `logs/<time>-<slug>.log` (full JSON output).
+- Logs: `~/.local/state/strelitzia-agent/runs.log` (one line per event) and `logs/<time>-<slug>.log` (full JSON output).
 - When an agent asks a question, reply on the inbox issue. The next tick (within 5 minutes) re-queues the item with your answer.
   That run resumes the agent's own session (`claude --resume`), or starts fresh if Claude can't find it.
 - Merging or closing the PR on preprod frees the lock. The next tick resets preprod to trunk and deploys the next waiting PR.

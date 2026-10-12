@@ -6,7 +6,7 @@ Usage:
   inbox.py notify --title T --body B [--slug S]  open an `agent-notice` issue (PR on preprod, item blocked, …)
   inbox.py poll                                  re-queue items whose question issue has a reply (cron, no Claude)
 
-Config (~/.config/applypilot-agent/env or the environment):
+Config (~/.config/strelitzia-agent/env, or the legacy applypilot-agent dir, or the environment):
   AGENT_INBOX_REPO  owner/name of the private inbox repo (required)
   NTFY_TOPIC        optional ntfy.sh topic. GitHub doesn't push-notify you about issues your own account
                     opens, so without this you only see them in the app's inbox.
@@ -24,15 +24,18 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ENV_FILE = Path.home() / ".config/applypilot-agent/env"
-MARKER = "<!-- applypilot-agent -->"  # tags comments the agent wrote, so any other comment is your answer
-PROJECT_LABEL = "applypilot"
+MARKER = "<!-- strelitzia-agent -->"  # tags comments the agent wrote, so any other comment is your answer
+LEGACY_MARKER = "<!-- applypilot-agent -->"  # on comments written before the rename
+PROJECT_LABEL = "strelitzia"
 
 
 def load_env() -> None:
-    if not ENV_FILE.exists():
+    from buildqueue import CONFIG_DIR  # same directory
+
+    env_file = CONFIG_DIR / "env"
+    if not env_file.exists():
         return
-    for line in ENV_FILE.read_text().splitlines():
+    for line in env_file.read_text().splitlines():
         line = line.strip().removeprefix("export ")
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")
@@ -94,7 +97,7 @@ def cmd_poll(_: argparse.Namespace) -> int:
         if it["status"] != "waiting-answer" or not it.get("issue"):
             continue
         issue = json.loads(gh("issue", "view", str(it["issue"]), "--repo", repo(), "--json", "comments"))
-        replies = [c["body"] for c in issue["comments"] if MARKER not in c["body"]]
+        replies = [c["body"] for c in issue["comments"] if MARKER not in c["body"] and LEGACY_MARKER not in c["body"]]
         if not replies:
             continue
         buildqueue("answer", slug, "\n\n".join(replies))
