@@ -1,5 +1,5 @@
 # Plan: VPS layout migration (dev clones out of /srv, pinned prod/preprod checkouts, preprod ApplyPilot)
-**Status:** ⏳ Tasks 1-3 and 6 done (2026-10-12); Task 4 open; Task 5 waiting on PR #22's release
+**Status:** ⏳ Tasks 1-3, 5 and 6 done (2026-10-12); Task 4 open (queued as `seed-preprod-data`)
 **Risk:** review (touches prod infra; every task is interactive)
 
 ## Goal
@@ -53,7 +53,7 @@ Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `
 **Files:** `~/.config/applypilot-agent/env` (user; not committed)
 **What:** Set `PREPROD_APP_DIR`, `PREPROD_DEPLOY_CMD`, `PREPROD_HEALTH_URL` and `PREPROD_NETRC`. Open a throwaway docs PR, then `scripts/agent/preprod.sh deploy <n>`, `status`, close the PR, and `status` again (it auto-releases and resets to trunk).
 **Validate:** each command prints the expected state, an ntfy push arrives, and the PR gets the `on-preprod` label and then loses it.
-**Status:** ⏳ 2026-10-11: env set; `preprod.sh deploy 22` passed (health, `on-preprod` label, PR comment). The release half runs when PR #22 is merged or closed.
+**Status:** ✅ 2026-10-12: `preprod.sh deploy 22` passed (health, `on-preprod` label, PR comment); after PR #22 merged, the 05:10 cron tick released the lock, marked the item `done` and reset preprod to trunk.
 
 ### Task 6: Move the dev clone and rename the prod engineerfamily checkout
 **Runs:** interactive (sudo, prod)

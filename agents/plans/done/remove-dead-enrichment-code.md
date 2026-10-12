@@ -1,5 +1,5 @@
 # Plan: Remove dead discovery/enrichment code (PIV smoke test)
-**Status:** ✅ All tasks done 2026-10-11 (PR open; `gate.py` returns `review`, not `low`, because option A touches the high-risk path `web/tasks.py`)
+**Status:** ✅ Complete (2026-10-12): PR #22 merged; deployed to prod at 7c08613. The gate returned `review` because option A touched `web/tasks.py`.
 **Risk:** low (deletes unreferenced code, behavior unchanged)
 
 ## Goal
