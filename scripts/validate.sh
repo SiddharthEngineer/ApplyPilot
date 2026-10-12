@@ -37,7 +37,7 @@ if [ "$MODE" = preprod ]; then
     # Only curls the deployed service, so no checkout is needed (preprod.sh runs this from cron, whose cwd is $HOME).
     # Settings come from ~/.config/applypilot-agent/env (see scripts/agent/README.md).
     [ -f "$HOME/.config/applypilot-agent/env" ] && . "$HOME/.config/applypilot-agent/env"
-    : "${PREPROD_HEALTH_URL:?PREPROD_HEALTH_URL is not set; preprod is not configured yet (agents/plans/vps-layout-migration.md)}"
+    : "${PREPROD_HEALTH_URL:?PREPROD_HEALTH_URL is not set; preprod is not configured yet (agents/DEPLOY.md, Preprod section)}"
     netrc=()
     [ -n "${PREPROD_NETRC:-}" ] && netrc=(--netrc-file "$PREPROD_NETRC")
     step "preprod health ($PREPROD_HEALTH_URL)" bash -c "curl -fsS --max-time 20 ${netrc[*]} '$PREPROD_HEALTH_URL' | grep -q '\"ok\": *true'"

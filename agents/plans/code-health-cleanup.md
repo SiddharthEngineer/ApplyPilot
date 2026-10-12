@@ -125,7 +125,7 @@ Keep the existing `test` job as it is.
 `scripts/validate.sh --full` → ALL PASS (proves the local bundle is current). On the PR, both CI jobs must be green before you write `ready`
 (`gh pr checks <n> --repo SiddharthEngineer/ApplyPilot --watch` if your permissions allow it; otherwise say in the PR that the dashboard job is unverified).
 If only the bundle check fails in CI while it passes locally on a clean tree (a non-deterministic build), drop that one step, keep test and build, and explain it in the PR.
-**Status:** ❌
+**Status:** ⛔ 2026-10-12: blocked, the unattended agent's permissions deny edits under `.github/`. Needs a session that can write `.github/workflows/ci.yml`.
 
 ### Task 8: Say which "dashboard" is which, and fix two stale plan paths
 **Runs:** unattended
@@ -134,7 +134,7 @@ If only the bundle check fails in CI while it passes locally on a clean tree (a 
 Point both messages at `agents/DEPLOY.md` (the preprod section) instead. Change only those message strings. Then, in AGENTS.md, add one line in the Map section: `apply/dashboard.py` = Rich TUI during `apply`; `view.py` = static HTML report; `web/` + `dashboard/` = the React
 app served at `/app/`. Keep AGENTS.md short (it's loaded every session): one line, no new section.
 **Validate:** `grep -n "view.py" AGENTS.md` → the new line; `grep -rn "vps-layout-migration" scripts` → no output; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** 🚧 2026-10-12: AGENTS.md line and `scripts/validate.sh` message done (this commit). `scripts/agent/preprod.sh:73` is not changed: the unattended agent's permissions deny edits under `scripts/agent/`. Needed: `(agents/plans/vps-layout-migration.md)` → `(agents/DEPLOY.md, Preprod section)`.
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.
