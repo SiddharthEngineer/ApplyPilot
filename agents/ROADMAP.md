@@ -9,6 +9,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
+| R19 | Fix CI: `test_qc_script` reads a plan that was archived to `done/` | [fix-ci-archived-plan-path](plans/fix-ci-archived-plan-path.md) | low | ⏳ | none |
 | R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | ⏳ | M14 |
 
 ## Manual steps (you)
