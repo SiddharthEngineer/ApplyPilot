@@ -1,5 +1,5 @@
 # Plan: Seed preprod with fake jobs on every deploy
-**Status:** 🟡 Code done (Tasks 1–2, 2026-10-12); Task 3 (turn it on, interactive) left for the user
+**Status:** ✅ Complete (2026-10-12): Tasks 1–3 done; preprod reseeds on every deploy
 **Risk:** review (touches `scripts/agent/preprod.sh`, which `gate.py` treats as high-risk, and wipes a database)
 
 ## Goal
@@ -66,7 +66,7 @@ and that a failing seed fails the deploy. `scripts/validate.sh --full` → ALL P
 **What:** After merge: `git -C ~/src/ApplyPilot pull --ff-only` (cron runs `preprod.sh` from that tree), then `scripts/agent/preprod.sh release`
 (it redeploys trunk, which now seeds). Mark Task 4 of `vps-layout-migration.md` ✅ pointing here.
 **Validate:** `preprod.sh release` prints `preprod reset to trunk`; `runs.log` has `seeded 18 jobs into applypilot_preprod`; the preprod jobs list shows 18 rows.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (PR 27 merged). `preprod.sh status` released PR 27's lock and redeployed trunk: `seeded 18 jobs into applypilot_preprod`, `preprod reset to trunk`; `/app/api/jobs` returns `total: 18`.
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.
