@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applypilot.config import CONTENT_LIBRARY_PATH, COVER_LETTER_DIR, RESUME_PATH, load_profile
-from applypilot.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
+from applypilot.database import get_connection, get_jobs_by_urls
 from applypilot.llm import LLMStopRun, get_client
 from applypilot.scoring.content_library import parse_content_library
 from applypilot.scoring.validator import (

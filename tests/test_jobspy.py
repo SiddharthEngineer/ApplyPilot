@@ -1,7 +1,6 @@
 """Tests for jobspy.py site counting and site tracker."""
 
 import pandas as pd
-import pytest
 
 from applypilot.discovery.jobspy import _SiteTracker, _site_counts, _normalize_country
 

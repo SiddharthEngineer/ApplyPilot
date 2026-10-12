@@ -24,12 +24,10 @@ from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
 from applypilot.scoring.validator import (
     BANNED_WORDS,
-    FABRICATION_WATCHLIST,
     sanitize_text,
     validate_json_fields,
     validate_provenance,
     validate_resume_model,
-    validate_tailored_resume,
 )
 
 log = logging.getLogger(__name__)
@@ -92,12 +90,10 @@ def _build_tailor_prompt(profile: dict) -> str:
 
     # Preserved entities
     companies = resume_facts.get("preserved_companies", [])
-    projects = resume_facts.get("preserved_projects", [])
     school = resume_facts.get("preserved_school", "")
     real_metrics = resume_facts.get("real_metrics", [])
 
     companies_str = ", ".join(companies) if companies else "N/A"
-    projects_str = ", ".join(projects) if projects else "N/A"
     metrics_str = ", ".join(real_metrics) if real_metrics else "N/A"
 
     # Include ALL banned words from the validator so the LLM knows exactly

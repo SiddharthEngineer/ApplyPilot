@@ -2,8 +2,6 @@
 
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 from applypilot.discovery.smartextract import (
     _is_obviously_not_jobs,
     judge_api_responses,

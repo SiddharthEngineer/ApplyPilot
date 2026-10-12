@@ -1,5 +1,5 @@
 # Plan: Code health cleanup (from the 2026-10-11 repo audit)
-**Status:** ❌ Not started
+**Status:** 🚧 In progress
 **Risk:** review (touches `pyproject.toml`, `.github/`, `scripts/validate.sh`, `scripts/agent/preprod.sh` and `src/applypilot/apply/*`; one PR on preprod, user decision 2026-10-12)
 
 ## Goal
@@ -56,7 +56,7 @@ placeholder-less f-strings into plain strings), then fix the 4 F841s as describe
 In tests, only unused imports and unused assignments change: no test function, assert or call is removed.
 If the finding list differs from the 29 in Context (trunk moved), fix whatever `--select F` reports now.
 **Validate:** `.venv/bin/ruff check --select F src tests scripts` → `All checks passed!`; `scripts/validate.sh` → ALL PASS.
-**Status:** ❌
+**Status:** ✅ 2026-10-12 (this commit)
 
 ### Task 2: Enforce pyflakes in the pinned rule set
 **Runs:** unattended

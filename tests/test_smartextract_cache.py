@@ -1,8 +1,6 @@
 """Tests for smartextract strategy cache and target deduplication (Task 4)."""
 
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 import applypilot.discovery.smartextract as se
 from applypilot.discovery.smartextract import (
@@ -11,8 +9,6 @@ from applypilot.discovery.smartextract import (
     _load_strategy_cache,
     _save_strategy_cache,
     _strategy_cache,
-    _strategy_cache_enabled,
-    _CACHE_FILE,
 )
 
 
@@ -224,7 +220,7 @@ class TestRunOneSiteCache:
         }
         mock_intel.return_value = intel2
         mock_ask.return_value = ('{"strategy":"css_selectors","reasoning":"new shape","extraction":{}}', 0.1, {"response_chars": 60})
-        r2 = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer2")
+        _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer2")
         assert mock_ask.call_count == 2  # LLM called again
 
     @patch("applypilot.discovery.smartextract._save_strategy_cache")
@@ -255,7 +251,7 @@ class TestRunOneSiteCache:
         mock_intel.return_value = intel
         mock_ask.return_value = ('{"strategy":"json_ld","reasoning":"none","extraction":{}}', 0.1, {"response_chars": 50})
 
-        r = _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
+        _run_one_site("Eluta", "https://www.eluta.ca/search?q=engineer")
         # CAPTCHA detected -> cache ignored -> LLM called
         assert mock_ask.call_count == 1
 

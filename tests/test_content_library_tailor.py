@@ -11,9 +11,7 @@ from applypilot.scoring.content_library import ContentLibrary, Project, RoleSect
 from applypilot.scoring.resume_model import TailoredResume
 from applypilot.scoring.tailor import (
     _build_content_library_judge_prompt,
-    _build_content_library_tailor_prompt,
     assemble_resume_text,
-    extract_json,
     tailor_from_content_library,
 )
 
