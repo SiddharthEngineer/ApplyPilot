@@ -174,6 +174,33 @@ def test_gate_respects_declared_review(repo):
     assert gate(repo)["tier"] == "review"
 
 
+def plan_gate(tmp_path, files: str) -> tuple[int, dict]:
+    plan = tmp_path / "p.md"
+    plan.write_text(f"# Plan\n**Risk:** low (small)\n\n### Task 1: x\n**Files:** {files}\n")
+    out = subprocess.run([sys.executable, str(AGENT / "gate.py"), str(plan), "--plan"], capture_output=True, text=True)
+    return out.returncode, json.loads(out.stdout)
+
+
+def test_gate_plan_low_listing_high_risk_file_needs_review(tmp_path):
+    code, verdict = plan_gate(tmp_path, "src/applypilot/web/tasks.py (modify), tests/test_web.py (modify)")
+    assert (code, verdict["tier"]) == (1, "review")
+    assert verdict["reasons"] == ["touches high-risk path src/applypilot/web/tasks.py"]
+
+
+def test_gate_plan_low_listing_tests_and_docs_stays_low(tmp_path):
+    code, verdict = plan_gate(tmp_path, "tests/test_x.py (new), docs/notes.md (modify), `README.md` (modify)")
+    assert (code, verdict) == (0, {"tier": "low", "reasons": []})
+
+
+def test_planned_files_strips_suffixes_across_tasks(tmp_path):
+    spec = importlib.util.spec_from_file_location("gate", AGENT / "gate.py")
+    gate_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate_mod)
+    plan = tmp_path / "p.md"
+    plan.write_text("**Files:** a.py (new), b/c.py (modify)\ntext\n**Files:** a.py (modify), `d.md` (modify)\n")
+    assert gate_mod.planned_files(plan) == ["a.py", "b/c.py", "d.md"]
+
+
 def _usage():
     spec = importlib.util.spec_from_file_location("agent_usage", AGENT / "usage.py")
     mod = importlib.util.module_from_spec(spec)
