@@ -15,7 +15,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R13 | Code health cleanup from the 2026-10-11 audit (needs `/plan` refinement first) | [code-health-cleanup](plans/code-health-cleanup.md) | low | ⏳ | none |
 | R15 | Runner follow-ups: resume the agent session after an answer, `gate.py --plan` check in `/plan` | [runner-followups](plans/runner-followups.md) | review | ⏳ | none |
 | R16 | LLM rate limits out of `.env` (packaged defaults + `~/.applypilot/llm_limits.yaml`), one `.env` per environment | [llm-limits-config](plans/llm-limits-config.md) | review | ⏳ | none |
-| R17 | Seed preprod with fake jobs on every deploy (replaces R12 Task 4) | [seed-preprod-data](plans/seed-preprod-data.md) | review | ⏳ | none (R12 Task 3 done) |
+| R17 | Seed preprod with fake jobs on every deploy (replaces R12 Task 4) | [seed-preprod-data](plans/seed-preprod-data.md) | review | 🟡 | none (R12 Task 3 done) |
 
 ## Manual steps (you)
 
