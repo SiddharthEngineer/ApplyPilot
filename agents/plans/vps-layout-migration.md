@@ -46,7 +46,7 @@ Point the build context and the `.env` mount at `../ApplyPilot-prod`, with the `
 **Files:** `scripts/seed_preprod.py` (new)
 **What:** Load a small fake job set (built from `tests/data/`, never personal data) into `applypilot_preprod`. It is run by `PREPROD_DEPLOY_CMD` on every deploy so preprod starts clean.
 **Validate:** the jobs list on preprod shows the seeded rows.
-**Status:** ❌
+**Status:** ⏸ (moved to its own unattended plan, `seed-preprod-data.md`)
 
 ### Task 5: Wire the runner to preprod and test it end to end
 **Runs:** interactive

@@ -16,6 +16,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R14 | Remove dead discovery/enrichment code (first unattended PIV smoke test) | [remove-dead-enrichment-code](plans/remove-dead-enrichment-code.md) | low (gate: review) | 🟡 | none |
 | R15 | Runner follow-ups: resume the agent session after an answer, `gate.py --plan` check in `/plan` | [runner-followups](plans/runner-followups.md) | review | ⏳ | none |
 | R16 | LLM rate limits out of `.env` (packaged defaults + `~/.applypilot/llm_limits.yaml`), one `.env` per environment | [llm-limits-config](plans/llm-limits-config.md) | review | ⏳ | none |
+| R17 | Seed preprod with fake jobs on every deploy (replaces R12 Task 4) | [seed-preprod-data](plans/seed-preprod-data.md) | review | ⏳ | none (R12 Task 3 done) |
 
 ## Manual steps (you)
 
