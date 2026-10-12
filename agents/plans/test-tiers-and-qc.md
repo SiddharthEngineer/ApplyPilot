@@ -1,6 +1,6 @@
 # Plan: Test Tiers + Morning QC
 **Started:** 2026-10-01
-**Status:** 🔄 Tasks 1-3 and 5 done; Task 4 (synthetic samples) queued for an unattended run
+**Status:** ✅ Complete (2026-10-12)
 **Risk:** low (test data and docs only)
 
 ## Goal
@@ -146,6 +146,7 @@ Task 4 (synthetic data; any time after Task 2)
 - 2026-10-02: Task 5 done (VPS session). `scripts/qc.py` (stdlib only) + `tests/test_qc_script.py` (5 tests). `python scripts/qc.py test-tiers-and-qc --skip-live --skip-llm` prints 5 criteria and exits 0. README Testing section starts with it.
 - 2026-10-02: Task 4 code done (VPS session). `scripts/capture_fixtures.py --out <dir> --scrub` writes `jobspy_<site>.json` (5 raw rows), `workday_search.json` (one CXS page) and `gemini_score_response.json` (scored against the script's fake `SAMPLE_RESUME`, so the real resume never enters the prompt). Scrubbing removes profile `personal.*` identifiers, name parts, `site_passwords`, `resume_facts` companies/projects/school, emails/phones/URLs from `resume.txt`, and every email address; description fields capped at 2,000 chars. New `tests/test_recorded_data.py`: scrubber tests always run; replay tests (JobSpy rows → `store_jobspy_results`, Workday page → `search_employer`, Gemini reply → `_parse_score_response`) skip until the samples are committed. `tests/test_filtering_smoke.py` prefers `tests/data/jobspy_*.json`. The live capture itself was blocked by this session's auto-mode permission classifier, so it stays with the user (M6).
 - 2026-10-12: Task 4 rescoped to synthetic samples written by an unattended agent; ROADMAP M6 dropped.
+- 2026-10-12: Task 4 done (unattended run). Synthetic `tests/data/jobspy_{indeed,linkedin}.json` (5 rows each, fictional companies, includes `London, UK` and `Toronto, ON, Canada`), `workday_search.json` (3 postings, `total` 3), `gemini_score_response.json` (score 7) and `tests/data/README.md`. `pytest tests/test_recorded_data.py tests/test_filtering_smoke.py -v -rs`: 32 passed, 0 skipped. No `src/` changes were needed.
 
 ## Validation
 - `scripts/validate.sh --full` → ALL PASS.
