@@ -175,6 +175,9 @@ class TestCost:
         usage = {"input_tokens": 2000, "output_tokens": 500, "cache_read_input_tokens": None}
         assert cost_usd("claude-sonnet-5-5", usage) == pytest.approx((2000 * 2.00 + 500 * 10.00) / 1e6)
 
+    def test_dated_model_id_uses_its_base_price(self):
+        assert cost_usd("claude-haiku-5-5-20261001", self.USAGE) == cost_usd("claude-haiku-5-5", self.USAGE)
+
     def test_unknown_model_uses_the_dearest_price(self, caplog):
         with caplog.at_level(logging.WARNING, logger="strelitzia.llm"):
             assert cost_usd("claude-future-9", self.USAGE) == cost_usd("claude-opus-5-5", self.USAGE)

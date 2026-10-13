@@ -188,3 +188,44 @@ def test_resume_drops_a_batch_the_api_no_longer_has(conn):
 def test_nothing_to_do(conn):
     assert run_batch("extract", [], lambda *a: None)["batches"] == 0
     assert resume_open_batches("extract", lambda *a: None)["batches"] == 0
+
+
+def test_collecting_twice_does_not_double_count(conn):
+    fake = FakeBatches()
+    client = _install(fake)
+    run_batch("extract", _items(3), lambda *a: None, poll_seconds=0)
+    # A run killed mid-collection leaves the batch 'submitted'; collecting it again must not add usage rows.
+    conn.execute("UPDATE llm_batches SET status = 'submitted'")
+    conn.commit()
+    llm_batch._collect(client, "extract", "msgbatch_0", lambda *a: None, llm_batch._new_stats(), conn)
+    assert conn.execute("SELECT COUNT(*) FROM llm_usage").fetchone()[0] == 3
+
+
+def test_open_batch_estimate_counts_against_the_budget(conn, monkeypatch):
+    monkeypatch.setenv("LLM_MONTHLY_BUDGET_USD", "1")
+    fake = FakeBatches(polls=10**9)
+    _install(fake)
+
+    def killed(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(llm_batch, "_sleep", killed)
+    with pytest.raises(KeyboardInterrupt):
+        run_batch("extract", _items(4), lambda *a: None, poll_seconds=0, estimate_usd=0.8)
+    assert llm.reserved_spend(conn) == pytest.approx(0.8)
+    with pytest.raises(llm.LLMStopRun):
+        llm.check_budget(0.3, conn)  # $0.80 reserved + $0.30 > $1
+    llm.check_budget(0.1, conn)
+
+
+def test_resume_without_waiting_leaves_running_batches(conn):
+    fake = FakeBatches(polls=10**9)
+    _install(fake)
+    conn.execute("INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count) "
+                 "VALUES ('msgbatch_x', 'extract', '2026-01-01', 'submitted', 2)")
+    conn.commit()
+    fake.results_by_id["msgbatch_x"] = []
+    stats = resume_open_batches("extract", lambda *a: None, poll_seconds=0, wait=False)
+    assert stats["still_open"] == 1 and stats["batches"] == 0
+    assert fake.retrieves == {"msgbatch_x": 1}
+    assert [b["id"] for b in open_batches("extract")] == ["msgbatch_x"]

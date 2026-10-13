@@ -254,31 +254,37 @@ def _score_batch(tally: _Tally, resume_text: str, jobs: list[dict], poll_seconds
         estimate = estimate_cost("scoring", [params for _, params in items], batch=True)
         extra["estimate_usd"] = estimate
         log.info("Scoring %d job(s) in a batch: estimated cost $%.2f (%s).", len(items), estimate, client.model)
-        check_budget(estimate)
-        run_batch("scoring", items, on_result, poll_seconds=poll_seconds)
+        check_budget(estimate, tally.conn)
+        run_batch("scoring", items, on_result, poll_seconds=poll_seconds, estimate_usd=estimate, conn=tally.conn)
     except LLMStopRun as e:
         log.warning("Scoring stopped: %s. Unscored jobs stay pending for the next run.", e)
         return e.reason
     return ""
 
 
-def _collect_open_batches(conn) -> set[str]:
-    """Save the results of scoring batches a killed run left open (matched by job_key). Returns their urls."""
+def _collect_open_batches(conn, poll_seconds: float, wait: bool) -> int:
+    """Save the results of scoring batches a killed run left open (matched by job_key). Returns how many.
+
+    A job scored since then keeps its newer score. Raises LLMStopRun if the batches can't be collected.
+    """
     tally = _Tally(conn, 0)
 
     def on_result(custom_id: str, text: str | None, error: str | None) -> None:
-        row = conn.execute("SELECT url, title FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
+        row = conn.execute("SELECT url, title, fit_score FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
         if row is None:
             log.warning("Batch result %s matches no job; skipped.", custom_id)
+            return
+        if row[2] is not None:
+            log.info("Batch result for %s skipped: scored since.", row[0])
             return
         tally.add(row[0], _result_from_reply(text) if text is not None else _error_result(error or "?"),
                   row[1] or "?")
 
-    try:
-        resume_open_batches("scoring", on_result)
-    except LLMStopRun as e:
-        log.warning("Could not collect open scoring batches: %s", e)
-    return {r["url"] for r in tally.results}
+    open_left = resume_open_batches("scoring", on_result, poll_seconds=poll_seconds, wait=wait, conn=conn)["still_open"]
+    if open_left:
+        log.warning("%d scoring batch(es) from an earlier run are still processing; a later batch run collects them.",
+                    open_left)
+    return len(tally.results)
 
 
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
@@ -305,6 +311,14 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
     extra: dict = {}
+    # Results of batches a killed run left open come first, so those jobs aren't paid for twice. A batch run waits
+    # for them; a sync or small run only takes the ones that have already ended.
+    try:
+        extra["resumed"] = _collect_open_batches(
+            conn, poll_seconds, wait=mode == "batch" and not 0 < limit <= SYNC_MAX_JOBS)
+    except LLMStopRun as e:  # scoring now could pay again for jobs in the uncollected batch
+        log.warning("Scoring stopped: could not collect open batches (%s).", e)
+        return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": e.reason}
 
     if rescore:
         query = "SELECT * FROM jobs WHERE full_description IS NOT NULL"
@@ -347,11 +361,6 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
 
     if mode == "batch" and len(jobs) <= SYNC_MAX_JOBS:
         mode = "sync"
-    if mode == "batch":
-        # Results of a batch a killed run left open come first, so those jobs aren't paid for twice.
-        resumed = _collect_open_batches(conn)
-        extra["resumed"] = len(resumed)
-        jobs = [j for j in jobs if j["url"] not in resumed]
     log.info("Scoring %d jobs (%s)...", len(jobs), mode)
     t0 = time.time()
     tally = _Tally(conn, len(jobs))

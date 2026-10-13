@@ -219,9 +219,11 @@ def _ensure_tables(conn: Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage (ts)")
     # Message Batches (strelitzia.llm_batch): status submitted -> collected (or lost, if the API no longer has it).
+    # estimate_usd counts against the monthly budget until the batch is collected.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS llm_batches ("
-        "id TEXT PRIMARY KEY, purpose TEXT, submitted_at TEXT, status TEXT, request_count INTEGER)"
+        "id TEXT PRIMARY KEY, purpose TEXT, submitted_at TEXT, status TEXT, request_count INTEGER, "
+        "estimate_usd DOUBLE PRECISION)"
     )
     conn.commit()
 

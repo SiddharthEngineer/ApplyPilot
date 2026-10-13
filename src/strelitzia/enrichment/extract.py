@@ -110,12 +110,19 @@ class _Results:
         self.conn.commit()
 
     def on_batch_result(self, custom_id: str, text: str | None, error: str | None) -> None:
-        """llm_batch callback. A batch resumed from an earlier run carries ids of jobs not in this run's list."""
+        """llm_batch callback. A batch resumed from an earlier run carries ids of jobs not in this run's list.
+
+        Those are found by job_key, and skipped if the job has been extracted since (a newer result wins).
+        """
         url = self.by_id.get(custom_id)
         if url is None:
-            row = self.conn.execute("SELECT url FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
+            row = self.conn.execute("SELECT url, extracted_at, extract_version FROM jobs WHERE job_key = ?",
+                                    (custom_id,)).fetchone()
             if row is None:
                 log.warning("Batch result %s matches no job; skipped.", custom_id)
+                return
+            if row[1] and row[2] == EXTRACT_VERSION:
+                log.info("Batch result for %s skipped: extracted since.", row[0])
                 return
             url = row[0]
         posting = None
@@ -161,8 +168,9 @@ def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: fl
         estimate = estimate_cost("extract", [params for _, params in items], batch=True)
         stats["estimate_usd"] = estimate
         log.info("Extracting %d job(s) in a batch: estimated cost $%.2f (%s).", len(jobs), estimate, client.model)
-        check_budget(estimate)
-        batch = run_batch("extract", items, results.on_batch_result, poll_seconds=poll_seconds)
+        check_budget(estimate, results.conn)
+        batch = run_batch("extract", items, results.on_batch_result, poll_seconds=poll_seconds,
+                          estimate_usd=estimate, conn=results.conn)
     except LLMStopRun as e:
         log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
         return 0, e.reason
@@ -190,20 +198,26 @@ def run_extraction(limit: int | None = None, conn=None, mode: Literal["batch", "
     conn = conn or get_connection()
     t0 = time.time()
     today = _today()
-    stats: dict = {}
-    if mode == "batch":
-        # Results of a batch a killed run left open come first, so those jobs aren't paid for twice.
-        resumed = _Results(conn, [])
-        try:
-            resume_open_batches("extract", resumed.on_batch_result, poll_seconds=poll_seconds)
-        except LLMStopRun as e:
-            log.warning("Could not collect open extraction batches: %s", e)
-        stats["resumed"] = resumed.extracted + resumed.errors
+    stats: dict = {"mode": mode}
+    # Results of batches a killed run left open come first, so those jobs aren't paid for twice. A batch run waits
+    # for them; a sync or small run only takes the ones that have already ended.
+    wait = mode == "batch" and not (limit and limit <= SYNC_MAX_JOBS)
+    resumed = _Results(conn, [])
+    try:
+        open_left = resume_open_batches("extract", resumed.on_batch_result, poll_seconds=poll_seconds, wait=wait,
+                                        conn=conn)["still_open"]
+    except LLMStopRun as e:  # submitting now could pay again for jobs in the uncollected batch
+        log.warning("Extraction stopped: could not collect open batches (%s).", e)
+        return {**stats, "extracted": 0, "errors": 0, "requests": 0, "pending_left": 0, "elapsed": 0.0,
+                "stopped": e.reason}
+    stats["resumed"] = resumed.extracted + resumed.errors
+    if open_left:
+        log.warning("%d extraction batch(es) from an earlier run are still processing; a later batch run collects "
+                    "them.", open_left)
     jobs = get_jobs_by_stage(conn=conn, stage="pending_extract", limit=limit or 0)
     if not jobs:
         log.info("No jobs pending extraction.")
-        return {**stats, "extracted": 0, "errors": 0, "requests": 0, "pending_left": 0, "elapsed": 0.0,
-                "mode": mode}
+        return {**stats, "extracted": 0, "errors": 0, "requests": 0, "pending_left": 0, "elapsed": 0.0}
 
     if mode == "batch" and len(jobs) <= SYNC_MAX_JOBS:
         mode = "sync"

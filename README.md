@@ -122,8 +122,8 @@ An override that isn't a `claude-*` model id (say, a leftover Gemini setting) is
   request after the first pays about a tenth for it.
 - **Monthly budget**: `LLM_MONTHLY_BUDGET_USD` (default 20 in `.env.example`) stops a run before month-to-date spend
   would pass it: a batch whose estimate doesn't fit isn't submitted, and sync requests stop at the limit. The stage
-  ends with `stopped: monthly LLM budget`, charges no job an attempt, and leaves the rest for later. Unset means no
-  limit.
+  ends with `stopped: monthly LLM budget`, charges no job an attempt, and leaves the rest for later. A batch counts at
+  its estimate until its results are collected. Unset or 0 means no limit.
 - **Spend tracking**: every response is recorded in the `llm_usage` table with its tokens and dollar cost.
   `strelitzia doctor` shows month-to-date spend against the budget and any batches still open.
 - **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1
