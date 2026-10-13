@@ -1,6 +1,6 @@
 # Plan: Fix CI (test reads an archived plan)
 **Status:** ✅ Done 2026-10-12 (Task 1 in 2ef2c7b, Task 2 in PR #34)
-**Risk:** low (one-line test path fix, `tests/` only)
+**Risk:** review (Task 2 edits `.github/workflows/ci.yml`, a `HIGH_RISK` path in `gate.py`)
 
 ## Goal
 The "CI" workflow on `trunk` is green again. It has been red since `f5fae69` ("archive R0, R13, R15, R16"), which moved

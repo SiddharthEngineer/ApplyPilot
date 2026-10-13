@@ -1,5 +1,5 @@
 # Plan: Strelitzia pivot (rename, drop auto-apply, bird-of-paradise theme)
-**Status:** 🟡 Code done 2026-10-12; left for the user: `.github/` edits (Task 3), preprod check, then M15/M16
+**Status:** 🟡 Code done 2026-10-12 (#33; `.github/` edits in #34 and #36); left for the user: preprod check, then M15/M16
 **Risk:** review (renames the package, CLI, env vars and data dir, deletes the apply stage, and redesigns the dashboard)
 
 ## Goal
@@ -69,7 +69,7 @@ the CLI help no longer lists `apply`.
 Don't hardcode `/home/dev/src/ApplyPilot` anywhere. Derive the repo root from the script location.
 **Validate:** `bash -n scripts/agent/*.sh`; `python3 scripts/agent/buildqueue.py list` works with only the old dirs present;
 `python3 scripts/agent/gate.py agents/plans/strelitzia-pivot.md --plan` runs.
-**Status:** 🟡 2026-10-12 (this commit): runner, inbox, usage, preprod, validate.sh and `.claude/commands` renamed with legacy fallbacks (inbox also still recognises the old comment marker). Left for the user (`.github/` is outside the agent's permissions): delete `.github/workflows/publish.yml` and point `ci.yml` at `src/strelitzia/web/static`. No script referenced `/var/log/applypilot-agent`; the migration script prints its `sudo` move.
+**Status:** ✅ 2026-10-12 (this commit): runner, inbox, usage, preprod, validate.sh and `.claude/commands` renamed with legacy fallbacks (inbox also still recognises the old comment marker). The `.github/` part (outside the agent's permissions) was done interactively: `ci.yml` points at `src/strelitzia/web/static` (#34), `publish.yml` deleted (#36). No script referenced `/var/log/applypilot-agent`; the migration script prints its `sudo` move.
 
 ### Task 4: Sunrise theme and animated Strelitzia flower
 **Runs:** unattended
