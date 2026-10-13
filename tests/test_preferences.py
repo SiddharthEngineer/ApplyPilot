@@ -37,6 +37,9 @@ SALARY_FLOOR = {"min": 100000, "currency": "USD", "period": "year"}
     ("dealbreaker", JobPosting(salary_min=40, salary_period="hour"), 0.0, True),  # 83,200
     ("dealbreaker", JobPosting(salary_min=9000, salary_period="month"), 1.0, False),
     ("dealbreaker", JobPosting(), 0.5, False),  # not listed
+    ("dealbreaker", JobPosting(salary_min=4500), 0.5, False),  # no period: monthly or yearly? unknown
+    ("dealbreaker", JobPosting(salary_min=85000), 0.0, True),  # no period, clearly yearly
+    ("dealbreaker", JobPosting(salary_min=55), 1.0, False),  # no period, clearly hourly (114,400)
     ("dealbreaker", JobPosting(salary_min=50000, salary_currency="EUR", salary_period="year"), 0.5, False),
 ])
 def test_salary(importance, posting, score, hit):

@@ -121,7 +121,8 @@ def test_put_with_confirm_queues_one_reassessment(client, conn):
         task = client.put("/app/api/preferences", json=body).json()["task"]
         again = client.put("/app/api/preferences", json=body).json()["task"]
     assert task["kind"] == "reassess_all" and task["state"] == "queued" and task["url"] is None
-    assert again is None  # already saved: nothing changed the second time
+    assert again["id"] == task["id"]  # still stale until the task runs: the queued task is reused
+    assert conn.execute("SELECT COUNT(*) FROM dashboard_tasks").fetchone()[0] == 1
     assert Preferences.from_dict(client.get("/app/api/preferences").json()["prefs"]).skills_want == ["Rust"]
 
 
@@ -200,3 +201,24 @@ def test_enqueue_checks_the_job_argument(conn):
         tasks.enqueue(conn, None, "rescore")
     with pytest.raises(ValueError):
         tasks.enqueue(conn, URLS[0], "reassess_all")
+
+
+def test_stale_jobs_can_be_reassessed_from_any_save(client, conn):
+    client.put("/app/api/preferences", json={"prefs": _prefs(client, skills_want=["Rust"])})  # without re-assessing
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        r = client.post("/app/api/preferences/preview", json={"prefs": _prefs(client, salary=SALARY_DEALBREAKER)})
+    assert r.json()["reassess_needed"] is True and r.json()["jobs_to_reassess"] == 3
+
+
+def test_preview_leaves_out_titles_the_prefilter_skips(client, conn):
+    with patch.object(scorer, "estimate_cost", return_value=0.01), \
+            patch.object(scorer, "load_search_config", return_value={}), \
+            patch.object(scorer, "load_profile", return_value={}):
+        r = client.post("/app/api/preferences/preview",
+                        json={"prefs": _prefs(client, target_roles=["Registered Nurse"])})
+    assert r.json() == {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
+
+
+def test_a_reassessment_with_some_errors_still_succeeds():
+    with patch.object(scorer, "run_scoring", return_value={"scored": 99, "errors": 1}):
+        tasks.generate_for_job(None, "reassess_all")

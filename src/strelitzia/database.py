@@ -260,6 +260,8 @@ PENDING_SCORE_WHERE = (
     "full_description IS NOT NULL AND details_json IS NOT NULL AND assessment_hash IS NULL "
     f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}"
 )
+# assessment_hash of jobs scored by the old 1-10 scorer (never equal to a current key, so they show as stale).
+LEGACY_ASSESSMENT_HASH = "0:legacy"
 # Jobs flagged by a dealbreaker or the title prefilter (fit_flags is NULL when there are none).
 UNFLAGGED_WHERE = "fit_flags IS NULL"
 # Default fit_score (0-100) a job needs before resumes and cover letters are generated for it.
@@ -407,6 +409,9 @@ def ensure_columns(conn: Connection | None = None) -> list[str]:
     if "fit_assessment" in added:
         # fit_score went from 1-10 to 0-100: keep the old order until the jobs are re-assessed.
         conn.execute("UPDATE jobs SET fit_score = fit_score * 10 WHERE fit_score IS NOT NULL")
+        # They count as stale, not pending: re-assessing them costs money, so it waits for the user's confirmation
+        # on the Preferences page.
+        conn.execute(f"UPDATE jobs SET assessment_hash = '{LEGACY_ASSESSMENT_HASH}' WHERE fit_score IS NOT NULL")
         conn.execute("UPDATE jobs SET fit_score = 0, fit_flags = '[\"prefilter\"]' "
                      "WHERE score_reasoning = 'prefilter: title not relevant'")
 
