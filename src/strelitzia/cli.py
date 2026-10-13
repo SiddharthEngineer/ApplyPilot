@@ -86,7 +86,7 @@ def run(
             "Defaults to 'all' if omitted."
         ),
     ),
-    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for tailor/cover stages."),
+    min_score: int = typer.Option(70, "--min-score", help="Minimum fit score (0-100) for tailor/cover stages."),
     workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for discovery/enrichment stages."),
     stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview stages without executing."),
@@ -119,8 +119,8 @@ def run(
     no_prefilter: bool = typer.Option(
         False,
         "--no-prefilter",
-        help="Score every job with the LLM. By default, jobs whose title shares no word with your "
-             "search queries or target role get fit_score 1 without an LLM call.",
+        help="Assess every job with the LLM. By default, jobs whose title shares no word with your "
+             "search queries or target roles are flagged 'prefilter' (fit_score 0) without an LLM call.",
     ),
     limit: int | None = typer.Option(
         None, "--limit", "-l", min=1,
@@ -298,14 +298,14 @@ def status() -> None:
         max_count = max(count for _, count in stats["score_distribution"]) or 1
         for score, count in stats["score_distribution"]:
             bar_len = int(count / max_count * 30)
-            if score >= 7:
+            if score >= 70:
                 color = "green"
-            elif score >= 5:
+            elif score >= 50:
                 color = "yellow"
             else:
                 color = "red"
             bar = f"[{color}]{'=' * bar_len}[/{color}]"
-            dist_table.add_row(str(score), str(count), bar)
+            dist_table.add_row(str(score) if score >= 100 else f"{score}-{score + 9}", str(count), bar)
 
         console.print(dist_table)
 

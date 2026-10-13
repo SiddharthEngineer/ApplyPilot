@@ -52,7 +52,7 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 |-------|-------------|
 | **1. Discover** | Searches Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
 | **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
-| **3. Score** | AI rates every job 1-10 based on your resume and preferences |
+| **3. Score** | Every job gets a 0-100 fit score: your Preferences page (salary, location, work mode, ...) scored in code, plus Claude's assessment of skills, experience and domain fit against your resume |
 | **4. Tailor** | AI writes per-job bullets from your content library and renders them through your own resume template (or rewrites `resume.txt` without a library). Every number is checked against the project facts it cites. Never fabricates |
 | **5. Cover letter** | AI writes a targeted cover letter per job, citing the same projects as that job's resume |
 | **6. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back |
@@ -266,7 +266,7 @@ strelitzia doctor                        # Verify setup, diagnose missing requir
 strelitzia run [stages...]               # Run pipeline stages (or 'all')
 strelitzia run --workers 4               # Parallel discovery/enrichment
 strelitzia run --stream                  # Concurrent stages (streaming mode)
-strelitzia run --min-score 8             # Override score threshold
+strelitzia run --min-score 80            # Override the fit score threshold (0-100, default 70)
 strelitzia run --dry-run                 # Preview without executing
 strelitzia run --source content-library  # Tailor from content_library.md (default when it exists)
 strelitzia run --source resume           # Tailor by rewriting resume.txt

@@ -113,7 +113,7 @@ the mean, all-dont_care → overall from the LLM layer only.
 - Update the `>= 7` thresholds (`database.py:463` and the others listed in Context) to `>= 70`.
 **Validate:** `pytest tests/test_assessment.py tests/test_scoring_errors.py tests/test_scoring_prefilter.py -q` → pass;
 the hash is stable across dict orderings; changing only salary prefs leaves the hash unchanged.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit). A pipeline run only assesses never-assessed jobs; stale ones wait for a confirmed `reassess` (Decision 5). `fit_flags` holds failed dealbreakers (red flags count when Red flags is a dealbreaker) and `prefilter`; flagged jobs are not tailored.
 
 ### Task 3: Preferences and rescore API
 **Runs:** unattended

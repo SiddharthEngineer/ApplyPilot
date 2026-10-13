@@ -1,4 +1,4 @@
-"""LLM scoring errors leave jobs unscored and retryable (scoring-error-recovery plan)."""
+"""LLM assessment errors leave jobs unassessed and retryable (scoring-error-recovery plan)."""
 
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +8,9 @@ import pytest
 
 from strelitzia.database import MAX_SCORE_ATTEMPTS, get_jobs_by_stage, get_stats, init_db, reset_score_errors
 from strelitzia.scoring import scorer
+from strelitzia.scoring.assessment import ASSESS_PROMPT
+from strelitzia.scoring.preferences import Preferences
+from fit_helpers import add_extracted_job, reply
 
 JOB_URL = "https://example.com/job/1"
 
@@ -15,11 +18,7 @@ JOB_URL = "https://example.com/job/1"
 @pytest.fixture
 def conn(tmp_path):
     c = init_db(tmp_path / "t.db")
-    c.execute(
-        "INSERT INTO jobs (url, title, site, location, full_description) VALUES (?, ?, ?, ?, ?)",
-        (JOB_URL, "Engineer", "indeed", "Remote", "Build things."),
-    )
-    c.commit()
+    add_extracted_job(c, JOB_URL, title="Engineer", site="indeed", location="Remote")
     return c
 
 
@@ -50,12 +49,15 @@ def _http_404(*_args, **_kwargs):
     raise anthropic.NotFoundError("model not found", response=httpx2.Response(404, request=req), body=None)
 
 
-def test_score_job_error_returns_none():
+JOB = {"title": "T", "site": "s", "full_description": "d"}
+
+
+def test_assess_job_error_returns_none():
     client = MagicMock()
     client.chat.side_effect = RuntimeError("boom")
     with patch.object(scorer, "get_client", return_value=client):
-        result = scorer.score_job("resume", {"title": "T", "site": "s", "full_description": "d"})
-    assert result["score"] is None
+        result = scorer.assess_job(Preferences(), "resume", JOB)
+    assert result["assessment"] is None
     assert result["error"] == "boom"
     assert result["reasoning"].startswith("LLM error")
 
@@ -64,8 +66,8 @@ def test_unparseable_reply_is_an_error():
     client = MagicMock()
     client.chat.return_value = "I cannot help with that."
     with patch.object(scorer, "get_client", return_value=client):
-        result = scorer.score_job("resume", {"title": "T", "site": "s", "full_description": "d"})
-    assert result["score"] is None
+        result = scorer.assess_job(Preferences(), "resume", JOB)
+    assert result["assessment"] is None
     assert "unparseable" in result["reasoning"]
 
 
@@ -92,18 +94,18 @@ def test_retries_stop_after_max_attempts(conn, resume):
 
 
 def test_success_stores_integer_score(conn, resume):
-    _run(conn, resume, lambda *a, **k: '{"score": 8, "keywords": "python, sql", "reasoning": "Good match."}')
+    _run(conn, resume, lambda *a, **k: reply(skills=5, summary="Good match."))
     fit_score, reasoning, scored_at, attempts = _row(conn)
-    assert fit_score == 8 and isinstance(fit_score, int)
-    assert "Good match." in reasoning
+    assert fit_score == 100 and isinstance(fit_score, int)  # default preferences: only skills (5/5) counts
+    assert "Good match." in reasoning and reasoning.startswith("SQL, Python")
     assert scored_at is not None
     assert attempts == 0
 
 
 def test_success_after_error(conn, resume):
     _run(conn, resume, RuntimeError("flaky"))
-    _run(conn, resume, lambda *a, **k: '{"score": 5, "keywords": "x", "reasoning": "Okay."}')
-    assert _row(conn)[0] == 5
+    _run(conn, resume, lambda *a, **k: reply(skills=3))
+    assert _row(conn)[0] == 50
 
 
 def test_reset_score_errors(tmp_path):
@@ -117,10 +119,11 @@ def test_reset_score_errors(tmp_path):
         ("https://e.com/3", 7, "python\nGood fit.", "2026-08-27", 0),
     ]
     c.executemany(
-        "INSERT INTO jobs (url, full_description, fit_score, score_reasoning, scored_at, score_attempts) "
-        "VALUES (?, 'desc', ?, ?, ?, ?)",
+        "INSERT INTO jobs (url, full_description, details_json, fit_score, score_reasoning, scored_at, "
+        "score_attempts) VALUES (?, 'desc', '{}', ?, ?, ?, ?)",
         rows,
     )
+    c.execute("UPDATE jobs SET assessment_hash = '1:h' WHERE url = 'https://e.com/3'")
     c.commit()
 
     assert reset_score_errors(c) == 2
@@ -151,12 +154,9 @@ def test_cli_reset_errors(tmp_path):
 def test_each_score_is_saved_before_the_next_call(tmp_path, resume):
     """A crash mid-run keeps the scores already returned (they're committed per call)."""
     c = init_db(tmp_path / "per_call.db")
-    c.executemany(
-        "INSERT INTO jobs (url, title, site, location, full_description) VALUES (?, 'Engineer', 'indeed', 'Remote', 'd')",
-        [("https://example.com/a",), ("https://example.com/b",)],
-    )
-    c.commit()
-    replies = iter(['{"score": 8, "keywords": "k", "reasoning": "r"}'])
+    add_extracted_job(c, "https://example.com/a")
+    add_extracted_job(c, "https://example.com/b")
+    replies = iter([reply(skills=4)])
 
     def chat(*_a, **_k):
         try:
@@ -167,7 +167,7 @@ def test_each_score_is_saved_before_the_next_call(tmp_path, resume):
     with pytest.raises(KeyboardInterrupt):
         _run(c, resume, chat)
     scores = dict(c.execute("SELECT url, fit_score FROM jobs").fetchall())
-    assert sorted(scores.values(), key=lambda v: (v is None, v)) == [8, None]
+    assert sorted(scores.values(), key=lambda v: (v is None, v)) == [75, None]
 
 
 # ── Batch mode ───────────────────────────────────────────────────────────
@@ -178,9 +178,8 @@ BATCH_URLS = [f"https://example.com/batch/{i}" for i in range(8)]
 @pytest.fixture
 def batch_conn(tmp_path):
     c = init_db(tmp_path / "b.db")
-    c.executemany("INSERT INTO jobs (url, title, site, full_description) VALUES (?, 'Engineer', 'acme', 'd')",
-                  [(u,) for u in BATCH_URLS])
-    c.commit()
+    for u in BATCH_URLS:
+        add_extracted_job(c, u)
     from strelitzia.database import backfill_job_keys
     backfill_job_keys(c)
     return c
@@ -231,17 +230,17 @@ def _score_of(conn, url):
 
 def test_batch_scores_every_job_by_custom_id(batch_conn, resume):
     from strelitzia.database import job_key
-    scores = {job_key(u): 1 + i for i, u in enumerate(BATCH_URLS)}
-    stats, items, budget = _run_batch_mode(
-        batch_conn, resume, lambda cid: (f'{{"score": {scores[cid]}, "keywords": "", "reasoning": "r"}}', None))
+    skills = {job_key(u): 1 + i % 5 for i, u in enumerate(BATCH_URLS)}
+    stats, items, budget = _run_batch_mode(batch_conn, resume, lambda cid: (reply(skills=skills[cid]), None))
     assert stats["mode"] == "batch" and stats["scored"] == 8 and stats["estimate_usd"] == 0.04
     assert budget.call_args.args[0] == 0.04
     assert budget.seen["estimate_usd"] == 0.04 and budget.seen["wait"] is True  # reserved against the budget
-    assert [_score_of(batch_conn, u)[0] for u in BATCH_URLS] == list(range(1, 9))
+    assert [_score_of(batch_conn, u)[0] for u in BATCH_URLS] == [0, 25, 50, 75, 100, 0, 25, 50]
     params = items[0][1]
-    assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
-    assert "Test resume" in params["system"][0]["text"]
-    assert params["output_config"]["format"]["schema"] == scorer.SCORE_SCHEMA
+    assert [b["cache_control"] for b in params["system"]] == [{"type": "ephemeral"}] * 2
+    assert params["system"][0]["text"] == ASSESS_PROMPT
+    assert "Test resume" in params["system"][1]["text"]
+    assert params["output_config"]["format"]["schema"] == scorer.ASSESS_SCHEMA
 
 
 def test_batch_errors_count_an_attempt(batch_conn, resume):
@@ -259,15 +258,18 @@ def test_batch_budget_stop_submits_nothing(batch_conn, resume):
 
 
 def test_open_batches_are_collected_first(batch_conn, resume):
-    batch_conn.execute("UPDATE jobs SET fit_score = 4 WHERE url = ?", (BATCH_URLS[1],))  # scored since
+    from strelitzia.scoring.assessment import assessment_key
+    from strelitzia.scoring.preferences import Preferences
+    key = assessment_key(Preferences(), "Test resume")
+    batch_conn.execute("UPDATE jobs SET fit_score = 40, assessment_hash = ? WHERE url = ?",
+                       (key, BATCH_URLS[1]))  # assessed since, with the current inputs
     batch_conn.commit()
     stats, items, _ = _run_batch_mode(
-        batch_conn, resume, lambda cid: ('{"score": 6, "keywords": "", "reasoning": "r"}', None),
-        resumed={BATCH_URLS[0]: '{"score": 9, "keywords": "", "reasoning": "old run"}',
-                 BATCH_URLS[1]: '{"score": 9, "keywords": "", "reasoning": "stale"}'})
+        batch_conn, resume, lambda cid: (reply(skills=3), None),
+        resumed={BATCH_URLS[0]: reply(skills=5), BATCH_URLS[1]: reply(skills=1)})
     assert stats["resumed"] == 1 and len(items) == 6
-    assert _score_of(batch_conn, BATCH_URLS[0])[0] == 9
-    assert _score_of(batch_conn, BATCH_URLS[1])[0] == 4  # the newer score wins
+    assert _score_of(batch_conn, BATCH_URLS[0])[0] == 100
+    assert _score_of(batch_conn, BATCH_URLS[1])[0] == 40  # the newer assessment wins
 
 
 def test_a_failed_resume_stops_before_paying_again(batch_conn, resume):
@@ -279,11 +281,11 @@ def test_a_failed_resume_stops_before_paying_again(batch_conn, resume):
 
 def test_sync_runs_collect_only_ended_batches(conn, resume):
     client = MagicMock()
-    client.chat.return_value = '{"score": 5, "keywords": "x", "reasoning": "Okay."}'
+    client.chat.return_value = reply(skills=3)
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client), \
             patch.object(scorer, "resume_open_batches", return_value={"still_open": 1}) as resume_batches:
         assert scorer.run_scoring(prefilter=False, mode="sync")["mode"] == "sync"
     assert resume_batches.call_args.kwargs["wait"] is False
-    assert _row(conn)[0] == 5
+    assert _row(conn)[0] == 50

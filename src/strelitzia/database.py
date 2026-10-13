@@ -252,11 +252,18 @@ def backfill_job_keys(conn: Connection | None = None) -> int:
 # Complete column registry: column_name -> SQL type with optional default.
 # This is the single source of truth. Adding a column here is all that's needed
 # for it to appear in both new databases and migrated ones.
-# Jobs a scoring run should pick up: described, unscored, and not given up on after repeated LLM errors.
+# Jobs a scoring run should pick up: extracted, never assessed, and not given up on after repeated LLM errors.
+# Jobs whose assessment is stale (the resume or the assessment inputs changed) are only re-assessed on request
+# (`run_scoring(reassess=True)`), since that costs money.
 MAX_SCORE_ATTEMPTS = 3
 PENDING_SCORE_WHERE = (
-    f"full_description IS NOT NULL AND fit_score IS NULL AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}"
+    "full_description IS NOT NULL AND details_json IS NOT NULL AND assessment_hash IS NULL "
+    f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}"
 )
+# Jobs flagged by a dealbreaker or the title prefilter (fit_flags is NULL when there are none).
+UNFLAGGED_WHERE = "fit_flags IS NULL"
+# Default fit_score (0-100) a job needs before resumes and cover letters are generated for it.
+DEFAULT_MIN_SCORE = 70
 
 # Jobs an extract run should pick up: described, not yet extracted at the current EXTRACT_VERSION,
 # and not given up on after repeated failures.
@@ -303,11 +310,16 @@ _ALL_COLUMNS: dict[str, str] = {
     "extract_error": "TEXT",
     "extract_version": "INTEGER",
     "category_source": "TEXT",  # 'llm' or 'heuristic'
-    # Scoring
+    # Scoring (scoring/assessment.py): fit_score 0-100 from the preferences and the Claude assessment
     "fit_score": "INTEGER",
     "score_reasoning": "TEXT",
     "scored_at": "TEXT",
     "score_attempts": "INTEGER DEFAULT 0",
+    "fit_assessment": "TEXT",  # JSON: the rubric's ratings, red flags and summary
+    "assessment_hash": "TEXT",  # "<ASSESS_VERSION>:<sha256 of the assessment inputs>" it was made with
+    "assessed_at": "TEXT",
+    "fit_breakdown": "TEXT",  # JSON list of the scored components
+    "fit_flags": "TEXT",  # JSON list of failed dealbreakers (and "prefilter"); NULL when none
     # Tailoring
     "tailored_resume_path": "TEXT",
     "tailored_at": "TEXT",
@@ -392,6 +404,12 @@ def ensure_columns(conn: Connection | None = None) -> list[str]:
             "AND (strategy = 'workday_api' OR strategy LIKE 'ats_%')"
         )
 
+    if "fit_assessment" in added:
+        # fit_score went from 1-10 to 0-100: keep the old order until the jobs are re-assessed.
+        conn.execute("UPDATE jobs SET fit_score = fit_score * 10 WHERE fit_score IS NOT NULL")
+        conn.execute("UPDATE jobs SET fit_score = 0, fit_flags = '[\"prefilter\"]' "
+                     "WHERE score_reasoning = 'prefilter: title not relevant'")
+
     if added:
         conn.commit()
 
@@ -466,10 +484,10 @@ def get_stats(conn: Connection | None = None) -> dict:
     ).fetchone()[0]
 
     # Score distribution
-    dist_rows = conn.execute(
-        "SELECT fit_score, COUNT(*) as cnt FROM jobs "
+    dist_rows = conn.execute(  # fit_score is 0-100: bands of ten (70 = 70-79; 100 is its own band)
+        "SELECT (fit_score / 10) * 10 AS band, COUNT(*) as cnt FROM jobs "
         "WHERE fit_score IS NOT NULL "
-        "GROUP BY fit_score ORDER BY fit_score DESC"
+        "GROUP BY band ORDER BY band DESC"
     ).fetchall()
     stats["score_distribution"] = [(row[0], row[1]) for row in dist_rows]
 
@@ -480,7 +498,7 @@ def get_stats(conn: Connection | None = None) -> dict:
 
     stats["untailored_eligible"] = conn.execute(
         "SELECT COUNT(*) FROM jobs "
-        "WHERE fit_score >= 7 AND full_description IS NOT NULL "
+        f"WHERE fit_score >= {DEFAULT_MIN_SCORE} AND {UNFLAGGED_WHERE} AND full_description IS NOT NULL "
         "AND tailored_resume_path IS NULL"
     ).fetchone()[0]
 
@@ -581,7 +599,7 @@ def get_jobs_by_stage(conn: Connection | None = None,
         "pending_score": PENDING_SCORE_WHERE,
         "scored": "fit_score IS NOT NULL",
         "pending_tailor": (
-            "fit_score >= ? AND full_description IS NOT NULL "
+            f"fit_score >= ? AND {UNFLAGGED_WHERE} AND full_description IS NOT NULL "
             "AND tailored_resume_path IS NULL AND COALESCE(tailor_attempts, 0) < 5"
         ),
         "tailored": "tailored_resume_path IS NOT NULL",
@@ -598,7 +616,7 @@ def get_jobs_by_stage(conn: Connection | None = None,
     if "?" in where and min_score is not None:
         params.append(min_score)
     elif "?" in where:
-        params.append(7)  # default min_score
+        params.append(DEFAULT_MIN_SCORE)
 
     if min_score is not None and "fit_score" not in where and stage in ("scored", "tailored", "applied"):
         where += " AND fit_score >= ?"

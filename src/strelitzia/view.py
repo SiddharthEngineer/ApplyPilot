@@ -45,16 +45,17 @@ def generate_dashboard(output_path: str | None = None) -> str:
         "SELECT COUNT(*) FROM jobs WHERE fit_score IS NOT NULL"
     ).fetchone()[0]
     high_fit = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE fit_score >= 7"
+        "SELECT COUNT(*) FROM jobs WHERE fit_score >= 70 AND fit_flags IS NULL"
     ).fetchone()[0]
 
     # Score distribution
     score_dist: dict[int, int] = {}
     if scored:
         rows = conn.execute(
-            "SELECT fit_score, COUNT(*) FROM jobs "
+            # fit_score is 0-100; the report groups it in bands of ten (band 7 = 70-79).
+            "SELECT fit_score / 10 AS band, COUNT(*) FROM jobs "
             "WHERE fit_score IS NOT NULL "
-            "GROUP BY fit_score ORDER BY fit_score DESC"
+            "GROUP BY band ORDER BY band DESC"
         ).fetchall()
         for r in rows:
             score_dist[r[0]] = r[1]
@@ -63,21 +64,21 @@ def generate_dashboard(output_path: str | None = None) -> str:
     site_stats = conn.execute("""
         SELECT site,
                COUNT(*) as total,
-               SUM(CASE WHEN fit_score >= 7 THEN 1 ELSE 0 END) as high_fit,
-               SUM(CASE WHEN fit_score BETWEEN 5 AND 6 THEN 1 ELSE 0 END) as mid_fit,
-               SUM(CASE WHEN fit_score < 5 AND fit_score IS NOT NULL THEN 1 ELSE 0 END) as low_fit,
+               SUM(CASE WHEN fit_score >= 70 THEN 1 ELSE 0 END) as high_fit,
+               SUM(CASE WHEN fit_score BETWEEN 50 AND 69 THEN 1 ELSE 0 END) as mid_fit,
+               SUM(CASE WHEN fit_score < 50 AND fit_score IS NOT NULL THEN 1 ELSE 0 END) as low_fit,
                SUM(CASE WHEN fit_score IS NULL THEN 1 ELSE 0 END) as unscored,
-               ROUND(AVG(fit_score), 1) as avg_score
+               ROUND(AVG(fit_score), 0) as avg_score
         FROM jobs GROUP BY site ORDER BY high_fit DESC, total DESC
     """).fetchall()
 
-    # All scored jobs (5+), ordered by score desc
+    # All scored jobs (50+) not flagged by a dealbreaker, ordered by score desc
     jobs = conn.execute("""
         SELECT url, title, salary, description, location, site, strategy,
                full_description, application_url, detail_error,
-               fit_score, score_reasoning
+               fit_score, fit_score / 10 AS band, score_reasoning
         FROM jobs
-        WHERE fit_score >= 5
+        WHERE fit_score >= 50 AND fit_flags IS NULL
         ORDER BY fit_score DESC, site, title
     """).fetchall()
 
@@ -100,7 +101,7 @@ def generate_dashboard(output_path: str | None = None) -> str:
         score_color = "#10b981" if s >= 7 else ("#f59e0b" if s >= 5 else "#ef4444")
         score_bars += f"""
         <div class="score-row">
-          <span class="score-label">{s}</span>
+          <span class="score-label">{s * 10}</span>
           <div class="score-bar-track">
             <div class="score-bar-fill" style="width:{pct}%;background:{score_color}"></div>
           </div>
@@ -127,7 +128,7 @@ def generate_dashboard(output_path: str | None = None) -> str:
     job_sections = ""
     current_score = None
     for j in jobs:
-        score = j["fit_score"] or 0
+        score = j["band"] or 0
         if score != current_score:
             if current_score is not None:
                 job_sections += "</div>"
@@ -135,11 +136,11 @@ def generate_dashboard(output_path: str | None = None) -> str:
             score_label = {
                 10: "Perfect Match", 9: "Excellent Fit", 8: "Strong Fit",
                 7: "Good Fit", 6: "Moderate+", 5: "Moderate",
-            }.get(score, f"Score {score}")
+            }.get(score, f"Score {score * 10}+")
             count_at_score = score_dist.get(score, 0)
             job_sections += f"""
             <h2 class="score-header" style="border-color:{score_color}">
-              <span class="score-badge" style="background:{score_color}">{score}</span>
+              <span class="score-badge" style="background:{score_color}">{score * 10}</span>
               {score_label} ({count_at_score} jobs)
             </h2>
             <div class="job-grid">"""
@@ -180,7 +181,7 @@ def generate_dashboard(output_path: str | None = None) -> str:
         job_sections += f"""
         <div class="job-card" data-score="{score}" data-site="{escape(j['site'] or '')}" data-location="{location.lower()}">
           <div class="card-header">
-            <span class="score-pill" style="background:{'#10b981' if score >= 7 else '#f59e0b'}">{score}</span>
+            <span class="score-pill" style="background:{'#10b981' if score >= 7 else '#f59e0b'}">{j["fit_score"]}</span>
             <a href="{url}" class="job-title" target="_blank">{title}</a>
           </div>
           <div class="meta-row">{meta_html}</div>
@@ -312,10 +313,10 @@ def generate_dashboard(output_path: str | None = None) -> str:
 
 <div class="filters">
   <span class="filter-label">Score:</span>
-  <button class="filter-btn active" onclick="filterScore(0)">All 5+</button>
-  <button class="filter-btn" onclick="filterScore(7)">7+ Strong</button>
-  <button class="filter-btn" onclick="filterScore(8)">8+ Excellent</button>
-  <button class="filter-btn" onclick="filterScore(9)">9+ Perfect</button>
+  <button class="filter-btn active" onclick="filterScore(0)">All 50+</button>
+  <button class="filter-btn" onclick="filterScore(7)">70+ Strong</button>
+  <button class="filter-btn" onclick="filterScore(8)">80+ Excellent</button>
+  <button class="filter-btn" onclick="filterScore(9)">90+ Perfect</button>
   <span class="filter-label" style="margin-left:1rem">Search:</span>
   <input type="text" class="search-input" placeholder="Filter by title, site..." oninput="filterText(this.value)">
 </div>

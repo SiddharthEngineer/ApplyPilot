@@ -6,6 +6,8 @@ import pytest
 
 from strelitzia.database import init_db
 from strelitzia.scoring import scorer
+from strelitzia.scoring.preferences import Preferences, save_preferences
+from fit_helpers import add_extracted_job, reply
 
 JOBS = {
     "https://example.com/de": "Senior Data Engineer",
@@ -17,8 +19,7 @@ JOBS = {
 def conn(tmp_path):
     c = init_db(tmp_path / "t.db")
     for url, title in JOBS.items():
-        c.execute("INSERT INTO jobs (url, title, site, full_description) VALUES (?, ?, 'acme', 'desc')", (url, title))
-    c.commit()
+        add_extracted_job(c, url, title=title)
     return c
 
 
@@ -26,7 +27,7 @@ def _run(conn, tmp_path, **kwargs):
     resume = tmp_path / "resume.txt"
     resume.write_text("resume")
     client = MagicMock()
-    client.chat.return_value = '{"score": 7, "keywords": "sql", "reasoning": "ok"}'
+    client.chat.return_value = reply(skills=4)
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client), \
@@ -37,7 +38,8 @@ def _run(conn, tmp_path, **kwargs):
 
 
 def _score(conn, url):
-    return tuple(conn.execute("SELECT fit_score, score_reasoning FROM jobs WHERE url = ?", (url,)).fetchone())
+    return tuple(conn.execute("SELECT fit_score, score_reasoning, fit_flags FROM jobs WHERE url = ?",
+                              (url,)).fetchone())
 
 
 def test_tokens_drop_seniority_and_stopwords():
@@ -49,8 +51,8 @@ def test_relevant_title_passes_and_nurse_is_filtered(conn, tmp_path, caplog):
     with caplog.at_level("INFO", logger="strelitzia.scoring.scorer"):
         stats, client = _run(conn, tmp_path)
     assert client.chat.call_count == 1  # only the Data Engineer job reached the LLM
-    assert _score(conn, "https://example.com/de")[0] == 7
-    assert _score(conn, "https://example.com/rn") == (1, scorer.PREFILTER_REASONING)
+    assert _score(conn, "https://example.com/de")[0] == 75
+    assert _score(conn, "https://example.com/rn") == (0, scorer.PREFILTER_REASONING, '["prefilter"]')
     assert stats["prefiltered"] == 1 and stats["scored"] == 1
     assert "prefilter skipped 1/2 jobs" in caplog.text
 
@@ -58,7 +60,7 @@ def test_relevant_title_passes_and_nurse_is_filtered(conn, tmp_path, caplog):
 def test_no_prefilter_scores_both(conn, tmp_path):
     stats, client = _run(conn, tmp_path, prefilter=False)
     assert client.chat.call_count == 2
-    assert _score(conn, "https://example.com/rn")[0] == 7
+    assert _score(conn, "https://example.com/rn")[:3:2] == (75, None)
     assert stats["prefiltered"] == 0
 
 
@@ -88,12 +90,12 @@ def test_limit_caps_llm_calls_after_prefilter(tmp_path):
     rows = [("https://example.com/rn", "Registered Nurse")] + [
         (f"https://example.com/de{i}", "Data Engineer") for i in range(5)
     ]
-    c.executemany("INSERT INTO jobs (url, title, site, full_description) VALUES (?, ?, 'acme', 'desc')", rows)
-    c.commit()
+    for url, title in rows:
+        add_extracted_job(c, url, title=title)
     stats, client = _run(c, tmp_path, limit=2)
     assert client.chat.call_count == 2
     assert stats["scored"] == 2 and stats["prefiltered"] == 1  # the prefilter still covers every pending job
-    assert c.execute("SELECT COUNT(*) FROM jobs WHERE fit_score IS NULL").fetchone()[0] == 3
+    assert c.execute("SELECT COUNT(*) FROM jobs WHERE assessment_hash IS NULL").fetchone()[0] == 3
 
 
 def test_limit_reaches_scoring():
@@ -122,3 +124,16 @@ def test_sync_flag_reaches_score_and_extract():
         result = CliRunner().invoke(app, ["run", "extract", "--limit", "3", "--sync"])
     assert result.exit_code == 0, result.output
     assert rp.call_args.kwargs["sync"] is True and rp.call_args.kwargs["limit"] == 3
+
+
+def test_preferences_target_roles_count(conn, tmp_path):
+    prefs = Preferences(target_roles=["Registered Nurse"])
+    save_preferences(conn, prefs)
+    stats, client = _run(conn, tmp_path)
+    assert stats["prefiltered"] == 0 and client.chat.call_count == 2
+
+
+def test_a_prefiltered_job_is_not_picked_up_again(conn, tmp_path):
+    _run(conn, tmp_path)
+    stats, client = _run(conn, tmp_path)
+    assert client.chat.call_count == 0 and stats["scored"] == 0

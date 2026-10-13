@@ -337,11 +337,11 @@ class LLMClient:
         schema: dict | None = None,
         effort: str | None = None,
     ) -> dict:
-        """Messages API params for `messages` (role/content dicts; "system" entries become one cached system block).
+        """Messages API params for `messages` (role/content dicts; each "system" entry becomes a cached system block).
 
         Used as-is by `chat()` and as the `params` of a Message Batches request.
         """
-        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        system = [m["content"] for m in messages if m["role"] == "system"]
         turns = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
         output_config: dict = {"effort": effort or self.effort}
         if schema is not None:
@@ -353,7 +353,9 @@ class LLMClient:
             "output_config": output_config,
         }
         if system:
-            params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            # A breakpoint per block: the first ones (a fixed rubric) stay cached when a later one (a resume) changes.
+            params["system"] = [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}
+                                for text in system]
         return params
 
     def chat(

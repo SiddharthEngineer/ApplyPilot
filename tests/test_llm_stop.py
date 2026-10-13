@@ -9,6 +9,7 @@ from strelitzia.database import init_db
 from strelitzia.discovery import smartextract
 from strelitzia.llm import LLMStopRun
 from strelitzia.scoring import cover_letter, scorer, tailor
+from fit_helpers import add_extracted_job, reply
 
 URLS = [f"https://example.com/job/{i}" for i in range(3)]
 STOP = LLMStopRun("budget", "monthly LLM budget used up")
@@ -18,12 +19,7 @@ STOP = LLMStopRun("budget", "monthly LLM budget used up")
 def conn(tmp_path):
     c = init_db(tmp_path / "t.db")
     for url in URLS:
-        c.execute(
-            "INSERT INTO jobs (url, title, site, location, full_description, fit_score, tailored_resume_path) "
-            "VALUES (?, 'Data Engineer', 'indeed', 'Remote', 'Build pipelines.', NULL, NULL)",
-            (url,),
-        )
-    c.commit()
+        add_extracted_job(c, url, site="indeed", location="Remote")
     return c
 
 
@@ -54,7 +50,7 @@ def test_scoring_stops_after_one_request(conn, resume):
 
 def test_scoring_keeps_scores_before_the_stop(conn, resume):
     client = MagicMock()
-    client.chat.side_effect = ['{"score": 8, "keywords": "sql", "reasoning": "good"}', STOP]
+    client.chat.side_effect = [reply(skills=4), STOP]
     with patch.object(scorer, "get_connection", return_value=conn), \
             patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client):
@@ -62,7 +58,7 @@ def test_scoring_keeps_scores_before_the_stop(conn, resume):
     assert client.chat.call_count == 2
     assert stats["scored"] == 1 and stats["stopped"] == "budget"
     scores = sorted(r[0] for r in _rows(conn, "fit_score") if r[0] is not None)
-    assert scores == [8]
+    assert scores == [75]
     assert [r[0] for r in _rows(conn, "score_attempts")] == [0, 0, 0]
 
 

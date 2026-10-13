@@ -112,9 +112,9 @@ def build_jobs(postings_dir: Path, now: datetime) -> list[dict]:
             row.update(full_description=job["full_description"], application_url=job["url"],
                        detail_scraped_at=at(0.1))
         if level >= STAGES.index("scored"):
-            score = 3 + (i * 7) % 8  # 3..10
+            score = 30 + (i * 7) % 8 * 10  # 30..100
             row.update(fit_score=score, scored_at=at(0.2),
-                       score_reasoning=f"Seeded score {score}/10: a fake assessment of how well the profile fits.")
+                       score_reasoning=f"Seeded score {score}/100: a fake assessment of how well the profile fits.")
         if level >= STAGES.index("tailored"):
             row.update(tailored_at=at(0.3))  # no files exist, so the paths stay NULL
         if level >= STAGES.index("covered"):
