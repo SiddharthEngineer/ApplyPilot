@@ -8,7 +8,10 @@ const KIND_LABELS: Record<Task['kind'], string> = {
   resume: 'resume',
   cover: 'cover letter',
   both: 'resume and cover letter',
+  rescore: 'assessment',
+  reassess_all: 're-assessment of your jobs',
 };
+const ASSESS_KINDS: Task['kind'][] = ['rescore', 'reassess_all'];
 
 function elapsed(from: string | null, to?: string | null): string {
   if (!from) return '';
@@ -18,7 +21,7 @@ function elapsed(from: string | null, to?: string | null): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-/** Polls a generation task every POLL_MS until it's done or failed, then calls onFinish once. */
+/** Polls a dashboard task every POLL_MS until it's done or failed, then calls onFinish once. */
 export default function TaskProgress({ task: initial, onFinish }: { task: Task; onFinish: (task: Task) => void }) {
   const [task, setTask] = useState(initial);
   const finished = useRef(false);
@@ -52,15 +55,16 @@ export default function TaskProgress({ task: initial, onFinish }: { task: Task; 
   }, [initial]);
 
   const what = KIND_LABELS[task.kind];
+  const assess = ASSESS_KINDS.includes(task.kind);
   let text: string;
   let cls = 'progress';
   if (task.state === 'queued') text = `Queued: ${what}…`;
-  else if (task.state === 'running') text = `Generating ${what}… ${elapsed(task.started_at)}`;
+  else if (task.state === 'running') text = `${assess ? 'Running' : 'Generating'} ${what}… ${elapsed(task.started_at)}`;
   else if (task.state === 'done') {
-    text = `Generated ${what} in ${elapsed(task.started_at, task.finished_at)}.`;
+    text = `${assess ? 'Finished' : 'Generated'} ${what} in ${elapsed(task.started_at, task.finished_at)}.`;
     cls += ' ok';
   } else {
-    text = `Couldn't generate the ${what}: ${task.error ?? 'unknown error'}`;
+    text = `Couldn't ${assess ? 'finish' : 'generate'} the ${what}: ${task.error ?? 'unknown error'}`;
     cls += ' error';
   }
   return (

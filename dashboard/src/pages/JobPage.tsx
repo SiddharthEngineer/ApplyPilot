@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import ActionBar from '../components/ActionBar';
+import FitBreakdown from '../components/FitBreakdown';
 import Flower from '../components/Flower';
 import StatusBadge from '../components/StatusBadge';
 import TaskProgress from '../components/TaskProgress';
@@ -127,13 +128,16 @@ export default function JobPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [task, setTask] = useState<Task | null>(null); // the latest generation task for this job
+  const [rescoreTask, setRescoreTask] = useState<Task | null>(null); // a rescore still queued or running
   const [notes, setNotes] = useState('');
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const [detail, tasks] = await Promise.all([api.getJob(key, signal), api.listJobTasks(key, signal)]);
     setJob(detail);
     setNotes(detail.notes ?? '');
-    setTask(tasks[0] ?? null);
+    setTask(tasks.find((t) => t.kind !== 'rescore') ?? null);
+    const rescoring = tasks.find((t) => t.kind === 'rescore');
+    setRescoreTask(rescoring && (rescoring.state === 'queued' || rescoring.state === 'running') ? rescoring : null);
   }, [key]);
 
   useEffect(() => {
@@ -166,6 +170,14 @@ export default function JobPage() {
       return api.getJob(key); // the job is now In progress
     });
   const onStatus = (status: UserStatus | null, submittedAt?: string) => act(() => api.setStatus(key, status, submittedAt));
+  const onRescore = () =>
+    act(async () => {
+      setRescoreTask(await api.rescore(key));
+    });
+  const onRescoreFinish = useCallback((t: Task) => {
+    setRescoreTask(t);
+    api.getJob(key).then((d) => setJob(d)).catch(() => {}); // the new breakdown
+  }, [key]);
   const onTaskFinish = useCallback((t: Task) => {
     setTask(t);
     api.getJob(key).then((d) => setJob(d)).catch(() => {}); // new Drive links
@@ -206,12 +218,11 @@ export default function JobPage() {
         </div>
       </header>
 
-      {job.fit_score != null && (
-        <details className="fit">
-          <summary>Fit score <strong>{job.fit_score}</strong>/10</summary>
-          <p className="pre">{job.score_reasoning || 'No reasoning recorded.'}</p>
-        </details>
+      {(d || job.fit_score != null) && (
+        <FitBreakdown job={job} onRescore={onRescore}
+          busy={busy || rescoreTask?.state === 'queued' || rescoreTask?.state === 'running'} />
       )}
+      {rescoreTask && <TaskProgress task={rescoreTask} onFinish={onRescoreFinish} />}
       <LinkRow job={job} />
 
       <ActionBar job={job} generating={generating} busy={busy} onGenerate={onGenerate} onStatus={onStatus} />

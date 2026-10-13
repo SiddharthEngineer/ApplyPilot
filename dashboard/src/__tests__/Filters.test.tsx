@@ -69,15 +69,15 @@ describe('Filters', () => {
     const { user, search } = renderFilters();
     await user.type(screen.getByLabelText('Found from'), '2026-10-01');
     await user.type(screen.getByLabelText('Due to'), '2026-12-31');
-    await user.selectOptions(screen.getByLabelText('Fit score min'), '7');
-    await user.selectOptions(screen.getByLabelText('Fit score max'), '9');
-    expect(search()).toBe('?found_from=2026-10-01&due_to=2026-12-31&score_min=7&score_max=9');
+    await user.selectOptions(screen.getByLabelText('Fit score min'), '70');
+    await user.selectOptions(screen.getByLabelText('Fit score max'), '90');
+    expect(search()).toBe('?found_from=2026-10-01&due_to=2026-12-31&score_min=70&score_max=90');
   });
 
   it('restores every control from the URL, and Clear keeps only the sort', async () => {
     const url =
       '/?status=submitted&role=data_science&work_mode=remote&location=Chicago&found_from=2026-10-01&found_to=2026-10-04' +
-      '&due_from=2026-10-10&due_to=2026-11-01&score_min=6&score_max=9&q=acme&sort=fit_score&page=3';
+      '&due_from=2026-10-10&due_to=2026-11-01&score_min=60&score_max=90&q=acme&hide_flagged=false&sort=fit_score&page=3';
     const { user, search } = renderFilters(url);
     expect(within(screen.getByRole('group', { name: 'Status' })).getByRole('button', { name: /Submitted/ }))
       .toHaveAttribute('aria-pressed', 'true');
@@ -90,13 +90,26 @@ describe('Filters', () => {
     expect(screen.getByLabelText('Found to')).toHaveValue('2026-10-04');
     expect(screen.getByLabelText('Due from')).toHaveValue('2026-10-10');
     expect(screen.getByLabelText('Due to')).toHaveValue('2026-11-01');
-    expect(screen.getByLabelText('Fit score min')).toHaveValue('6');
-    expect(screen.getByLabelText('Fit score max')).toHaveValue('9');
+    expect(screen.getByLabelText('Fit score min')).toHaveValue('60');
+    expect(screen.getByLabelText('Fit score max')).toHaveValue('90');
+    expect(screen.getByRole('checkbox', { name: /Show flagged jobs/ })).toBeChecked();
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(search()).toBe('?sort=fit_score');
     expect(screen.getByPlaceholderText('Title or company')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Clear filters' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /Show flagged jobs/ })).not.toBeChecked();
+  });
+
+  it('show flagged jobs writes hide_flagged=false and shows the flagged count', async () => {
+    const { user, search } = renderFilters();
+    const box = screen.getByRole('checkbox', { name: /Show flagged jobs/ });
+    expect(box).toHaveTextContent('');
+    expect(screen.getByText('Show flagged jobs').parentElement).toHaveTextContent('2');
+    await user.click(box);
+    expect(search()).toBe('?hide_flagged=false');
+    await user.click(box);
+    expect(search()).toBe('');
   });
 
   it('a filter change goes back to page 1', async () => {
@@ -108,7 +121,7 @@ describe('Filters', () => {
 
 describe('query parsing', () => {
   it('drops invalid values and defaults', () => {
-    const q = parseQuery(new URLSearchParams('status=bogus&score_min=11&score_max=x&found_from=yesterday&sort=-discovered_at&page=1'));
+    const q = parseQuery(new URLSearchParams('status=bogus&score_min=101&score_max=x&hide_flagged=true&found_from=yesterday&sort=-discovered_at&page=1'));
     expect(q).toEqual({});
     expect(toSearchParams({ sort: '-discovered_at', page: 1, q: '' }).toString()).toBe('');
   });

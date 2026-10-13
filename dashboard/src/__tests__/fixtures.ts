@@ -12,12 +12,16 @@ export function listItem(status: Status, n: number, extra: Partial<JobListItem> 
     role_category: 'data_science',
     location: 'Chicago, IL',
     work_mode: 'hybrid',
-    fit_score: 7,
+    fit_score: 70,
     discovered_at: '2026-10-02T06:59:45+00:00',
     deadline: null,
     status,
     status_color: COLORS[status],
     days_since_submitted: status === 'submitted' ? 3 : null,
+    fit_breakdown: [],
+    fit_flags: [],
+    flag_reasons: [],
+    assessment_stale: false,
     ...extra,
   };
 }
@@ -40,6 +44,7 @@ export const FACETS: Facets = {
   role_category: [{ value: 'data_science', count: 6 }, { value: 'software_engineering', count: 4 }],
   work_mode: [{ value: 'remote', count: 4 }, { value: 'hybrid', count: 3 }],
   location: [{ value: 'Chicago, IL', count: 4 }, { value: 'Remote, US', count: 3 }],
+  flagged: 2,
 };
 
 export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
@@ -52,8 +57,8 @@ export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
     location: 'Chicago, IL',
     work_mode: 'hybrid',
     role_category: 'data_science',
-    fit_score: 8,
-    score_reasoning: 'Strong match on Python and SQL.',
+    fit_score: 80,
+    score_reasoning: 'Python, SQL\nStrong match on Python and SQL.',
     discovered_at: '2026-10-02T06:59:45+00:00',
     deadline: '2026-11-01',
     notes: null,
@@ -77,6 +82,27 @@ export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
     links: {
       posting: 'https://example.com/job/1', apply: 'https://example.com/job/1/apply',
       drive_folder: null, resume: null, cover_letter: null,
+    },
+    fit_breakdown: [
+      { key: 'salary', label: 'Salary', score: 1, importance: 'important', dealbreaker_hit: false,
+        note: 'up to $150,000/year meets your $100,000 minimum' },
+      { key: 'work_mode', label: 'Work mode', score: 0, importance: 'nice', dealbreaker_hit: false,
+        note: 'hybrid is not one you want' },
+      { key: 'skills_match', label: 'Skills', score: 0.75, importance: 'very_important', dealbreaker_hit: false,
+        note: 'Has Python and SQL; no Spark.' },
+      { key: 'red_flags', label: 'Red flags', score: 0.66, importance: 'nice', dealbreaker_hit: false,
+        note: 'mostly sales: quota-carrying' },
+    ],
+    fit_flags: [],
+    flag_reasons: [],
+    assessment_stale: false,
+    fit_assessment: {
+      skills_match: { score: 4, evidence: 'Has Python and SQL; no Spark.' },
+      experience_match: { score: 3, evidence: 'Similar level.' },
+      domain_interest: { score: 3, evidence: 'Neutral.' },
+      red_flags: [{ code: 'mostly_sales', note: 'quota-carrying' }],
+      matched_keywords: ['Python', 'SQL'],
+      summary: 'Strong match on Python and SQL.',
     },
     ...extra,
   };

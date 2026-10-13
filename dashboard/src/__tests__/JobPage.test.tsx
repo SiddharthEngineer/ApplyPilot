@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -173,5 +173,63 @@ describe('JobPage generation', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Claude API is overloaded');
     await user.click(screen.getByRole('button', { name: 'Generate resume' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Choose a resume');
+  });
+});
+
+describe('JobPage fit breakdown', () => {
+  it('shows the score, each component, the red flags and the AI summary', async () => {
+    renderJob();
+    const fit = await screen.findByRole('region', { name: 'Fit' });
+    expect(fit).toHaveTextContent('Fit score 80/100');
+    expect(fit).toHaveTextContent('Strong match on Python and SQL.');
+    const items = within(fit).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('Salary✓Importantup to $150,000/year meets your $100,000 minimum');
+    expect(items[1]).toHaveTextContent('Work mode✗Nice to have');
+    expect(items[2]).toHaveTextContent('Skills4/5Very important');
+    expect(within(fit).getByRole('heading', { name: 'Red flags' })).toBeInTheDocument();
+    expect(fit).toHaveTextContent('Mostly sales: quota-carrying');
+    expect(screen.queryByText(/Stale assessment/)).toBeNull();
+  });
+
+  it('shows dealbreaker reasons and the stale note', async () => {
+    vi.mocked(api.getJob).mockResolvedValue(jobDetail({
+      assessment_stale: true, fit_flags: ['salary'], flag_reasons: ['salary below minimum ($80,000/year < $100,000)'],
+    }));
+    renderJob();
+    expect(await screen.findByRole('list', { name: 'Flags' })).toHaveTextContent('⚠ salary below minimum');
+    expect(screen.getByText(/Stale assessment/)).toBeInTheDocument();
+  });
+
+  it('Rescore polls the task, then reloads the breakdown', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.rescore).mockResolvedValue(task('queued', { kind: 'rescore' }));
+    vi.mocked(api.getTask).mockResolvedValueOnce(task('done', { kind: 'rescore' }));
+    renderJob();
+    await user.click(await screen.findByRole('button', { name: 'Rescore' }));
+    expect(api.rescore).toHaveBeenCalledWith('abc123');
+    expect(await screen.findByRole('status')).toHaveTextContent('Queued: assessment');
+    expect(screen.getByRole('button', { name: 'Rescore' })).toBeDisabled();
+    generateButtons().forEach((b) => expect(b).toBeEnabled()); // generation isn't blocked by a rescore
+
+    vi.mocked(api.getJob).mockResolvedValue(jobDetail({ fit_score: 95 }));
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(screen.getByRole('status')).toHaveTextContent('Finished assessment');
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Fit' })).toHaveTextContent('Fit score 95/100'));
+    expect(screen.getByRole('button', { name: 'Rescore' })).toBeEnabled();
+  });
+
+  it('a budget stop shows the API message', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.rescore).mockRejectedValue(new Error('Monthly LLM budget reached: $5.00 spent'));
+    renderJob();
+    await user.click(await screen.findByRole('button', { name: 'Rescore' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Monthly LLM budget reached');
+  });
+
+  it('explains a job Claude has not assessed yet', async () => {
+    vi.mocked(api.getJob).mockResolvedValue(jobDetail({ fit_assessment: null, fit_score: 60 }));
+    renderJob();
+    expect(await screen.findByText(/Not assessed by Claude yet/)).toBeInTheDocument();
   });
 });

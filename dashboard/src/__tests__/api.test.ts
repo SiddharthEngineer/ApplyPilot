@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, generate, jobsQueryString, listJobs, setStatus } from '../api';
+import { ApiError, generate, jobsQueryString, listJobs, rescore, savePreferences, setStatus } from '../api';
+import type { Preferences } from '../types';
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn().mockResolvedValue(
@@ -42,5 +43,25 @@ describe('api', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(422);
     expect(err.message).toBe('Choose a resume, a cover letter, or both');
+  });
+
+  it('reads the message of a structured error (the 402 budget stop)', async () => {
+    mockFetch(402, { detail: { message: 'Monthly LLM budget reached', month_spend: 4.99, estimated_usd: 0.4 } });
+    const err = await rescore('abc').catch((e) => e);
+    expect(err.status).toBe(402);
+    expect(err.message).toBe('Monthly LLM budget reached');
+  });
+
+  it('PUTs preferences with the confirmation flag', async () => {
+    const fetch = mockFetch(200, { prefs: {}, rescored: 0, task: null });
+    await savePreferences({ skills_want: ['Rust'] } as unknown as Preferences, true);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/preferences');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ prefs: { skills_want: ['Rust'] }, confirm_reassess: true });
+  });
+
+  it('sends hide_flagged=false when flagged jobs are shown', () => {
+    expect(jobsQueryString({ hide_flagged: false, score_min: 70 })).toBe('hide_flagged=false&score_min=70');
   });
 });

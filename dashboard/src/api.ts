@@ -1,5 +1,8 @@
 // Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
-import type { Facets, JobDetail, JobList, JobQuery, Task, UserStatus } from './types';
+import type {
+  Facets, JobDetail, JobList, JobQuery, Preferences, PreferencesResponse, ReassessPreview, SavePreferencesResult, Task,
+  UserStatus,
+} from './types';
 
 export const API_BASE = '/app/api';
 
@@ -15,6 +18,7 @@ async function errorMessage(res: Response): Promise<string> {
     const body = await res.json();
     const detail = body?.detail;
     if (typeof detail === 'string') return detail;
+    if (typeof detail?.message === 'string') return detail.message; // e.g. the 402 budget stop
     if (Array.isArray(detail)) return detail.map((d) => d?.msg ?? String(d)).join('; ');
   } catch {
     // not JSON
@@ -82,4 +86,26 @@ export function getTask(id: string, signal?: AbortSignal): Promise<Task> {
 
 export function listJobTasks(key: string, signal?: AbortSignal): Promise<Task[]> {
   return request<Task[]>(`/jobs/${encodeURIComponent(key)}/tasks`, { signal });
+}
+
+/** Queue a fresh Claude assessment of one job. Poll getTask; a 402 means the monthly budget is used up. */
+export function rescore(key: string): Promise<Task> {
+  return request<Task>(`/jobs/${encodeURIComponent(key)}/rescore`, { method: 'POST' });
+}
+
+export function getPreferences(signal?: AbortSignal): Promise<PreferencesResponse> {
+  return request<PreferencesResponse>('/preferences', { signal });
+}
+
+/** What saving `prefs` would re-assess and roughly cost. Saves nothing. */
+export function previewPreferences(prefs: Preferences): Promise<ReassessPreview> {
+  return request<ReassessPreview>('/preferences/preview', { method: 'POST', body: JSON.stringify({ prefs }) });
+}
+
+/** Save and re-rank now; with confirmReassess, also queue re-assessment of the jobs it makes stale. */
+export function savePreferences(prefs: Preferences, confirmReassess = false): Promise<SavePreferencesResult> {
+  return request<SavePreferencesResult>('/preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ prefs, confirm_reassess: confirmReassess }),
+  });
 }
