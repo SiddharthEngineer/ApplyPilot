@@ -10,10 +10,10 @@ from web_helpers import add_job
 
 from strelitzia import database
 from strelitzia.database import get_connection, init_db, job_key
-from strelitzia.llm import LLMQuotaExhausted
+from strelitzia.llm import LLMStopRun
 from strelitzia.web import tasks
 from strelitzia.web.app import create_app
-from strelitzia.web.tasks import QUOTA_MESSAGE, TaskRunner
+from strelitzia.web.tasks import STOP_MESSAGES, TaskRunner
 
 HEADERS = {"X-Strelitzia": "1"}
 URLS = [f"https://example.com/jobs/{i}" for i in range(3)]
@@ -115,13 +115,14 @@ def test_user_status_is_kept(tclient):
     assert detail["status"] == "submitted" and len(detail["events"]) == 1
 
 
-def test_quota_error_message(db_path):
+def test_budget_error_message(db_path):
     init_db(db_path)
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
-    gen = FakeGenerate(fail={URLS[0]: LLMQuotaExhausted("gemini-3.1-flash-lite", "PerDay")})
+    gen = FakeGenerate(fail={URLS[0]: LLMStopRun("budget", "over budget")})
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
         task = wait_for(c, _generate(c, URLS[0]).json()["id"])
-    assert task["state"] == "error" and task["error"] == QUOTA_MESSAGE == "Daily Gemini quota reached; try again tomorrow."
+    assert task["state"] == "error" and task["error"] == STOP_MESSAGES["budget"]
+    assert "LLM_MONTHLY_BUDGET_USD" in task["error"]
 
 
 def test_other_errors_are_reported_and_the_queue_continues(db_path):
@@ -306,34 +307,33 @@ def test_generate_failure_messages(default_db, monkeypatch, stats, message):
         tasks.generate_for_job(URLS[0], "resume")
 
 
-def test_overload_error_message(db_path):
-    from strelitzia.llm import LLMOverloaded
-    from strelitzia.web.tasks import OVERLOAD_MESSAGE
-
+@pytest.mark.parametrize("reason", ["overloaded", "auth"])
+def test_stop_error_messages(db_path, reason):
     init_db(db_path)
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
-    gen = FakeGenerate(fail={URLS[0]: LLMOverloaded("gemini-3.1-flash-lite")})
+    gen = FakeGenerate(fail={URLS[0]: LLMStopRun(reason)})
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
         task = wait_for(c, _generate(c, URLS[0]).json()["id"])
-    assert task["error"] == OVERLOAD_MESSAGE
+    assert task["error"] == STOP_MESSAGES[reason]
 
 
-def test_generate_quota_stop_raises(default_db, monkeypatch):
+def test_generate_budget_stop_raises(default_db, monkeypatch):
     from strelitzia.scoring import cover_letter, tailor
 
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
-    monkeypatch.setattr(cover_letter, "run_cover_letters", lambda **kw: {"generated": 0, "stopped": "daily_quota"})
-    with pytest.raises(LLMQuotaExhausted):
+    monkeypatch.setattr(cover_letter, "run_cover_letters", lambda **kw: {"generated": 0, "stopped": "budget"})
+    with pytest.raises(LLMStopRun) as e:
         tasks.generate_for_job(URLS[0], "both")
+    assert e.value.reason == "budget"
 
 
 def test_generate_overload_stop_raises(default_db, monkeypatch):
-    from strelitzia.llm import LLMOverloaded
     from strelitzia.scoring import tailor
 
     monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 0, "stopped": "overloaded"})
-    with pytest.raises(LLMOverloaded):
+    with pytest.raises(LLMStopRun) as e:
         tasks.generate_for_job(URLS[0], "resume")
+    assert e.value.reason == "overloaded"
 
 
 def test_runner_stops_cleanly(db_path):

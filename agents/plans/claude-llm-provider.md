@@ -1,5 +1,5 @@
 # Plan: Claude API as the only LLM provider (Batch API for bulk stages, spend tracking)
-**Status:** ❌ Not started
+**Status:** 🚧 In progress
 **Risk:** review (replaces `llm.py`, touches `pyproject.toml`, `config.py`, `database.py`, the CLI and every LLM call site)
 
 ## Goal
@@ -87,7 +87,7 @@ tests/test_quota_stop.py (delete or rewrite), tests/test_structured_output.py (m
 - `.env.example`: `ANTHROPIC_API_KEY`, `LLM_MONTHLY_BUDGET_USD=20`.
 **Validate:** `pytest tests/test_llm.py tests/test_structured_output.py -q` → passes (mocked SDK: system caching block
 present, no `temperature` sent, schema forwarded, refusal → error, cost math on a fixed usage object).
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit)
 
 ### Task 2: Usage ledger and monthly budget
 **Runs:** unattended

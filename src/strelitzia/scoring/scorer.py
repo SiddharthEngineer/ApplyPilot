@@ -125,7 +125,7 @@ def score_job(resume_text: str, job: dict) -> dict:
 
     try:
         client = get_client("scoring")
-        response = client.chat(messages, max_tokens=512, temperature=0.2, response_schema=SCORE_SCHEMA)
+        response = client.chat(messages, max_tokens=512, schema=SCORE_SCHEMA)
         parsed = _parse_score_response(response)
         if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10
             result = _error_result(f"unparseable response: {response[:200]!r}")

@@ -15,7 +15,7 @@ function task(state: Task['state'], extra: Partial<Task> = {}): Task {
     id: 't1', url: 'https://example.com/job/1', kind: 'both', state, created_at: '2026-10-05T20:00:00+00:00',
     started_at: state === 'queued' ? null : '2026-10-05T20:00:01+00:00',
     finished_at: state === 'done' || state === 'error' ? '2026-10-05T20:00:30+00:00' : null,
-    error: state === 'error' ? 'Gemini is overloaded right now; try again in a few minutes.' : null,
+    error: state === 'error' ? 'The Claude API is overloaded right now; try again in a few minutes.' : null,
     key: 'abc123', ...extra,
   };
 }
@@ -170,7 +170,7 @@ describe('JobPage generation', () => {
     vi.mocked(api.listJobTasks).mockResolvedValue([task('error')]);
     vi.mocked(api.generate).mockRejectedValue(new Error('Choose a resume, a cover letter, or both')) // ApiError is auto-mocked;
     renderJob();
-    expect(await screen.findByRole('status')).toHaveTextContent('Gemini is overloaded');
+    expect(await screen.findByRole('status')).toHaveTextContent('Claude API is overloaded');
     await user.click(screen.getByRole('button', { name: 'Generate resume' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Choose a resume');
   });

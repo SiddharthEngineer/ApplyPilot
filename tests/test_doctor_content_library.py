@@ -152,123 +152,38 @@ class TestDoctorContentLibraryCheck:
         assert "Content library mode is the default" not in result.output
 
 
-class TestDoctorRateLimitTuning:
-    """Tests for discovery model + RPM limit reporting in doctor."""
+class TestDoctorClaude:
+    """The Claude block in doctor: key presence (never the value) and the model and effort per stage."""
 
-    def _invoke(self, tmp_path, monkeypatch, env, models):
+    def _invoke(self, tmp_path, monkeypatch, env):
         from typer.testing import CliRunner
 
         from strelitzia.cli import app
 
-        for key in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL",
-                    "LLM_MODEL", "LLM_DISCOVERY_MODEL", "LLM_SCORING_MODEL", "LLM_TAILOR_MODEL",
-                    "LLM_COVER_MODEL", "LLM_RPM_LIMIT", "LLM_RPM_WINDOW", "LLM_RPM_LIMITS",
-                    "LLM_RPD_LIMITS", "LLM_RPD_LIMIT"):
+        for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", *(f"LLM_{p}_{k}" for p in
+                    ("DISCOVERY", "EXTRACT", "SCORING", "TAILOR", "COVER") for k in ("MODEL", "EFFORT"))):
             monkeypatch.delenv(key, raising=False)
         for key, val in env.items():
             monkeypatch.setenv(key, val)
-
-        class _Resp:
-            status_code = 200
-
-            def json(self):
-                return {"models": [{"name": f"models/{m}"} for m in models]}
-
         runner = CliRunner()
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"):
-                with patch("httpx.get", return_value=_Resp()):
-                    with patch("strelitzia.config.load_env", lambda: None):
-                        return runner.invoke(app, ["doctor"])
+        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"), \
+                patch("strelitzia.config.load_env", lambda: None):
+            return runner.invoke(app, ["doctor"])
 
-    def test_discovery_model_and_rpm_lines_present(self, tmp_path, monkeypatch) -> None:
-        """doctor prints Discovery model: and RPM limit: lines for Gemini."""
-        result = self._invoke(
-            tmp_path, monkeypatch,
-            # A model with no packaged per-model limit, so the global LLM_RPM_LIMIT applies.
-            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "gemini-unlisted", "LLM_RPM_LIMIT": "12"},
-            ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"],
-        )
+    def test_key_present_and_models_per_stage(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "sk-ant-secret-value",
+                                                      "LLM_SCORING_EFFORT": "medium"})
         assert result.exit_code == 0
-        assert "Discovery model" in result.output
-        assert "12 RPM" in result.output
+        assert "ANTHROPIC_API_KEY is set" in result.output
+        assert "sk-ant-secret-value" not in result.output
+        lines = {line.split()[0]: " ".join(line.split()[3:]) for line in result.output.splitlines()
+                 if " model " in line and line.split()[0] in ("Discovery", "Extract", "Scoring", "Tailor", "Cover")}
+        assert lines == {"Discovery": "claude-haiku-5-5 (effort low)", "Extract": "claude-haiku-5-5 (effort low)",
+                         "Scoring": "claude-haiku-5-5 (effort medium)", "Tailor": "claude-sonnet-5-5 (effort medium)",
+                         "Cover": "claude-sonnet-5-5 (effort medium)"}
 
-    def test_four_per_stage_model_lines(self, tmp_path, monkeypatch) -> None:
-        """doctor prints one model line per LLM stage, honoring LLM_{STAGE}_MODEL."""
-        result = self._invoke(
-            tmp_path, monkeypatch,
-            {"GEMINI_API_KEY": "k", "LLM_SCORING_MODEL": "gemini-3.1-flash-lite"},
-            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
-        )
+    def test_missing_key_and_no_gemini_lines(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "g", "LLM_TAILOR_MODEL": "gemini-3.6-flash"})
         assert result.exit_code == 0
-        lines = {line.split()[0]: line.split()[3] for line in result.output.splitlines()
-                 if line.strip().split(" ")[0] in ("Discovery", "Scoring", "Tailor", "Cover")
-                 and " model " in line}
-        assert lines == {"Discovery": "gemini-3.1-flash-lite", "Scoring": "gemini-3.1-flash-lite",
-                         "Tailor": "gemini-3.6-flash", "Cover": "gemini-3.6-flash"}
-
-    def test_per_model_limits_and_usage(self, tmp_path, monkeypatch) -> None:
-        """Stage lines show LLM_RPM_LIMITS / LLM_RPD_LIMITS for that stage's model and today's usage."""
-        from strelitzia import llm
-        monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
-        llm.daily_usage.increment("gemini-3.6-flash")
-        result = self._invoke(
-            tmp_path, monkeypatch,
-            {"GEMINI_API_KEY": "k", "LLM_SCORING_MODEL": "gemini-3.1-flash-lite",
-             "LLM_RPM_LIMITS": '{"gemini-3.1-flash-lite": 15, "gemini-3.6-flash": 5,}',
-             "LLM_RPD_LIMITS": '{"gemini-3.1-flash-lite": 500, "gemini-3.6-flash": 20}'},
-            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
-        )
-        assert result.exit_code == 0
-        assert "gemini-3.1-flash-lite (15 RPM, 0/500 today)" in result.output
-        assert "gemini-3.6-flash (5 RPM, 1/20 today)" in result.output
-        assert "RPM limit" not in result.output
-
-    def test_rate_limit_source_reported(self, tmp_path, monkeypatch) -> None:
-        """doctor says where the per-model limits came from, and flags the deprecated env vars."""
-        from strelitzia import llm
-        monkeypatch.setattr(llm, "daily_usage", llm.DailyUsage(tmp_path / "usage.json"))
-        monkeypatch.setattr("strelitzia.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
-        models = ["gemini-3.6-flash", "gemini-3.1-flash-lite"]
-        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k"}, models)
-        assert result.exit_code == 0
-        assert "Rate limits         OK  packaged defaults" in result.output
-        assert "gemini-3.6-flash (5 RPM, 0/20 today)" in result.output
-
-        (tmp_path / "llm_limits.yaml").write_text("rpm: {gemini-3.6-flash: 4}\n")
-        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_RPD_LIMITS": '{"x": 1}'}, models)
-        assert "Rate limits         WARN" in result.output
-        assert "LLM_RPD_LIMITS deprecated" in result.output
-        assert "gemini-3.6-flash (4 RPM" in result.output
-        assert "RPM limit" not in result.output
-
-    def test_warns_when_a_stage_model_has_no_rpm_limit(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr("strelitzia.config.LLM_LIMITS_PATH", tmp_path / "llm_limits.yaml")
-        result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "k", "LLM_TAILOR_MODEL": "gemini-unlisted"},
-                              ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-unlisted"])
-        assert result.exit_code == 0
-        assert "RPM limit           WARN  off for gemini-unlisted" in result.output
-
-    def test_bad_discovery_model_warns_with_available(self, tmp_path, monkeypatch) -> None:
-        """Bad discovery model triggers a WARN with an Available: model list."""
-        result = self._invoke(
-            tmp_path, monkeypatch,
-            {"GEMINI_API_KEY": "k", "LLM_DISCOVERY_MODEL": "does-not-exist", "LLM_RPM_LIMIT": "12"},
-            ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
-        )
-        assert result.exit_code == 0
-        assert "WARN" in result.output
-        assert "Available:" in result.output
-
-    def test_opencode_provider_no_gemini_missing(self, tmp_path, monkeypatch) -> None:
-        """With OPENCODE_API_KEY set, Gemini is not reported MISSING."""
-        result = self._invoke(
-            tmp_path, monkeypatch,
-            {"OPENCODE_API_KEY": "sk-test", "LLM_MODEL": "opencode/nemotron-3-nano-free", "LLM_RPM_LIMIT": "12"},
-            [],
-        )
-        assert result.exit_code == 0
-        assert "OpenCode" in result.output
-        assert "Discovery model" in result.output
-        # Gemini must not be reported as the LLM provider / missing key when OpenCode is set
-        assert "LLM API key         OK  OpenCode" in result.output
-
+        assert "Set ANTHROPIC_API_KEY" in result.output
+        assert "gemini" not in result.output.lower()

@@ -84,7 +84,7 @@ def extract_batch(jobs: list[dict], today: str | None = None) -> tuple[dict[str,
     ]
     client = get_client("extract")
     response = client.chat(
-        messages, temperature=0.0, response_schema=batch_schema(),
+        messages, schema=batch_schema(),
         max_tokens=min(_MAX_OUTPUT_TOKENS, _TOKENS_PER_JOB * len(jobs)),
     )
     items = _parse_batch(response)

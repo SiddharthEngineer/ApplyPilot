@@ -11,9 +11,9 @@ from strelitzia.database import init_db
 from strelitzia.enrichment import extract
 from strelitzia.enrichment.posting_model import EXTRACT_VERSION
 from strelitzia.enrichment.posting_prompt import job_id
-from strelitzia.llm import LLMQuotaExhausted
+from strelitzia.llm import LLMStopRun
 
-QUOTA = LLMQuotaExhausted("gemini-3.1-flash-lite", "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+STOP = LLMStopRun("budget", "monthly LLM budget used up")
 
 
 def _url(i: int) -> str:
@@ -153,20 +153,18 @@ def test_invalid_enum_coerced(conn):
     assert (row["role_category"], row["work_mode"], row["salary_min"]) == ("other", "unknown", None)
 
 
-def test_quota_stop_keeps_finished_batches(conn):
-    fake = FakeLLM(fail_calls={2: QUOTA})
+def test_budget_stop_keeps_finished_batches(conn):
+    fake = FakeLLM(fail_calls={2: STOP})
     stats = _run(conn, fake, batch_size=5)
-    assert stats["stopped"] == "daily_quota"
+    assert stats["stopped"] == "budget"
     assert stats["extracted"] == 5 and stats["requests"] == 1
     assert conn.execute("SELECT COUNT(*) FROM jobs WHERE extracted_at IS NOT NULL").fetchone()[0] == 5
-    # Quota-stopped jobs aren't charged an attempt.
+    # Jobs left by a stop aren't charged an attempt.
     assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
 
 
 def test_overload_stops_without_charging_attempts(conn):
-    from strelitzia.llm import LLMOverloaded
-
-    fake = FakeLLM(fail_calls={2: LLMOverloaded("gemini-3.1-flash-lite")})
+    fake = FakeLLM(fail_calls={2: LLMStopRun("overloaded")})
     stats = _run(conn, fake, batch_size=5)
     assert stats["stopped"] == "overloaded"
     assert stats["extracted"] == 5 and stats["requests"] == 1
@@ -200,7 +198,7 @@ def test_nothing_pending_makes_no_request(conn):
 def test_pipeline_stage_wiring():
     order = pipeline.STAGE_ORDER
     assert order.index("enrich") < order.index("extract")
-    assert order.index("score") < order.index("extract")  # scoring gets the shared quota first
+    assert order.index("score") < order.index("extract")  # scoring gets the monthly budget first
     assert pipeline._UPSTREAM["extract"] == "enrich"
     assert pipeline._UPSTREAM["score"] == "enrich"  # extract never blocks scoring
     assert "extract" in pipeline._STAGE_RUNNERS and "extract" in pipeline._PENDING_SQL
@@ -208,18 +206,16 @@ def test_pipeline_stage_wiring():
 
 def test_pipeline_runner_classifies_then_extracts():
     with patch("strelitzia.enrichment.classify.run_classify") as classify, \
-            patch("strelitzia.enrichment.extract.run_extraction", return_value={"stopped": "daily_quota"}) as run:
+            patch("strelitzia.enrichment.extract.run_extraction", return_value={"stopped": "budget"}) as run:
         result = pipeline._run_extract(limit=10)
     classify.assert_called_once_with(only_missing=True)
     run.assert_called_once_with(limit=10)
-    assert result["status"] == pipeline.QUOTA_STOPPED
+    assert result["status"] == pipeline.BUDGET_STOPPED
 
 
-def test_extract_uses_flash_lite_by_default(monkeypatch):
-    from strelitzia.llm import _detect_provider
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    for var in ("LLM_URL", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_MODEL", "LLM_EXTRACT_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    assert _detect_provider("extract")[1] == "gemini-3.1-flash-lite"
-    monkeypatch.setenv("LLM_EXTRACT_MODEL", "gemini-x")
-    assert _detect_provider("extract")[1] == "gemini-x"
+def test_extract_uses_haiku_by_default(monkeypatch):
+    from strelitzia.llm import resolve_model
+    monkeypatch.delenv("LLM_EXTRACT_MODEL", raising=False)
+    assert resolve_model("extract")[0] == "claude-haiku-5-5"
+    monkeypatch.setenv("LLM_EXTRACT_MODEL", "claude-sonnet-5-5")
+    assert resolve_model("extract")[0] == "claude-sonnet-5-5"

@@ -32,8 +32,8 @@ console = Console()
 # Stage definitions
 # ---------------------------------------------------------------------------
 
-# `extract` only needs `enrich`, but runs after the stages the user waits on: it shares the flash-lite
-# daily quota with scoring, so a full run never spends that quota on extraction first.
+# `extract` only needs `enrich`, but runs after the stages the user waits on, so a run that hits the monthly
+# LLM budget has spent it on scoring first.
 STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
 
 STAGE_META: dict[str, dict] = {
@@ -137,18 +137,18 @@ def _run_enrich(workers: int = 1) -> dict:
         return {"status": f"error: {e}"}
 
 
-QUOTA_STOPPED = "stopped: daily quota"
-OVERLOAD_STOPPED = "stopped: model overloaded"
-# A stage that stopped early on purpose; the rest of its jobs wait for the next run.
-STOPPED_STATUSES = (QUOTA_STOPPED, OVERLOAD_STOPPED)
+BUDGET_STOPPED = "stopped: monthly LLM budget"
+AUTH_STOPPED = "stopped: Claude API key missing or rejected"
+OVERLOAD_STOPPED = "stopped: Claude API overloaded"
+# A stage that stopped early on purpose (LLMStopRun.reason -> status); the rest of its jobs wait for the next run.
+_STOP_STATUS = {"budget": BUDGET_STOPPED, "auth": AUTH_STOPPED, "overloaded": OVERLOAD_STOPPED}
+STOPPED_STATUSES = tuple(_STOP_STATUS.values())
 
 
 def _stage_status(stats: dict | None) -> dict:
-    """Map an LLM stage's stats to a pipeline status ("stopped" = quota or overload hit, rest left for later)."""
-    if isinstance(stats, dict) and stats.get("stopped") == "daily_quota":
-        return {"status": QUOTA_STOPPED}
-    if isinstance(stats, dict) and stats.get("stopped") == "overloaded":
-        return {"status": OVERLOAD_STOPPED}
+    """Map an LLM stage's stats to a pipeline status ("stopped" = budget, key or overload, rest left for later)."""
+    if isinstance(stats, dict) and stats.get("stopped") in _STOP_STATUS:
+        return {"status": _STOP_STATUS[stats["stopped"]]}
     return {"status": "ok"}
 
 
@@ -414,7 +414,7 @@ def _run_stage_streaming(
                 passes += 1
             else:
                 if isinstance(result, dict) and result.get("status") in STOPPED_STATUSES:
-                    # Re-running would only spend another request on the same exhausted quota.
+                    # Re-running would hit the same stop (budget, key or overload) again.
                     tracker.mark_done(stage, {"status": result["status"], "passes": passes})
                     return
                 if stage in ("score", "extract") and limit:

@@ -1,0 +1,17 @@
+# Claude models per pipeline stage, and prices for spend tracking (strelitzia/llm.py).
+# LLM_{PURPOSE}_MODEL / LLM_{PURPOSE}_EFFORT in ~/.strelitzia/.env override a stage's model and effort.
+
+# output_tokens: the expected output per request (thinking included), used only for cost estimates.
+purposes:
+  discovery: {model: claude-haiku-5-5, effort: low, output_tokens: 600}
+  extract: {model: claude-haiku-5-5, effort: low, output_tokens: 900}
+  scoring: {model: claude-haiku-5-5, effort: low, output_tokens: 400}
+  tailor: {model: claude-sonnet-5-5, effort: medium, output_tokens: 3000}
+  cover: {model: claude-sonnet-5-5, effort: medium, output_tokens: 1200}
+
+# USD per million tokens. Batch requests cost 50% of these. Haiku 5.5 prices are for prompts up to 100K tokens,
+# which every Strelitzia request is.
+models:
+  claude-haiku-5-5: {input: 0.10, output: 0.50, cache_read: 0.01, cache_write_5m: 0.125}
+  claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.20, cache_write_5m: 2.50}
+  claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20, cache_write_5m: 5.00}

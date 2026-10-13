@@ -598,7 +598,7 @@ def tailor_from_content_library(
             {"role": "user", "content": user},
         ]
 
-        raw = client.chat(messages, max_tokens=4096, temperature=0.4, response_schema=schema)
+        raw = client.chat(messages, max_tokens=4096, schema=schema)
 
         try:
             data = extract_json(raw)
@@ -695,7 +695,7 @@ def judge_content_library_resume(
     ]
 
     client = get_client("tailor")
-    response = client.chat(messages, max_tokens=512, temperature=0.1)
+    response = client.chat(messages, max_tokens=512)
 
     passed = "VERDICT: PASS" in response.upper()
     issues = "none"
@@ -752,7 +752,7 @@ def judge_tailored_resume(
     ]
 
     client = get_client("tailor")
-    response = client.chat(messages, max_tokens=512, temperature=0.1)
+    response = client.chat(messages, max_tokens=512)
 
     passed = "VERDICT: PASS" in response.upper()
     issues = "none"
@@ -826,7 +826,7 @@ def tailor_resume(
             {"role": "user", "content": f"ORIGINAL RESUME:\n{resume_text}\n\n---\n\nTARGET JOB:\n{job_text}\n\nReturn the JSON:"},
         ]
 
-        raw = client.chat(messages, max_tokens=2048, temperature=0.4, response_schema=RESUME_SCHEMA)
+        raw = client.chat(messages, max_tokens=2048, schema=RESUME_SCHEMA)
 
         # Parse JSON from response
         try:

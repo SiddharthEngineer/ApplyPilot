@@ -12,7 +12,7 @@ def test_score_job_sends_schema_and_parses_json():
     client.chat.return_value = '{"score": 8, "keywords": "sql, python", "reasoning": "Good fit."}'
     with patch.object(scorer, "get_client", return_value=client):
         result = scorer.score_job("resume", JOB)
-    assert client.chat.call_args.kwargs["response_schema"] is scorer.SCORE_SCHEMA
+    assert client.chat.call_args.kwargs["schema"] is scorer.SCORE_SCHEMA
     assert result == {"score": 8, "keywords": "sql, python", "reasoning": "Good fit."}
 
 
@@ -55,6 +55,6 @@ def test_tailor_resume_sends_schema_and_counts_json_retries():
     with patch.object(tailor, "get_client", return_value=client), \
             patch.object(tailor, "validate_json_fields", return_value={"passed": True, "errors": [], "warnings": []}):
         _, report = tailor.tailor_resume("resume", JOB, {}, validation_mode="lenient")
-    assert all(c.kwargs["response_schema"] is tailor.RESUME_SCHEMA for c in client.chat.call_args_list)
+    assert all(c.kwargs["schema"] is tailor.RESUME_SCHEMA for c in client.chat.call_args_list)
     assert report["json_retries"] == 1
     assert report["status"] == "approved"

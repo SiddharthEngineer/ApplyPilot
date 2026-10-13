@@ -256,7 +256,7 @@ class TestTailorFromContentLibrary:
 
         tailor_from_content_library(_minimal_library(), _job(), _minimal_profile(), validation_mode="lenient")
 
-        schema = mock_client.chat.call_args.kwargs["response_schema"]
+        schema = mock_client.chat.call_args.kwargs["schema"]
         assert set(schema["properties"]) == {"roles", "skills", "dropped_roles"}
         slugs = schema["properties"]["roles"]["items"]["properties"]["bullets"]["items"]["properties"]["project_ids"]
         assert slugs["items"]["enum"] == ["patentsview-pipeline", "cafe-pipeline", "project-talent-ocr"]
