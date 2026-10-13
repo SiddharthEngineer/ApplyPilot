@@ -293,12 +293,12 @@ class TestLoadExistingEnv:
 
         env_path = tmp_path / ".env"
         env_path.write_text(
-            "# Strelitzia configuration\nGEMINI_API_KEY=abc123\nLLM_MODEL=gemini-2.0-flash\n",
+            "# Strelitzia configuration\nANTHROPIC_API_KEY=abc123\nLLM_SCORING_MODEL=claude-haiku-5-5\n",
             encoding="utf-8",
         )
         with patch("strelitzia.wizard.init.ENV_PATH", env_path):
             result = _load_existing_env()
-        assert result == {"GEMINI_API_KEY": "abc123", "LLM_MODEL": "gemini-2.0-flash"}
+        assert result == {"ANTHROPIC_API_KEY": "abc123", "LLM_SCORING_MODEL": "claude-haiku-5-5"}
 
     def test_returns_empty_when_missing(self, tmp_path):
         from strelitzia.wizard.init import _load_existing_env
@@ -617,132 +617,46 @@ class TestSetupSearchesSitesThreshold:
 
 
 class TestSetupAiFeaturesPrefill:
-    """Test that _setup_ai_features uses existing .env as defaults."""
+    """_setup_ai_features asks for the Claude key and budget, using the existing .env as defaults."""
 
-    @patch("strelitzia.wizard.init.ENV_PATH")
-    @patch("strelitzia.wizard.init.Prompt.ask")
-    @patch("strelitzia.wizard.init.Confirm.ask")
-    def test_existing_gemini_key_detected(self, mock_confirm, mock_ask, mock_env):
-        """Existing Gemini key auto-selects gemini provider."""
-        from strelitzia.wizard.init import _setup_ai_features
-
-        existing_env = {"GEMINI_API_KEY": "my-secret-key", "LLM_MODEL": "gemini-2.0-flash"}
-        mock_confirm.return_value = True  # Enable AI
-        mock_ask.side_effect = [
-            "gemini",  # provider (default should be gemini)
-            "my-secret-key",  # API key (pre-filled)
-            "gemini-2.0-flash",  # model
-            "gemini-3.1-flash-lite",  # discovery model
-            "12",  # rpm limit
-        ]
-
-        _setup_ai_features(existing_env=existing_env)
-
-        provider_call = mock_ask.call_args_list[0]
-        assert provider_call.kwargs.get("default") == "gemini"
-
-        key_call = mock_ask.call_args_list[1]
-        assert key_call.kwargs.get("default") == "my-secret-key"
-
-    @patch("strelitzia.wizard.init.ENV_PATH")
-    @patch("strelitzia.wizard.init.Prompt.ask")
-    @patch("strelitzia.wizard.init.Confirm.ask")
-    def test_existing_openai_key_detected(self, mock_confirm, mock_ask, mock_env):
-        """Existing OpenAI key auto-selects openai provider."""
-        from strelitzia.wizard.init import _setup_ai_features
-
-        existing_env = {"OPENAI_API_KEY": "sk-xxx", "LLM_MODEL": "gpt-4o"}
-        mock_confirm.return_value = True
-        mock_ask.side_effect = [
-            "openai",
-            "sk-xxx",
-            "gpt-4o",
-            "gpt-4o",  # discovery model (falls back to LLM_MODEL)
-            "12",  # rpm limit
-        ]
-
-        _setup_ai_features(existing_env=existing_env)
-
-        provider_call = mock_ask.call_args_list[0]
-        assert provider_call.kwargs.get("default") == "openai"
-
-    @patch("strelitzia.wizard.init.ENV_PATH")
-    @patch("strelitzia.wizard.init.Prompt.ask")
-    @patch("strelitzia.wizard.init.Confirm.ask")
-    def test_no_existing_env_defaults_to_gemini(self, mock_confirm, mock_ask, mock_env):
-        """No existing env defaults to gemini provider."""
-        from strelitzia.wizard.init import _setup_ai_features
-
-        mock_confirm.return_value = True
-        mock_ask.side_effect = [
-            "gemini",
-            "new-key",
-            "gemini-2.0-flash",
-            "gemini-3.1-flash-lite",  # discovery model
-            "12",  # rpm limit
-        ]
-
-        _setup_ai_features(existing_env={})
-
-        provider_call = mock_ask.call_args_list[0]
-        assert provider_call.kwargs.get("default") == "gemini"
-
-    @patch("strelitzia.wizard.init.set_restricted_permissions")
-    @patch("strelitzia.wizard.init.ENV_PATH")
-    @patch("strelitzia.wizard.init.Prompt.ask")
-    @patch("strelitzia.wizard.init.Confirm.ask")
-    def test_writes_discovery_model_and_rpm_limit(self, mock_confirm, mock_ask, mock_env, mock_perm):
-        """Default answers write LLM_DISCOVERY_MODEL and LLM_RPM_LIMIT to .env."""
+    def _run(self, existing_env, answers):
         from strelitzia.wizard.init import _setup_ai_features
 
         written: list[str] = []
+        with patch("strelitzia.wizard.init.set_restricted_permissions"), \
+                patch("strelitzia.wizard.init.ENV_PATH") as mock_env, \
+                patch("strelitzia.wizard.init.Prompt.ask", side_effect=answers) as mock_ask, \
+                patch("strelitzia.wizard.init.Confirm.ask", return_value=True):
+            mock_env.write_text.side_effect = lambda text, encoding="utf-8": written.append(text)
+            _setup_ai_features(existing_env=existing_env)
+        return written[0], mock_ask
 
-        def _capture(text, encoding="utf-8"):
-            written.append(text)
+    def test_new_key_and_budget(self):
+        content, ask = self._run({}, ["sk-ant-new", "25"])
+        assert "ANTHROPIC_API_KEY=sk-ant-new" in content
+        assert "LLM_MONTHLY_BUDGET_USD=25" in content
+        key_call = ask.call_args_list[0]
+        assert key_call.kwargs["password"] is True and key_call.kwargs["show_default"] is False
+        assert ask.call_args_list[1].kwargs["default"] == "20"
 
-        mock_env.write_text.side_effect = _capture
-        mock_confirm.return_value = True
-        # provider, api_key, model, discovery_model, rpm_limit
-        mock_ask.side_effect = [
-            "gemini",
-            "new-key",
-            "gemini-3.6-flash",
-            "gemini-3.1-flash-lite",
-            "12",
-        ]
+    def test_existing_key_kept_on_enter(self):
+        content, ask = self._run({"ANTHROPIC_API_KEY": "sk-ant-saved", "LLM_MONTHLY_BUDGET_USD": "40  # cap"},
+                                 ["", "40"])
+        assert "ANTHROPIC_API_KEY=sk-ant-saved" in content
+        assert ask.call_args_list[0].kwargs["default"] == "sk-ant-saved"
+        assert "Enter keeps" in ask.call_args_list[0].args[0]
+        assert ask.call_args_list[1].kwargs["default"] == "40"
 
-        _setup_ai_features(existing_env={})
+    def test_zero_budget_means_no_limit_line(self):
+        content, _ = self._run({}, ["sk-ant-new", "0"])
+        assert "LLM_MONTHLY_BUDGET_USD" not in content
 
-        content = written[0]
-        assert "LLM_DISCOVERY_MODEL=gemini-3.1-flash-lite" in content
-        assert "LLM_RPM_LIMIT=12" in content
-        assert "GEMINI_API_KEY=new-key" in content
-
-    @patch("strelitzia.wizard.init.set_restricted_permissions")
-    @patch("strelitzia.wizard.init.ENV_PATH")
-    @patch("strelitzia.wizard.init.Prompt.ask")
-    @patch("strelitzia.wizard.init.Confirm.ask")
-    def test_discovery_model_default_depends_on_provider(self, mock_confirm, mock_ask, mock_env, mock_perm):
-        """Non-gemini providers default discovery model to LLM_MODEL, not flash-lite."""
-        from strelitzia.wizard.init import _setup_ai_features
-
-        written: list[str] = []
-
-        def _capture(text, encoding="utf-8"):
-            written.append(text)
-
-        mock_env.write_text.side_effect = _capture
-        mock_confirm.return_value = True
-        mock_ask.side_effect = [
-            "openai",
-            "sk-xxx",
-            "gpt-4o-mini",
-            "gpt-4o-mini",  # discovery model default falls back to LLM_MODEL
-            "12",
-        ]
-
-        _setup_ai_features(existing_env={})
-
-        content = written[0]
-        assert "LLM_DISCOVERY_MODEL=gpt-4o-mini" in content
-
+    def test_old_provider_settings_dropped_and_others_kept(self):
+        existing = {"GEMINI_API_KEY": "g", "LLM_MODEL": "gemini-2.0-flash", "LLM_SCORING_MODEL": "gemini-x",
+                    "LLM_TAILOR_MODEL": "claude-sonnet-5-5", "LLM_RPM_LIMIT": "12", "PROXY": "h:1:u:p",
+                    "STRELITZIA_DATABASE_URL": "postgresql://x"}
+        content, _ = self._run(existing, ["sk-ant-new", "20"])
+        for gone in ("GEMINI_API_KEY", "LLM_MODEL=", "LLM_SCORING_MODEL", "LLM_RPM_LIMIT"):
+            assert gone not in content
+        for kept in ("LLM_TAILOR_MODEL=claude-sonnet-5-5", "PROXY=h:1:u:p", "STRELITZIA_DATABASE_URL=postgresql://x"):
+            assert kept in content

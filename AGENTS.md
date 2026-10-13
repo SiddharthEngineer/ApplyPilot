@@ -4,7 +4,7 @@ Strelitzia (formerly ApplyPilot): a Python 3.11+ job-discovery pipeline (discove
 with a FastAPI + React dashboard where the user tracks applications by hand (`strelitzia serve`, `dashboard/`, built bundle
 committed in `src/strelitzia/web/static`). There is no auto-apply. Data lives in Postgres (`STRELITZIA_DATABASE_URL`) or SQLite
 under `~/.strelitzia`. The old `applypilot` CLI, `APPLYPILOT_*` env vars and `~/.applypilot` still work as deprecated fallbacks
-(`config.env()`, `config.resolve_app_dir()`). LLM calls use the Gemini free tier (`llm.py`).
+(`config.env()`, `config.resolve_app_dir()`). LLM calls use the Claude API (`llm.py`, `llm_batch.py`; spend in `llm_usage`).
 
 ## Map
 - `src/strelitzia/`: `cli.py` (Typer entry), `pipeline.py`, stage packages (`discovery/`, `enrichment/`, `scoring/`),

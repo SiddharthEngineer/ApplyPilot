@@ -4,7 +4,7 @@ Interactive flow that creates ~/.strelitzia/ with:
   - resume.txt (and optionally resume.pdf) OR content_library.md
   - profile.json
   - searches.yaml
-  - .env (LLM API key)
+  - .env (Claude API key and monthly LLM budget)
 """
 
 from __future__ import annotations
@@ -469,112 +469,67 @@ def _setup_searches(existing: dict | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
-    """Ask about AI scoring/tailoring — optional LLM configuration.
+# Settings from the LLM providers Strelitzia used before Claude (migration note: init drops them from .env).
+_LEGACY_LLM_KEYS = frozenset({
+    "GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL", "LLM_API_KEY", "LLM_MODEL",
+    "LLM_RPM_LIMIT", "LLM_RPD_LIMIT", "LLM_RPM_LIMITS", "LLM_RPD_LIMITS", "LLM_RPM_WINDOW",
+    "LLM_FALLBACK_MODEL", "LLM_FALLBACK_COOLDOWN", "EXTRACT_BATCH_SIZE",
+})
 
-    If *existing_env* is provided (parsed from a previous .env), each prompt
-    defaults to the saved value so the user can simply press Enter to keep it.
+
+def _is_legacy_llm_setting(key: str, value: str) -> bool:
+    """A pre-Claude provider setting, or a per-stage model override that isn't a Claude model."""
+    if key in _LEGACY_LLM_KEYS:
+        return True
+    return key.startswith("LLM_") and key.endswith("_MODEL") and not value.startswith("claude-")
+
+
+def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
+    """Ask for the Claude API key and the monthly LLM budget, then write ~/.strelitzia/.env.
+
+    If *existing_env* is provided (parsed from a previous .env), each prompt defaults to the saved value so the
+    user can simply press Enter to keep it. Other settings in the file are kept; old-provider settings are dropped.
     """
     console.print(
         Panel(
             "[bold]Step 4: AI Features (optional)[/bold]\n"
-            "An LLM powers job scoring, resume tailoring, and cover letters.\n"
+            "The Claude API powers job scoring, resume tailoring, and cover letters.\n"
             "Without this, you can still discover and enrich jobs."
         )
     )
 
     env = existing_env or {}
-    has_existing_llm = any(env.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "LLM_URL"))
-
-    if not Confirm.ask("Enable AI scoring and resume tailoring?", default=has_existing_llm or True):
+    if not Confirm.ask("Enable AI scoring and resume tailoring?", default=True):
         console.print("[dim]Discovery-only mode. You can configure AI later with [bold]strelitzia init[/bold].[/dim]")
         return
 
-    # Detect provider from existing env
-    if env.get("GEMINI_API_KEY"):
-        detected_provider = "gemini"
-    elif env.get("OPENAI_API_KEY"):
-        detected_provider = "openai"
-    elif env.get("OPENCODE_API_KEY"):
-        detected_provider = "opencode"
-    elif env.get("LLM_URL") and "opencode.ai" not in env.get("LLM_URL", ""):
-        detected_provider = "local"
-    else:
-        detected_provider = "gemini"
-
     console.print(
-        "Supported providers: [bold]Gemini[/bold] (recommended, free tier), "
-        "OpenAI, OpenCode (free models), local (Ollama/llama.cpp)"
+        "Strelitzia calls the Claude API with your own key (Haiku for bulk stages, Sonnet for tailoring).\n"
+        "Create one at [bold]https://console.anthropic.com[/bold] (Settings > API keys)."
     )
-    provider = Prompt.ask(
-        "Provider",
-        choices=["gemini", "openai", "opencode", "local"],
-        default=detected_provider,
-    )
+    existing_key = env.get("ANTHROPIC_API_KEY", "")
+    api_key = Prompt.ask(
+        "Anthropic API key" + (" (Enter keeps the saved key)" if existing_key else ""),
+        password=True, default=existing_key, show_default=False,
+    ) or existing_key
+    saved_budget = env.get("LLM_MONTHLY_BUDGET_USD", "20").split("#")[0].strip()
+    budget = Prompt.ask("Monthly LLM budget in USD (a run stops before passing it; 0 = no limit)",
+                        default=saved_budget or "20").strip()
 
-    env_lines = ["# Strelitzia configuration", ""]
-
-    if provider == "gemini":
-        existing_key = env.get("GEMINI_API_KEY", "")
-        api_key = Prompt.ask("Gemini API key (from aistudio.google.com)", default=existing_key)
-        if not api_key and existing_key:
-            api_key = existing_key
-        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "gemini-3.6-flash"))
-        env_lines.append(f"GEMINI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
-    elif provider == "openai":
-        existing_key = env.get("OPENAI_API_KEY", "")
-        api_key = Prompt.ask("OpenAI API key", default=existing_key)
-        if not api_key and existing_key:
-            api_key = existing_key
-        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "gpt-4o-mini"))
-        env_lines.append(f"OPENAI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
-    elif provider == "opencode":
-        existing_key = env.get("OPENCODE_API_KEY", "")
-        api_key = Prompt.ask(
-            "OpenCode API key (get from https://opencode.ai/zen or leave blank for 'opencode auth' local)",
-            default=existing_key,
-        )
-        if not api_key and existing_key:
-            api_key = existing_key
-        model = Prompt.ask("Model", default=env.get("LLM_MODEL", "opencode/nemotron-3-nano-free"))
-        env_lines.append(f"OPENCODE_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
-        # Optional gateway override (defaults to https://opencode.ai/zen/v1)
-        existing_url = env.get("LLM_URL", "")
-        if "opencode.ai" in existing_url:
-            url = Prompt.ask(
-                "OpenCode gateway URL (leave default unless self-hosting)",
-                default=existing_url,
-            )
-            env_lines.append(f"LLM_URL={url}")
-    elif provider == "local":
-        url = Prompt.ask("Local LLM endpoint URL", default=env.get("LLM_URL", "http://localhost:8080/v1"))
-        model = Prompt.ask("Model name", default=env.get("LLM_MODEL", "local-model"))
-        env_lines.append(f"LLM_URL={url}")
-        env_lines.append(f"LLM_MODEL={model}")
-
-    # --- Cost & rate-limit tuning (applies to every provider) ---
-    default_discovery_model = "gemini-3.1-flash-lite" if provider == "gemini" else env.get("LLM_MODEL", "")
-    discovery_model = Prompt.ask(
-        "Discovery model (cheaper model for job classification; saves ~5x input cost)",
-        default=env.get("LLM_DISCOVERY_MODEL", default_discovery_model),
-    )
-    if discovery_model:
-        env_lines.append(f"LLM_DISCOVERY_MODEL={discovery_model}")
-
-    rpm_limit = Prompt.ask(
-        "LLM RPM limit (a bit below your model's free RPM, see aistudio.google.com/rate-limit; 0 = disabled)",
-        default=env.get("LLM_RPM_LIMIT", "12"),
-    )
-    if rpm_limit:
-        env_lines.append(f"LLM_RPM_LIMIT={rpm_limit}")
+    dropped = sorted(k for k, v in env.items() if _is_legacy_llm_setting(k, v))
+    kept = {k: v for k, v in env.items()
+            if k not in dropped and k not in ("ANTHROPIC_API_KEY", "LLM_MONTHLY_BUDGET_USD")}
+    env_lines = ["# Strelitzia configuration", "", f"ANTHROPIC_API_KEY={api_key}"]
+    if budget and budget != "0":
+        env_lines.append(f"LLM_MONTHLY_BUDGET_USD={budget}")
+    env_lines += [f"{k}={v}" for k, v in kept.items()]
 
     env_lines.append("")
     ENV_PATH.write_text("\n".join(env_lines), encoding="utf-8")
     set_restricted_permissions(ENV_PATH)
     console.print(f"[green]AI configuration saved to {ENV_PATH}[/green]")
+    if dropped:
+        console.print(f"[dim]Removed settings for the previous LLM providers: {', '.join(dropped)}[/dim]")
 
 
 # ---------------------------------------------------------------------------

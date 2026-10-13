@@ -168,7 +168,7 @@ src/strelitzia/scoring/cover_letter.py (modify), tests/test_scoring_errors.py (m
 - `init` asks for `ANTHROPIC_API_KEY` instead of Gemini.
 - Docs: replace "Gemini free tier" in AGENTS.md and README, and record the runner gotcha in the README's setup notes.
 **Validate:** `scripts/validate.sh --full` → green. `strelitzia doctor` with a dummy key prints the Claude block and no Gemini lines.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit). Also renamed the recorded scoring fixture to `tests/data/claude_score_response.json`.
 
 ### Task 7: Live smoke test
 **Runs:** interactive (needs `ANTHROPIC_API_KEY`, spends ~$0.05)

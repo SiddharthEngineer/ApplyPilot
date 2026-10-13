@@ -18,7 +18,7 @@ All files are gitignored. Re-running overwrites deterministically.
 With --out/--scrub, writes small JSON samples meant to be committed (public repo):
     <out>/jobspy_<site>.json          — 5 raw JobSpy rows per board
     <out>/workday_search.json         — one raw Workday CXS listing page
-    <out>/gemini_score_response.json  — one raw Gemini scoring reply (scored against a fake resume)
+    <out>/claude_score_response.json  — one raw Claude scoring reply (scored against a fake resume)
 --scrub replaces anything from your profile.json/resume.txt (name, email, phone, URLs, companies,
 school, passwords) plus any email address, and caps descriptions at 2,000 characters.
 Check before committing: grep -ri "<your email>" tests/data  (expect no matches).
@@ -269,29 +269,24 @@ def _capture_workday_sample(out_dir: Path, terms, do_scrub) -> None:
     print("  workday_search.json: skipped (no employer returned postings)")
 
 
-def _capture_gemini_sample(out_dir: Path, terms, do_scrub) -> None:
+def _capture_score_sample(out_dir: Path, terms, do_scrub) -> None:
     from strelitzia.llm import get_client
-    from strelitzia.scoring.scorer import SCORE_PROMPT
+    from strelitzia.scoring.scorer import SCORE_SCHEMA, score_messages
 
     job_path = out_dir / "jobspy_indeed.json"
     jobs = json.loads(job_path.read_text(encoding="utf-8")) if job_path.exists() else []
     job = next((j for j in jobs if j.get("description")), None)
     if job is None:
-        print("  gemini_score_response.json: skipped (no captured job with a description)")
+        print("  claude_score_response.json: skipped (no captured job with a description)")
         return
-    job_text = (f"TITLE: {job.get('title')}\nCOMPANY: {job.get('site')}\nLOCATION: {job.get('location')}\n\n"
-                f"DESCRIPTION:\n{job['description'][:DESC_CAP]}")
-    messages = [
-        {"role": "system", "content": SCORE_PROMPT},
-        {"role": "user", "content": f"RESUME:\n{SAMPLE_RESUME}\n\n---\n\nJOB POSTING:\n{job_text}"},
-    ]
+    job = {**job, "full_description": job["description"][:DESC_CAP]}
     try:
-        client = get_client()
-        response = client.chat(messages, max_tokens=512, temperature=0.2)
+        client = get_client("scoring")
+        response = client.chat(score_messages(SAMPLE_RESUME, job), max_tokens=2048, schema=SCORE_SCHEMA)
     except Exception as e:  # noqa: BLE001 — capture is best-effort
-        print(f"  gemini_score_response.json: skipped ({type(e).__name__}: {e})")
+        print(f"  claude_score_response.json: skipped ({type(e).__name__}: {e})")
         return
-    _write_json(out_dir / "gemini_score_response.json",
+    _write_json(out_dir / "claude_score_response.json",
                 {"model": client.model, "job_url": job.get("job_url"), "response": response}, terms, do_scrub)
 
 
@@ -301,7 +296,7 @@ def capture_samples(out_dir: Path, sites: list[str], do_scrub: bool, real_app_di
     print(f"Capturing JSON samples to {out_dir} (scrub={'on, %d terms' % len(terms) if do_scrub else 'off'})...")
     _capture_jobspy_samples(out_dir, sites, terms, do_scrub)
     _capture_workday_sample(out_dir, terms, do_scrub)
-    _capture_gemini_sample(out_dir, terms, do_scrub)
+    _capture_score_sample(out_dir, terms, do_scrub)
 
 
 def main() -> None:

@@ -78,7 +78,7 @@ def _purpose_config(purpose: str) -> dict:
 def resolve_model(purpose: str) -> tuple[str, str]:
     """(model, effort) for a stage: LLM_{PURPOSE}_MODEL / LLM_{PURPOSE}_EFFORT, else llm_models.yaml.
 
-    A model override that isn't a Claude model id (a leftover Gemini setting) is ignored with a one-time warning,
+    A model override that isn't a Claude model id (left over from an earlier provider) is ignored with a one-time warning,
     and so is an unknown effort level.
     """
     defaults = _purpose_config(purpose)
