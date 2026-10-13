@@ -1,5 +1,5 @@
 # Plan: Preferences page and two-layer fit score (code-scored preferences + LLM rubric)
-**Status:** ❌ Not started
+**Status:** 🟡 In progress
 **Risk:** review (new DB tables, web API and dashboard page; changes what `fit_score` means)
 **Depends on:** [claude-llm-provider](claude-llm-provider.md) (Claude client, batch runner, `estimate_cost`, `llm_usage`)
 
@@ -46,7 +46,7 @@ Users never see or edit the prompt.
 If that fails, plan `claude-llm-provider` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
 "waiting for claude-llm-provider to merge; requeue with buildqueue.py add fit-preferences".
 **Validate:** the command exits 0.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (R20 is on trunk, PR #39)
 
 ### Task 1: Preference model and code scorer
 **Runs:** unattended
@@ -82,7 +82,7 @@ If that fails, plan `claude-llm-provider` hasn't merged yet. Change nothing, and
 **Validate:** `pytest tests/test_preferences.py -q` → table-driven cases: salary below floor (score 0, dealbreaker when
 set), hourly salary converted to yearly (×2080), unknown work mode → 0.5 and no dealbreaker, dont_care excluded from
 the mean, all-dont_care → overall from the LLM layer only.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit)
 
 ### Task 2: Assessment rubric (LLM layer)
 **Runs:** unattended

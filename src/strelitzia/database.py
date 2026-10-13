@@ -225,6 +225,10 @@ def _ensure_tables(conn: Connection) -> None:
         "id TEXT PRIMARY KEY, purpose TEXT, submitted_at TEXT, status TEXT, request_count INTEGER, "
         "estimate_usd DOUBLE PRECISION)"
     )
+    # Job preferences (strelitzia.scoring.preferences), one JSON document per user; NULL = the single user for now.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS user_preferences (user_id TEXT NULL UNIQUE, prefs_json TEXT, updated_at TEXT)"
+    )
     conn.commit()
 
 
