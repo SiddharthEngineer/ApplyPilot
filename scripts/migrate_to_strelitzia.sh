@@ -153,10 +153,22 @@ for pair in "$SRV/ApplyPilot-prod:$SRV/Strelitzia-prod" "$SRV/ApplyPilot-preprod
 done
 if [ ${#root_lines[@]} -eq 0 ]; then skip "nothing to move"; else printf '   %s\n' "${root_lines[@]}"; fi
 
+step "8. git safe.directory for the /srv checkouts"
+# git resolves the old-path symlinks to the real dirs, so a safe.directory entry for the old path no longer matches:
+# git then refuses to run there, and `make strelitzia-deploy` and preprod.sh fail with "dubious ownership".
+safe=$(git config --global --get-all safe.directory 2>/dev/null || true)
+for pair in "$SRV/ApplyPilot-prod:$SRV/Strelitzia-prod" "$SRV/ApplyPilot-preprod:$SRV/Strelitzia-preprod"; do
+    old=${pair%%:*} new=${pair#*:}
+    if printf '%s\n' "$safe" | grep -qxF "$new"; then skip "safe.directory $new"
+    elif printf '%s\n' "$safe" | grep -qxF "$old"; then
+        act "git config --global --add safe.directory $new" git config --global --add safe.directory "$new"
+    else skip "no safe.directory entry for $old"; fi
+done
+
 echo
 if [ "$MODE" = dry-run ]; then
     echo "Dry run: $changes change(s) planned. Rerun with --apply to make them."
 else
-    echo "Done: $changes change(s). Later (M16): point the runner env file and the engineerfamily compose at the new paths,"
-    echo "then the old-path symlinks can go."
+    echo "Done: $changes change(s). Then run the step 7 sudo lines, and point the runner env file (scripts/agent/README.md)"
+    echo "and the engineerfamily compose (M16) at the new paths."
 fi

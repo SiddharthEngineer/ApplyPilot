@@ -47,9 +47,12 @@ def vps(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.endswith("_AGENT_STATE")}
     env.update(HOME=str(home), MIGRATE_SRV=str(srv), MIGRATE_VARLOG=str(varlog), CRONTAB=str(fake_crontab),
                GIT_CONFIG_GLOBAL=os.devnull, PATH=f"{Path(sys.executable).parent}:{env['PATH']}")
+    base_env = env
 
-    def run(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
+    def run(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        # A caller's env only overrides GIT_CONFIG_GLOBAL; everything else stays the fake VPS.
+        run_env = {**base_env, **({"GIT_CONFIG_GLOBAL": env["GIT_CONFIG_GLOBAL"]} if env else {})}
+        return subprocess.run(["bash", str(SCRIPT), *args], env=run_env, capture_output=True, text=True)
 
     run.home, run.srv, run.crontab, run.memory = home, srv, crontab_file, memory
     return run
@@ -146,3 +149,15 @@ def test_refuses_while_a_build_is_running(vps):
     out = vps("--apply")
     assert out.returncode == 1 and "a build is running" in out.stderr
     assert not (vps.home / ".strelitzia").exists()
+
+
+def test_apply_adds_safe_directory_for_the_renamed_srv_checkouts(vps, tmp_path):
+    gitconfig = tmp_path / "gitconfig"
+    gitconfig.write_text(f"[safe]\n\tdirectory = {vps.srv}/ApplyPilot-prod\n\tdirectory = {vps.srv}/ApplyPilot-preprod\n")
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": str(gitconfig)}
+    out = vps("--apply", env=env)
+    assert out.returncode == 0, out.stdout + out.stderr
+    safe = git("config", "--file", str(gitconfig), "--get-all", "safe.directory").splitlines()
+    assert f"{vps.srv}/Strelitzia-prod" in safe and f"{vps.srv}/Strelitzia-preprod" in safe
+    assert f"{vps.srv}/ApplyPilot-prod" in safe  # old entries stay while the symlinks exist
+    assert "Done: 0 change(s)" in vps("--apply", env=env).stdout
