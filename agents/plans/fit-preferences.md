@@ -158,7 +158,7 @@ dashboard/src/components/Filters.tsx (modify), dashboard/src/components/JobsTabl
 - Job page: a breakdown list (component, score, note, importance), red flags, the AI summary, a "Rescore" button that
   polls the task, and a "stale assessment" note.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → pass; `scripts/validate.sh --full` → green.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit). Advanced (collapsed) groups: Role, Eligibility, Companies to skip. A stale score shows `*` in the table.
 
 ### Task 5: Haiku vs Sonnet eval for the assessment
 **Runs:** interactive (the user labels jobs; spends ~$1 of API)

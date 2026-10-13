@@ -44,6 +44,27 @@ describe('JobsTable', () => {
     expect(within(rows[3]).getByText('3')).toBeInTheDocument(); // days since submitted
   });
 
+  it('shows fit as 0-100 with a bar, and a warning with the reasons on flagged rows', () => {
+    render(
+      <MemoryRouter>
+        <JobsTable sort="-discovered_at" onSort={() => {}} items={[
+          listItem('active', 1, { fit_score: 82 }),
+          listItem('active', 2, { fit_score: 40, fit_flags: ['salary', 'prefilter'],
+            flag_reasons: ['salary below minimum', "title doesn't match your target roles"] }),
+          listItem('active', 3, { fit_score: null }),
+        ]} />
+      </MemoryRouter>,
+    );
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows[0].querySelector('.fit-cell')).toHaveTextContent('82');
+    expect(rows[0].querySelector('.fit-bar-fill')).toHaveClass('fit-high');
+    expect(rows[0].querySelector('.flag')).toBeNull();
+    const flag = within(rows[1]).getByLabelText(/Flagged/);
+    expect(flag).toHaveAttribute('title', "salary below minimum\ntitle doesn't match your target roles");
+    expect(rows[1].querySelector('.fit-bar-fill')).toHaveClass('fit-low');
+    expect(rows[2].querySelector('.fit-cell')).toHaveTextContent('—');
+  });
+
   it('links each row to its detail page', () => {
     render(
       <MemoryRouter>

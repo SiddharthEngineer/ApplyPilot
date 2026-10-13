@@ -21,6 +21,38 @@ export interface JobListItem {
   status: Status;
   status_color: StatusColor;
   days_since_submitted: number | null;
+  fit_breakdown: FitComponent[];
+  fit_flags: string[];
+  flag_reasons: string[];
+  assessment_stale: boolean;
+}
+
+export type Importance = 'dont_care' | 'nice' | 'important' | 'very_important' | 'dealbreaker';
+
+// One scored criterion of the fit score (scoring/preferences.py Component). score is 0-1, null when not set.
+export interface FitComponent {
+  key: string;
+  label: string;
+  score: number | null;
+  importance: Importance;
+  dealbreaker_hit: boolean;
+  note: string;
+}
+
+export interface Rating {
+  score: number; // 1-5
+  evidence: string;
+}
+
+// The Claude assessment (scoring/assessment.py), or {prefiltered: true} for a job the title prefilter skipped.
+export interface FitAssessment {
+  skills_match?: Rating;
+  experience_match?: Rating;
+  domain_interest?: Rating;
+  red_flags?: { code: string; note: string }[];
+  matched_keywords?: string[];
+  summary?: string;
+  prefiltered?: boolean;
 }
 
 export interface JobList {
@@ -42,6 +74,7 @@ export interface JobQuery {
   score_min?: number;
   score_max?: number;
   q?: string;
+  hide_flagged?: boolean;
   sort?: Sort;
   page?: number;
   page_size?: number;
@@ -58,6 +91,7 @@ export interface Facets {
   role_category: FacetCount[];
   work_mode: FacetCount[];
   location: FacetCount[];
+  flagged?: number;
 }
 
 export interface PostingLocation {
@@ -138,14 +172,67 @@ export interface JobDetail {
   submitted_date: string | null;
   events: StatusEvent[];
   links: JobLinks;
+  fit_breakdown: FitComponent[];
+  fit_flags: string[];
+  flag_reasons: string[];
+  assessment_stale: boolean;
+  fit_assessment: FitAssessment | null;
 }
 
-export type TaskKind = 'resume' | 'cover' | 'both';
+export interface Criterion<V = unknown> {
+  importance: Importance;
+  value: V;
+}
+
+// The Preferences page's document (scoring/preferences.py Preferences).
+export interface Preferences {
+  salary: Criterion<{ min: number | null; currency: string; period: string }>;
+  locations: Criterion<{ places: string[]; remote_ok: boolean }>;
+  work_mode: Criterion<string[]>;
+  role_category: Criterion<string[]>;
+  seniority: Criterion<string[]>;
+  employment_type: Criterion<string[]>;
+  visa: Criterion<boolean>;
+  clearance: Criterion<boolean>;
+  travel: Criterion<number | null>;
+  education: Criterion<string | null>;
+  experience: Criterion<number | null>;
+  company_blocklist: Criterion<string[]>;
+  skills_match: Criterion<null>;
+  experience_match: Criterion<null>;
+  domain_interest: Criterion<null>;
+  red_flags: Criterion<null>;
+  skills_want: string[];
+  skills_avoid: string[];
+  industries_favor: string[];
+  industries_avoid: string[];
+  target_roles: string[];
+}
+
+export interface PreferencesResponse {
+  prefs: Preferences;
+  options: Record<string, string[]>;
+  labels: Record<string, string>;
+}
+
+export interface ReassessPreview {
+  reassess_needed: boolean;
+  jobs_to_reassess: number;
+  estimated_usd: number;
+}
+
+export interface SavePreferencesResult {
+  prefs: Preferences;
+  rescored: number;
+  task: Task | null;
+}
+
+export type TaskKind = 'resume' | 'cover' | 'both' | 'rescore' | 'reassess_all';
 export type TaskState = 'queued' | 'running' | 'done' | 'error';
 
 export interface Task {
   id: string;
-  url: string;
+  url: string | null;
   kind: TaskKind;
   state: TaskState;
   created_at: string;

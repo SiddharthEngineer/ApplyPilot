@@ -1,5 +1,5 @@
 // Readable labels for the API's enum values.
-import type { Status, StatusFilter } from './types';
+import type { Importance, Status, StatusFilter } from './types';
 
 export const STATUS_LABELS: Record<Status | 'no_response', string> = {
   active: 'Active',
@@ -35,6 +35,16 @@ export const WORK_MODE_LABELS: Record<string, string> = {
   hybrid: 'Hybrid',
   onsite: 'On-site',
   unknown: 'Unknown',
+};
+
+export const IMPORTANCES: Importance[] = ['dont_care', 'nice', 'important', 'very_important', 'dealbreaker'];
+
+export const IMPORTANCE_LABELS: Record<Importance, string> = {
+  dont_care: "Don't care",
+  nice: 'Nice to have',
+  important: 'Important',
+  very_important: 'Very important',
+  dealbreaker: 'Dealbreaker',
 };
 
 /** "snake_case" enum value -> "Snake case", for fields without a label table. */

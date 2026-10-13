@@ -32,10 +32,11 @@ export function parseQuery(params: URLSearchParams): JobQuery {
     const value = params.get(key);
     if (value && DATE_RE.test(value)) q[key] = value;
   }
-  const scoreMin = intParam(params.get('score_min'), 0, 10);
+  const scoreMin = intParam(params.get('score_min'), 0, 100);
   if (scoreMin !== undefined) q.score_min = scoreMin;
-  const scoreMax = intParam(params.get('score_max'), 0, 10);
+  const scoreMax = intParam(params.get('score_max'), 0, 100);
   if (scoreMax !== undefined) q.score_max = scoreMax;
+  if (params.get('hide_flagged') === 'false') q.hide_flagged = false; // flagged jobs are hidden by default
   const text = params.get('q');
   if (text) q.q = text;
   const sort = params.get('sort');
@@ -53,6 +54,7 @@ export function toSearchParams(q: JobQuery): URLSearchParams {
     if (name === 'sort' && value === DEFAULT_SORT) continue;
     if (name === 'page' && value === 1) continue;
     if (name === 'page_size') continue;
+    if (name === 'hide_flagged' && value !== false) continue;
     if (Array.isArray(value)) value.forEach((v) => params.append(name, String(v)));
     else params.set(name, String(value));
   }

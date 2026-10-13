@@ -4,7 +4,7 @@ import type { Facets, JobQuery, StatusFilter } from '../types';
 
 export const DEBOUNCE_MS = 300;
 const WORK_MODES = ['remote', 'hybrid', 'onsite'] as const;
-const SCORES = Array.from({ length: 10 }, (_, i) => i + 1);
+const SCORES = Array.from({ length: 11 }, (_, i) => i * 10); // fit_score is 0-100
 
 interface Props {
   query: JobQuery;
@@ -165,6 +165,15 @@ export default function Filters({ query, facets, onChange }: Props) {
             </select>
           </div>
         </fieldset>
+        <label className="check show-flagged" title="Jobs that fail a dealbreaker or the title prefilter">
+          <input
+            type="checkbox"
+            checked={query.hide_flagged === false}
+            onChange={(e) => onChange({ hide_flagged: e.target.checked ? false : undefined })}
+          />
+          Show flagged jobs
+          {facets?.flagged !== undefined && <span className="count">{facets.flagged.toLocaleString()}</span>}
+        </label>
         <button type="button" className="clear" disabled={!hasFilters} onClick={() => onChange(null)}>
           Clear filters
         </button>

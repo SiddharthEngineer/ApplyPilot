@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { day, roleLabel, WORK_MODE_LABELS } from '../labels';
 import type { JobListItem, Sort, SortKey } from '../types';
+import FitBar from './FitBar';
 import StatusBadge from './StatusBadge';
 
 interface Props {
@@ -63,7 +64,13 @@ export default function JobsTable({ items, sort, onSort }: Props) {
                   <span className={`tag tag-${job.work_mode}`}>{WORK_MODE_LABELS[job.work_mode]}</span>
                 )}
               </td>
-              <td className="num">{job.fit_score ?? '—'}</td>
+              <td className="num fit-cell">
+                {job.fit_flags.length > 0 && (
+                  <span className="flag" title={job.flag_reasons.join('\n')}
+                    aria-label={`Flagged: ${job.flag_reasons.join('; ')}`}>⚠</span>
+                )}
+                <FitBar score={job.fit_score} stale={job.assessment_stale} />
+              </td>
               <td className="nowrap">{day(job.discovered_at)}</td>
               <td className="nowrap">{day(job.deadline)}</td>
               <td className="num">{job.status === 'submitted' ? (job.days_since_submitted ?? '—') : ''}</td>
