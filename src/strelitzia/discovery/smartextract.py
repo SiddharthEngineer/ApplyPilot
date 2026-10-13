@@ -846,7 +846,7 @@ def ask_llm(prompt: str, max_tokens: int = 4096) -> tuple[str, float, dict]:
     """
     client = get_discovery_client()
     t0 = time.time()
-    text = client.ask(prompt, temperature=0.0, max_tokens=max_tokens)
+    text = client.ask(prompt, max_tokens=max_tokens)
     elapsed = time.time() - t0
     meta = {
         "finish_reason": "stop",

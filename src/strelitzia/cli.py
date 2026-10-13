@@ -702,88 +702,15 @@ def doctor() -> None:
                      "not_installed": f"Optional: {drive_detail}"}[drive_state]))
 
     # --- Tier 2 checks ---
-    import os
-    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
-    has_opencode = bool(os.environ.get("OPENCODE_API_KEY"))
-    has_local = bool(os.environ.get("LLM_URL"))
-    if has_opencode:
-        model = os.environ.get("LLM_MODEL", "opencode/nemotron-3-nano-free")
-        results.append(("LLM API key", ok_mark, f"OpenCode ({model})"))
-    elif has_gemini:
-        from strelitzia.llm import PURPOSES, _detect_provider
-        model = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
-        stage_models = {p: _detect_provider(p)[1] for p in PURPOSES}
-        # Validate model against Gemini API model list
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        model_valid = True
-        models: list[str] = []
-        try:
-            import httpx
-            resp = httpx.get(
-                "https://generativelanguage.googleapis.com/v1beta/models",
-                headers={"x-goog-api-key": gemini_key},  # not ?key=: httpx logs URLs
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                models = [m["name"].split("/")[-1] for m in resp.json().get("models", [])]
-                avail = ', '.join(sorted(models)[:5])
-                if model not in models:
-                    model_valid = False
-                    results.append((
-                        "LLM API key", warn_mark,
-                        f"Gemini ({model}) — model not found in API model list. Available: {avail}...",
-                    ))
-                for purpose, stage_model in stage_models.items():
-                    if stage_model not in models:
-                        results.append((
-                            "LLM API key", warn_mark,
-                            f"Gemini {purpose} model ({stage_model}) not in API model list. Available: {avail}...",
-                        ))
-        except Exception:
-            pass  # If we can't validate, just show the model name
-        if model_valid:
-            results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
-    elif has_openai:
-        model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-        results.append(("LLM API key", ok_mark, f"OpenAI ({model})"))
-    elif has_local:
-        results.append(("LLM API key", ok_mark, f"Local: {os.environ.get('LLM_URL')}"))
+    from strelitzia.llm import PURPOSES, resolve_model
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        results.append(("Claude API key", ok_mark, "ANTHROPIC_API_KEY is set"))
     else:
-        results.append(("LLM API key", fail_mark,
-                        "Set GEMINI_API_KEY in ~/.strelitzia/.env (run 'strelitzia init')"))
-
-    # Rate-limit / cost tuning (informational, shown whenever an LLM is configured)
-    if has_gemini or has_openai or has_opencode or has_local:
-        from strelitzia.llm import PURPOSES, _detect_provider, daily_usage, model_limits
-        # Per-stage model: LLM_{STAGE}_MODEL -> LLM_MODEL -> provider default (same resolution as the clients),
-        # with that model's limits from llm_limits.yaml (or LLM_RPM_LIMIT / LLM_RPD_LIMIT for unlisted models).
-        unlimited: set[str] = set()
-        for purpose in PURPOSES:
-            stage_model = _detect_provider(purpose)[1]
-            rpm, rpd = model_limits(stage_model)
-            if not rpm:
-                unlimited.add(stage_model)
-            rpd_text = f"{daily_usage.count(stage_model)}/{rpd} today" if rpd else "no RPD limit"
-            rpm_text = f"{rpm} RPM" if rpm else "no RPM limit"
-            results.append((f"{purpose.title()} model", ok_mark, f"{stage_model} ({rpm_text}, {rpd_text})"))
-        from strelitzia.llm import fallback_model
-        base_url = _detect_provider("tailor")[0]
-        fb = {fallback_model(_detect_provider(p)[1], base_url) for p in PURPOSES} - {None}
-        if fb:
-            results.append(("503 fallback", ok_mark, f"{', '.join(sorted(fb))} (LLM_FALLBACK_MODEL; 'none' disables)"))
-        from strelitzia.config import LLM_LIMITS_PATH
-        from strelitzia.llm import model_limit_sources
-        sources = model_limit_sources()
-        deprecated = [src for src, old in sources if old]
-        note = " + ".join(src for src, _ in sources)
-        if deprecated:
-            note += f" ({', '.join(deprecated)} deprecated: move to {LLM_LIMITS_PATH})"
-        results.append(("Rate limits", warn_mark if deprecated else ok_mark, note))
-        if unlimited:
-            results.append(("RPM limit", warn_mark, f"off for {', '.join(sorted(unlimited))}: add it to "
-                            f"{LLM_LIMITS_PATH} (or set LLM_RPM_LIMIT)"))
-        results.append(("Free-tier limits", ok_mark, "per model, per project: https://aistudio.google.com/rate-limit"))
+        results.append(("Claude API key", fail_mark,
+                        "Set ANTHROPIC_API_KEY in ~/.strelitzia/.env (run 'strelitzia init')"))
+    for purpose in PURPOSES:
+        model, effort = resolve_model(purpose)
+        results.append((f"{purpose.title()} model", ok_mark, f"{model} (effort {effort})"))
 
     # --- Render results ---
     console.print()

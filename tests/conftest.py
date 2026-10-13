@@ -170,7 +170,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-llm",
         action="store_true",
         default=False,
-        help="Run tests marked 'llm' (real Gemini API calls).",
+        help="Run tests marked 'llm' (real Claude API calls).",
     )
     parser.addoption(
         "--run-expensive",
@@ -219,30 +219,21 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 
 def _has_llm_provider() -> bool:
-    """Check if any LLM provider key is configured (mirrors config.py:get_tier)."""
-    return bool(
-        os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("OPENCODE_API_KEY")
-        or os.environ.get("LLM_URL")
-    )
+    """Check if the Claude API key is configured (mirrors config.py:get_tier)."""
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
 def requires_api_key() -> None:
-    """Skip current test if no LLM provider is configured."""
+    """Skip current test if no Claude API key is configured."""
     if not _has_llm_provider():
-        pytest.skip("No LLM provider configured (set GEMINI_API_KEY, OPENAI_API_KEY, OPENCODE_API_KEY, or LLM_URL)")
+        pytest.skip("No Claude API key configured (set ANTHROPIC_API_KEY)")
 
 
 @pytest.fixture(autouse=False, scope="session")
 def _set_llm_defaults():
-    """For llm tests: force gemini-3.1-flash-lite and reset singletons."""
+    """For llm tests: skip without a key, and reset the per-stage clients around the session."""
     if not _has_llm_provider():
-        pytest.skip("No LLM provider for llm tests")
-
-    os.environ.setdefault("LLM_MODEL", "gemini-3.1-flash-lite")
-    for purpose in ("DISCOVERY", "SCORING", "TAILOR", "COVER"):
-        os.environ.setdefault(f"LLM_{purpose}_MODEL", "gemini-3.1-flash-lite")
+        pytest.skip("No Claude API key for llm tests")
 
     import strelitzia.llm as llm_mod
 

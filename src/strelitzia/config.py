@@ -74,8 +74,6 @@ RESUME_TEMPLATE_PATH = APP_DIR / "resume_template.html"
 RESUME_FIXED_PATH = APP_DIR / "resume_fixed.yaml"
 TEMPLATE_PREVIEW_PATH = APP_DIR / "template_preview.pdf"
 ENV_PATH = APP_DIR / ".env"
-# Per-model LLM rate limits; overrides the packaged CONFIG_DIR / "llm_limits.yaml"
-LLM_LIMITS_PATH = APP_DIR / "llm_limits.yaml"
 GOOGLE_CLIENT_SECRET_PATH = APP_DIR / "google_client_secret.json"
 GOOGLE_TOKEN_PATH = APP_DIR / "google_token.json"
 
@@ -174,8 +172,6 @@ def load_base_urls() -> dict[str, str | None]:
 DEFAULTS = {
     "min_score": 7,
     "max_tailor_attempts": 5,
-    "llm_rpm_limit": 12,
-    "llm_discovery_model": "gemini-3.1-flash-lite",
 }
 
 
@@ -221,12 +217,11 @@ def get_tier() -> int:
     """Detect the current tier based on available dependencies.
 
     Tier 1 (Discovery):            Python + pip
-    Tier 2 (AI Scoring & Tailoring): + LLM API key
+    Tier 2 (AI Scoring & Tailoring): + ANTHROPIC_API_KEY
     """
     load_env()
 
-    has_llm = any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
-    if not has_llm:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return 1
 
     return 2
@@ -247,8 +242,8 @@ def check_tier(required: int, feature: str) -> None:
     _console = Console(stderr=True)
 
     missing: list[str] = []
-    if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
-        missing.append("LLM API key — run [bold]strelitzia init[/bold] or set GEMINI_API_KEY")
+    if required >= 2 and not os.environ.get("ANTHROPIC_API_KEY"):
+        missing.append("Claude API key — run [bold]strelitzia init[/bold] or set ANTHROPIC_API_KEY")
 
     _console.print(
         f"\n[red]'{feature}' requires {TIER_LABELS.get(required, f'Tier {required}')} (Tier {required}).[/red]\n"

@@ -1,687 +1,227 @@
 """
-Unified LLM client for Strelitzia.
+LLM client for Strelitzia: every call goes to the Claude API through the `anthropic` SDK.
 
-Auto-detects provider from environment:
-  GEMINI_API_KEY  -> Google Gemini (default: gemini-3.6-flash)
-  OPENAI_API_KEY  -> OpenAI (default: gpt-4o-mini)
-  OPENCODE_API_KEY -> OpenCode Zen gateway (default: opencode/nemotron-3-nano-free)
-  LLM_URL         -> Local llama.cpp / Ollama / OpenCode gateway compatible endpoint
-
-LLM_MODEL env var overrides the model name for any provider.
+Each pipeline stage (`PURPOSES`) has its own model and effort, from the packaged config/llm_models.yaml;
+`LLM_{PURPOSE}_MODEL` and `LLM_{PURPOSE}_EFFORT` override them. The key is `ANTHROPIC_API_KEY`, read from
+~/.strelitzia/.env by `config.load_env()`.
 """
 
-import json
 import logging
 import os
-import re
-import threading
-import time
-from collections import deque
-from datetime import datetime
-from pathlib import Path
-from zoneinfo import ZoneInfo
+from functools import cache
 
-import httpx
+import anthropic
 
 log = logging.getLogger(__name__)
 
 # Pipeline stages that can each pick their own model via LLM_{PURPOSE}_MODEL.
 PURPOSES = ("discovery", "extract", "scoring", "tailor", "cover")
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+# The SDK retries 408/409/429/5xx and connection errors with exponential backoff.
+_MAX_RETRIES = 4
+_TIMEOUT = 300.0  # seconds
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, msg: str, *args: object) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        log.warning(msg, *args)
+
 
 # ---------------------------------------------------------------------------
-# Provider detection
+# Errors
 # ---------------------------------------------------------------------------
 
-def _detect_provider(purpose: str | None = None) -> tuple[str, str, str]:
-    """Return (base_url, model, api_key) based on environment variables.
+class LLMStopRun(RuntimeError):
+    """No further request can succeed in this run (budget used up, bad key, API overloaded through every retry).
 
-    Reads env at call time (not module import time) so that load_env() called
-    in _bootstrap() is always visible here.
-
-    `purpose` selects a per-stage model: for any purpose in `PURPOSES` the
-    model resolves as `LLM_{PURPOSE}_MODEL` -> `LLM_MODEL` -> provider default.
-    On Gemini the discovery and extract default is the cheaper `gemini-3.1-flash-lite`
-    (enough for classification/judge/extraction, with a higher free-tier quota).
+    Stage loops catch this, stop without counting an attempt for the job in progress, and leave the remaining
+    jobs for the next run. `reason` is the stage's "stopped" value: "budget", "auth" or "overloaded".
     """
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
-    local_url = os.environ.get("LLM_URL", "")
-    model_override = os.environ.get("LLM_MODEL", "")
-    if purpose in PURPOSES:
-        model_override = os.environ.get(f"LLM_{purpose.upper()}_MODEL", "") or model_override
 
-    # Explicit local endpoint (Ollama/llama.cpp) always wins when LLM_URL points
-    # somewhere other than the OpenCode gateway. An OpenCode gateway URL is
-    # handled by the OpenCode branch below so OPENCODE_API_KEY + a local URL do
-    # not hijack each other.
-    if local_url and "opencode.ai" not in local_url:
-        return (
-            local_url.rstrip("/"),
-            model_override or "local-model",
-            os.environ.get("LLM_API_KEY", ""),
-        )
+    def __init__(self, reason: str = "stopped", message: str | None = None) -> None:
+        self.reason = reason
+        super().__init__(message or reason)
 
-    # OpenCode Zen gateway (free models) — first-class provider reusing the
-    # OpenAI-compatible transport. Priority: explicit OPENCODE_API_KEY, then a
-    # LLM_URL pointing at opencode.ai.
-    if opencode_key:
-        base = local_url.rstrip("/") if "opencode.ai" in local_url else "https://opencode.ai/zen/v1"
-        model = model_override or "opencode/nemotron-3-nano-free"
-        return (base, model, opencode_key)
-    if "opencode.ai" in local_url:
-        model = model_override or "opencode/nemotron-3-nano-free"
-        api_key = opencode_key or os.environ.get("LLM_API_KEY", "")
-        return (local_url.rstrip("/"), model, api_key)
 
-    if gemini_key and not local_url:
-        default = "gemini-3.1-flash-lite" if purpose in ("discovery", "extract") else "gemini-3.6-flash"
-        model = model_override or default
-        return (
-            "https://generativelanguage.googleapis.com/v1beta/openai",
-            model,
-            gemini_key,
-        )
+class LLMResponseError(RuntimeError):
+    """The model answered but the answer is unusable (refusal, cut off at max_tokens). Retryable per job."""
 
-    if openai_key and not local_url:
-        return (
-            "https://api.openai.com/v1",
-            model_override or "gpt-4o-mini",
-            openai_key,
-        )
 
-    if local_url:
-        return (
-            local_url.rstrip("/"),
-            model_override or "local-model",
-            os.environ.get("LLM_API_KEY", ""),
-        )
+# ---------------------------------------------------------------------------
+# Models, effort and prices (config/llm_models.yaml)
+# ---------------------------------------------------------------------------
 
-    raise RuntimeError(
-        "No LLM provider configured. "
-        "Set GEMINI_API_KEY, OPENAI_API_KEY, or LLM_URL in your environment."
-    )
+@cache
+def load_models_config() -> dict:
+    """The packaged llm_models.yaml: ``{"purposes": {...}, "models": {...}}``."""
+    import yaml
+
+    from strelitzia import config
+    return yaml.safe_load((config.CONFIG_DIR / "llm_models.yaml").read_text(encoding="utf-8"))
+
+
+def _purpose_config(purpose: str) -> dict:
+    if purpose not in PURPOSES:
+        raise ValueError(f"Unknown LLM purpose {purpose!r}; expected one of {', '.join(PURPOSES)}")
+    return load_models_config()["purposes"][purpose]
+
+
+def resolve_model(purpose: str) -> tuple[str, str]:
+    """(model, effort) for a stage: LLM_{PURPOSE}_MODEL / LLM_{PURPOSE}_EFFORT, else llm_models.yaml.
+
+    A model override that isn't a Claude model id (a leftover Gemini setting) is ignored with a one-time warning,
+    and so is an unknown effort level.
+    """
+    defaults = _purpose_config(purpose)
+    model, effort = defaults["model"], defaults["effort"]
+    var = f"LLM_{purpose.upper()}_MODEL"
+    override = os.environ.get(var, "").strip()
+    if override:
+        if override.startswith("claude-"):
+            model = override
+        else:
+            _warn_once(var, "Ignoring %s=%s: not a Claude model id. Using %s.", var, override, model)
+    var = f"LLM_{purpose.upper()}_EFFORT"
+    override = os.environ.get(var, "").strip().lower()
+    if override:
+        if override in EFFORTS:
+            effort = override
+        else:
+            _warn_once(var, "Ignoring %s=%s: expected one of %s.", var, override, ", ".join(EFFORTS))
+    return model, effort
+
+
+def model_prices(model: str) -> dict[str, float]:
+    """USD per million tokens for a model. An unknown model is priced as the dearest known one (warned once)."""
+    models = load_models_config()["models"]
+    if model in models:
+        return models[model]
+    dearest = max(models.values(), key=lambda p: p["output"])
+    _warn_once(f"price:{model}", "No price for %s in llm_models.yaml; counting it at the highest known price.", model)
+    return dearest
+
+
+def _usage_tokens(usage) -> dict[str, int]:
+    """Token counts from an SDK `Usage` (or a dict with the same field names)."""
+    def get(name: str) -> int:
+        value = usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+        return int(value or 0)
+    return {
+        "input_tokens": get("input_tokens"),
+        "cache_read_tokens": get("cache_read_input_tokens"),
+        "cache_write_tokens": get("cache_creation_input_tokens"),
+        "output_tokens": get("output_tokens"),
+    }
+
+
+def cost_usd(model: str, usage, batch: bool = False) -> float:
+    """Dollar cost of one response's `usage` (Batch API requests cost half)."""
+    prices = model_prices(model)
+    t = _usage_tokens(usage)
+    total = (
+        t["input_tokens"] * prices["input"]
+        + t["cache_read_tokens"] * prices["cache_read"]
+        + t["cache_write_tokens"] * prices["cache_write_5m"]
+        + t["output_tokens"] * prices["output"]
+    ) / 1_000_000
+    return total * 0.5 if batch else total
 
 
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES = 5
-_TIMEOUT = 120  # seconds
-
-# Base wait on first 429/503 (doubles each retry, caps at 60s).
-# Free-tier per-minute limits are low; 10s gives headroom.
-_RATE_LIMIT_BASE_WAIT = 10
-
-
-# On a 503 ("model overloaded") from a Gemini model, the request goes straight to this model
-# instead of backing off and retrying: Google counts 503s against the free-tier daily quota,
-# so five retries on a 20-request/day flash model can burn most of a day's budget.
-# LLM_FALLBACK_MODEL overrides it; "none" (or empty) turns the failover off.
-_DEFAULT_FALLBACK_MODEL = "gemini-3.1-flash-lite"
-# After a 503, skip the primary model and use the fallback for this long (LLM_FALLBACK_COOLDOWN).
-_DEFAULT_FALLBACK_COOLDOWN = 300.0
-
-_GEMINI_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
-_GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
+def response_text(message) -> str:
+    """The text of a Messages API response. Raises LLMResponseError for a refusal or a cut-off answer."""
+    if message.stop_reason == "refusal":
+        details = getattr(message, "stop_details", None)
+        category = getattr(details, "category", None) if details else None
+        raise LLMResponseError(f"The model declined the request (refusal{f': {category}' if category else ''})")
+    if message.stop_reason == "max_tokens":
+        raise LLMResponseError("The answer was cut off at max_tokens")
+    return "".join(block.text for block in message.content if block.type == "text")
 
 
-# ---------------------------------------------------------------------------
-# Per-model limits: packaged llm_limits.yaml <- ~/.strelitzia/llm_limits.yaml <- LLM_RPM_LIMITS / LLM_RPD_LIMITS
-# ---------------------------------------------------------------------------
-
-_LIMIT_ENV_VARS = {"rpm": "LLM_RPM_LIMITS", "rpd": "LLM_RPD_LIMITS"}
-_warned_limit_vars: set[str] = set()
-
-
-def _warn_once(key: str, msg: str, *args: object) -> None:
-    if key not in _warned_limit_vars:
-        _warned_limit_vars.add(key)
-        log.warning(msg, *args)
-
-
-def _parse_model_limits(var: str) -> dict[str, int]:
-    """Read a legacy ``{"model": n, ...}`` env var. Trailing commas are allowed; a bad value logs once and is ignored.
-
-    In a .env file a multi-line value must be wrapped in single quotes, or python-dotenv reads only ``{``.
-    """
-    raw = os.environ.get(var, "").strip()
-    if not raw:
-        return {}
-    try:
-        data = json.loads(re.sub(r",\s*([}\]])", r"\1", raw))
-        if not isinstance(data, dict):
-            raise TypeError("not an object")
-        return {str(k): int(v) for k, v in data.items()}
-    except (ValueError, TypeError) as e:
-        _warn_once(
-            var,
-            "Ignoring %s (%s): expected {\"model\": number, ...}. In .env, wrap a multi-line value "
-            "in single quotes: %s='{ ... }'", var, e, var,
-        )
-        return {}
-
-
-def _read_limits_file(path: Path) -> dict[str, dict[str, int]]:
-    """``{"rpm": {model: n}, "rpd": {model: n}}`` from a YAML file. Raises on a malformed file."""
-    import yaml
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(data, dict):
-        raise TypeError("not a mapping")
-    limits: dict[str, dict[str, int]] = {}
-    for kind in _LIMIT_ENV_VARS:
-        section = data.get(kind) or {}
-        if not isinstance(section, dict):
-            raise TypeError(f"{kind} is not a mapping")
-        for model, n in section.items():
-            if isinstance(n, bool) or not isinstance(n, int) or n < 0:
-                raise TypeError(f"{kind}.{model} = {n!r} is not a whole number >= 0")
-        limits[kind] = {str(k): v for k, v in section.items()}
-    return limits
-
-
-def _load_limits() -> tuple[dict[str, dict[str, int]], list[str]]:
-    """Merged per-model limits and the sources that contributed, lowest precedence first."""
-    import yaml
-
-    from strelitzia import config
-    limits = _read_limits_file(config.CONFIG_DIR / "llm_limits.yaml")
-    sources = ["packaged defaults"]
-    user_path = config.LLM_LIMITS_PATH
-    if user_path.exists():
-        try:
-            user = _read_limits_file(user_path)
-        except (OSError, ValueError, TypeError, yaml.YAMLError) as e:
-            _warn_once(str(user_path), "Ignoring %s (%s); using the packaged limits.", user_path, e)
-        else:
-            for kind, per_model in user.items():
-                limits[kind].update(per_model)
-            sources.append(str(user_path))
-    for kind, var in _LIMIT_ENV_VARS.items():
-        per_model = _parse_model_limits(var)
-        if per_model:
-            _warn_once(f"{var}:deprecated", "%s in .env is deprecated: move per-model limits to %s "
-                       "(same shape as the packaged strelitzia/config/llm_limits.yaml).", var, user_path)
-            limits[kind].update(per_model)
-            sources.append(var)
-    return limits, sources
-
-
-def load_model_limits() -> dict[str, dict[str, int]]:
-    """``{"rpm": {model: n}, "rpd": {model: n}}``: packaged defaults <- user llm_limits.yaml <- legacy env vars."""
-    return _load_limits()[0]
-
-
-def model_limit_sources() -> list[tuple[str, bool]]:
-    """(source, deprecated) for each place the per-model limits came from, lowest precedence first (for doctor)."""
-    return [(src, src in _LIMIT_ENV_VARS.values()) for src in _load_limits()[1]]
-
-
-def model_limits(model: str) -> tuple[int, int]:
-    """(requests/minute, requests/day) for a model; 0 = no limit.
-
-    Per-model limits (load_model_limits) win over LLM_RPM_LIMIT / LLM_RPD_LIMIT (all other models).
-    """
-    limits = load_model_limits()
-    rpm = limits["rpm"].get(model, int(os.environ.get("LLM_RPM_LIMIT", "0") or 0))
-    rpd = limits["rpd"].get(model, int(os.environ.get("LLM_RPD_LIMIT", "0") or 0))
-    return rpm, rpd
-
-
-# Gemini's per-day quotas reset at midnight Pacific time.
-_QUOTA_TZ = ZoneInfo("America/Los_Angeles")
-
-
-class DailyUsage:
-    """Requests sent per model today, persisted so separate runs share one daily budget.
-
-    File: ``<STRELITZIA_DIR>/llm_usage.json`` = ``{"day": "YYYY-MM-DD", "counts": {model: n}}``.
-    It's re-read on every call, so concurrent runs stay roughly in step.
-    """
-
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path
-        self._lock = threading.Lock()
-
-    @property
-    def path(self) -> Path:
-        if self._path is None:
-            from strelitzia.config import APP_DIR
-            self._path = APP_DIR / "llm_usage.json"
-        return self._path
-
-    @staticmethod
-    def today() -> str:
-        return datetime.now(_QUOTA_TZ).date().isoformat()
-
-    def _load(self) -> dict[str, int]:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(data, dict) or data.get("day") != self.today():
-            return {}
-        return {str(k): int(v) for k, v in (data.get("counts") or {}).items()}
-
-    def count(self, model: str) -> int:
-        with self._lock:
-            return self._load().get(model, 0)
-
-    def increment(self, model: str) -> None:
-        with self._lock:
-            counts = self._load()
-            counts[model] = counts.get(model, 0) + 1
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"day": self.today(), "counts": counts}), encoding="utf-8")
-            tmp.replace(self.path)
-
-
-daily_usage = DailyUsage()
-
-
-class LLMStopRun(RuntimeError):
-    """The model can't take more requests in this run.
-
-    Stage loops catch this, stop without counting an attempt for the job in progress, and leave the remaining
-    jobs for the next run. `reason` is the stage's "stopped" value.
-    """
-
-    reason = "stopped"
-
-
-class LLMQuotaExhausted(LLMStopRun):
-    """A per-day quota is used up (a 429 naming a per-day quota): no retry inside this run can succeed."""
-
-    reason = "daily_quota"
-
-    def __init__(self, model: str, scope: str) -> None:
-        self.model = model
-        self.scope = scope
-        super().__init__(f"Gemini daily quota exhausted for {model} ({scope})")
-
-
-class LLMOverloaded(LLMStopRun):
-    """Every retry got a 503 ("model overloaded") and there is no fallback model left to try.
-
-    Google's overload is transient (minutes), but the free tier counts each 503 against the daily quota,
-    so the run stops instead of burning more requests; the next run picks the jobs up.
-    """
-
-    reason = "overloaded"
-
-    def __init__(self, model: str) -> None:
-        self.model = model
-        super().__init__(f"{model} is overloaded (HTTP 503 on every retry)")
-
-
-def _parse_quota_error(resp: httpx.Response) -> tuple[str | None, float | None]:
-    """Read a Gemini 429 body. Returns (per-day quotaId or None, retryDelay seconds or None).
-
-    Native errors are ``{"error": {...}}``; the OpenAI-compat layer wraps the
-    same object in a list.
-    """
-    try:
-        body = resp.json()
-    except Exception:  # noqa: BLE001 - non-JSON body: treat as a plain transient 429
-        return None, None
-    if isinstance(body, list):
-        body = body[0] if body else {}
-    err = body.get("error") if isinstance(body, dict) else None
-    if not isinstance(err, dict):
-        return None, None
-
-    per_day: str | None = None
-    retry_delay: float | None = None
-    for detail in err.get("details") or []:
-        if not isinstance(detail, dict):
-            continue
-        for v in detail.get("violations") or []:
-            quota_id = v.get("quotaId", "") if isinstance(v, dict) else ""
-            if "PerDay" in quota_id and err.get("status") == "RESOURCE_EXHAUSTED":
-                per_day = quota_id
-        delay = detail.get("retryDelay")
-        if isinstance(delay, str) and delay.endswith("s"):
-            try:
-                retry_delay = float(delay[:-1])
-            except ValueError:
-                pass
-    return per_day, retry_delay
+def _api_error(e: anthropic.APIError) -> Exception:
+    """Map an SDK error (after its own retries) to what the stage loops expect."""
+    if isinstance(e, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return LLMStopRun("auth", f"The Claude API rejected ANTHROPIC_API_KEY ({type(e).__name__}); check the key")
+    if isinstance(e, (anthropic.RateLimitError, anthropic.OverloadedError)) or (
+        isinstance(e, anthropic.APIStatusError) and e.status_code in (429, 529)
+    ):
+        return LLMStopRun("overloaded", f"The Claude API is overloaded or rate limited through every retry: {e}")
+    return e
 
 
 class LLMClient:
-    """Thin LLM client supporting OpenAI-compatible and native Gemini endpoints.
+    """Claude client for one pipeline stage (model, effort and purpose fixed at construction)."""
 
-    For Gemini keys, starts on the OpenAI-compat layer. On a 400/403/404 (which
-    happens with preview/experimental models not exposed via compat), it
-    automatically switches to the native generateContent API and stays there
-    for the lifetime of the process.
-    """
-
-    def __init__(
-        self,
-        base_url: str,
-        model: str,
-        api_key: str,
-        rpm_limit: int = 0,
-        rpm_window: float = 60.0,
-        request_timestamps: deque[float] | None = None,
-        rpd_limit: int = 0,
-        fallback: "LLMClient | None" = None,
-        fallback_cooldown: float = _DEFAULT_FALLBACK_COOLDOWN,
-    ) -> None:
-        self.base_url = base_url
+    def __init__(self, purpose: str, model: str, effort: str) -> None:
+        self.purpose = purpose
         self.model = model
-        self.api_key = api_key
-        self._client = httpx.Client(timeout=_TIMEOUT)
-        # True once we've confirmed the native Gemini API works for this model
-        self._use_native_gemini: bool = False
-        self._is_gemini: bool = base_url.startswith(_GEMINI_COMPAT_BASE)
-        # Client-side RPM limiter
-        self._rpm_limit: int = rpm_limit
-        self._rpm_window: float = rpm_window
-        # get_client() passes a deque shared by every client on the same model,
-        # so per-stage clients can't jointly exceed that model's RPM.
-        self._request_timestamps: deque[float] = (
-            request_timestamps if request_timestamps is not None else deque()
-        )
-        # Client-side daily cap (rpd in llm_limits.yaml), counted in the shared DailyUsage file.
-        self._rpd_limit: int = rpd_limit
-        # 503 failover (see _DEFAULT_FALLBACK_MODEL); None = retry with backoff as before.
-        self.fallback = fallback
-        self._fallback_cooldown: float = fallback_cooldown
-        self._overloaded_until: float = 0.0
+        self.effort = effort
+        self._sdk: anthropic.Anthropic | None = None
 
-    # -- RPM limiter --------------------------------------------------------
+    @property
+    def sdk(self) -> anthropic.Anthropic:
+        """The SDK client, created on first use. The key comes only from ANTHROPIC_API_KEY (never a CLI profile)."""
+        if self._sdk is None:
+            key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            if not key:
+                raise LLMStopRun("auth", "ANTHROPIC_API_KEY is not set; run `strelitzia init` or add it to "
+                                         "~/.strelitzia/.env")
+            self._sdk = anthropic.Anthropic(api_key=key, max_retries=_MAX_RETRIES, timeout=_TIMEOUT)
+        return self._sdk
 
-    def _throttle_if_needed(self) -> None:
-        """Sleep if we'd exceed the RPM limit within the current window."""
-        if self._rpm_limit <= 0:
-            return
-
-        now = time.monotonic()
-        # Drop timestamps outside the window
-        while self._request_timestamps and self._request_timestamps[0] <= now - self._rpm_window:
-            self._request_timestamps.popleft()
-
-        if len(self._request_timestamps) >= self._rpm_limit:
-            oldest = self._request_timestamps[0]
-            sleep_time = self._rpm_window - (now - oldest) + 0.5
-            log.debug(
-                "RPM limiter: %d requests in %.1fs window (limit %d). Sleeping %.1fs.",
-                len(self._request_timestamps),
-                self._rpm_window,
-                self._rpm_limit,
-                sleep_time,
-            )
-            time.sleep(sleep_time)
-            # Re-drop after sleeping
-            now = time.monotonic()
-            while self._request_timestamps and self._request_timestamps[0] <= now - self._rpm_window:
-                self._request_timestamps.popleft()
-
-    def _record_request(self) -> None:
-        """Record a completed request for RPM and daily tracking."""
-        if self._rpm_limit > 0:
-            self._request_timestamps.append(time.monotonic())
-        if self._rpd_limit > 0:
-            daily_usage.increment(self.model)
-
-    def _check_daily_limit(self) -> None:
-        """Raise LLMQuotaExhausted before sending if today's rpd budget for this model is used up."""
-        if self._rpd_limit <= 0:
-            return
-        used = daily_usage.count(self.model)
-        if used >= self._rpd_limit:
-            scope = f"daily limit: {used}/{self._rpd_limit} requests today (resets midnight Pacific)"
-            log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.", self.model, scope)
-            raise LLMQuotaExhausted(self.model, scope)
-
-    # -- Native Gemini API --------------------------------------------------
-
-    def _chat_native_gemini(
+    def request_params(
         self,
         messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        response_schema: dict | None = None,
-    ) -> str:
-        """Call the native Gemini generateContent API.
+        max_tokens: int = 4096,
+        schema: dict | None = None,
+        effort: str | None = None,
+    ) -> dict:
+        """Messages API params for `messages` (role/content dicts; "system" entries become one cached system block).
 
-        Used automatically when the OpenAI-compat endpoint returns 400/403/404,
-        which happens for preview/experimental models not exposed via compat.
-
-        Converts OpenAI-style messages to Gemini's contents/systemInstruction
-        format transparently. With `response_schema`, asks for JSON output
-        constrained to that schema (Gemini `responseSchema` format).
+        Used as-is by `chat()` and as the `params` of a Message Batches request.
         """
-        contents: list[dict] = []
-        system_parts: list[dict] = []
-
-        for msg in messages:
-            role = msg["role"]
-            text = msg.get("content", "")
-            if role == "system":
-                system_parts.append({"text": text})
-            elif role == "user":
-                contents.append({"role": "user", "parts": [{"text": text}]})
-            elif role == "assistant":
-                # Gemini uses "model" instead of "assistant"
-                contents.append({"role": "model", "parts": [{"text": text}]})
-
-        payload: dict = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
-        }
-        if response_schema is not None:
-            payload["generationConfig"]["responseMimeType"] = "application/json"
-            payload["generationConfig"]["responseSchema"] = response_schema
-        if system_parts:
-            payload["systemInstruction"] = {"parts": system_parts}
-
-        url = f"{_GEMINI_NATIVE_BASE}/models/{self.model}:generateContent"
-        resp = self._client.post(
-            url,
-            json=payload,
-            # Header, not ?key=: httpx logs request URLs at INFO, which would print the key.
-            headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-
-    # -- OpenAI-compat API --------------------------------------------------
-
-    def _chat_compat(
-        self,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        """Call the OpenAI-compatible endpoint."""
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
-        payload = {
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        turns = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
+        output_config: dict = {"effort": effort or self.effort}
+        if schema is not None:
+            output_config["format"] = {"type": "json_schema", "schema": schema}
+        params: dict = {
             "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
             "max_tokens": max_tokens,
+            "messages": turns,
+            "output_config": output_config,
         }
-
-        resp = self._client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-
-        # 400/403/404 on Gemini compat = model not available on compat layer.
-        # Raise a specific sentinel so chat() can switch to native API.
-        if resp.status_code in (400, 403, 404) and self._is_gemini:
-            raise _GeminiCompatForbidden(resp)
-
-        return self._handle_compat_response(resp)
-
-    @staticmethod
-    def _handle_compat_response(resp: httpx.Response) -> str:
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-
-    # -- public API ---------------------------------------------------------
+        if system:
+            params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        return params
 
     def chat(
         self,
         messages: list[dict],
-        temperature: float = 0.0,
         max_tokens: int = 4096,
-        response_schema: dict | None = None,
+        schema: dict | None = None,
+        effort: str | None = None,
     ) -> str:
-        """Send a chat completion request and return the assistant message text.
-
-        `response_schema` (Gemini `responseSchema` format) requests structured
-        JSON output. Gemini clients send it via the native API, since the
-        compat layer has no equivalent; other providers ignore it and callers
-        parse the text as before.
-        """
-        schema = response_schema if self._is_gemini else None
-        # Qwen3 optimization: prepend /no_think to skip chain-of-thought
-        # reasoning, saving tokens on structured extraction tasks.
-        if "qwen" in self.model.lower() and messages:
-            first = messages[0]
-            if first.get("role") == "user" and not first["content"].startswith("/no_think"):
-                messages = [{"role": first["role"], "content": f"/no_think\n{first['content']}"}] + messages[1:]
-
-        if self.fallback is not None and time.monotonic() < self._overloaded_until:
-            return self.fallback.chat(messages, temperature, max_tokens, response_schema)
-
-        for attempt in range(_MAX_RETRIES):
-            self._check_daily_limit()
-            try:
-                self._throttle_if_needed()
-
-                # Native Gemini once confirmed needed, or for structured output
-                if self._use_native_gemini or schema is not None:
-                    result = self._chat_native_gemini(messages, temperature, max_tokens, schema)
-                    self._record_request()
-                    return result
-
-                result = self._chat_compat(messages, temperature, max_tokens)
-                self._record_request()
-                return result
-
-            except _GeminiCompatForbidden as exc:
-                # Model not available on OpenAI-compat layer — switch to native.
-                log.warning(
-                    "Gemini compat endpoint returned %d for model '%s'. "
-                    "Switching to native generateContent API. "
-                    "(Preview/experimental models are often compat-only on native.) "
-                    "Body: %s",
-                    exc.response.status_code, self.model, exc.response.text[:300],
-                )
-                self._use_native_gemini = True
-                # Retry immediately with native — don't count as a rate-limit wait
-                try:
-                    result = self._chat_native_gemini(messages, temperature, max_tokens)
-                    self._record_request()
-                    return result
-                except httpx.HTTPStatusError as native_exc:
-                    if native_exc.response.status_code == 429:
-                        self._raise_if_daily_quota(native_exc.response)
-                    raise RuntimeError(
-                        f"Both Gemini endpoints failed. Compat: {exc.response.status_code}. "
-                        f"Native: {native_exc.response.status_code} — "
-                        f"{native_exc.response.text[:200]}"
-                    ) from native_exc
-
-            except httpx.HTTPStatusError as exc:
-                resp = exc.response
-                retry_delay = None
-                if resp.status_code == 429:
-                    retry_delay = self._raise_if_daily_quota(resp)
-                if resp.status_code == 503 and self.fallback is not None:
-                    # Google counts the 503 toward the daily quota; keep the local tally in step.
-                    if self._rpd_limit > 0:
-                        daily_usage.increment(self.model)
-                    self._overloaded_until = time.monotonic() + self._fallback_cooldown
-                    log.warning(
-                        "LLM HTTP 503 (%s overloaded). Using %s for this request and the next %ds.",
-                        self.model, self.fallback.model, self._fallback_cooldown,
-                    )
-                    return self.fallback.chat(messages, temperature, max_tokens, response_schema)
-                if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
-                    # Respect Retry-After header if provided (Gemini sends this).
-                    retry_after = (
-                        resp.headers.get("Retry-After")
-                        or resp.headers.get("X-RateLimit-Reset-Requests")
-                    )
-                    if retry_delay is not None:
-                        # Gemini's RetryInfo says when the per-minute window frees up.
-                        wait = min(retry_delay + 1, 90)
-                    elif retry_after:
-                        try:
-                            wait = float(retry_after)
-                        except (ValueError, TypeError):
-                            wait = _RATE_LIMIT_BASE_WAIT * (2 ** attempt)
-                    else:
-                        wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
-
-                    reason = (
-                        "rate limited; check this model's rpm limit (strelitzia doctor)"
-                        if resp.status_code == 429 else "model overloaded"
-                    )
-                    log.warning(
-                        "LLM HTTP %s (%s). Waiting %ds before retry %d/%d.",
-                        resp.status_code, reason, wait, attempt + 1, _MAX_RETRIES,
-                    )
-                    time.sleep(wait)
-                    continue
-                if resp.status_code == 503:
-                    log.error("%s still overloaded after %d tries. Stopping; the next run retries.",
-                              self.model, _MAX_RETRIES)
-                    raise LLMOverloaded(self.model) from exc
-                raise
-
-            except httpx.TimeoutException:
-                if attempt < _MAX_RETRIES - 1:
-                    wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
-                    log.warning(
-                        "LLM request timed out, retrying in %ds (attempt %d/%d)",
-                        wait, attempt + 1, _MAX_RETRIES,
-                    )
-                    time.sleep(wait)
-                    continue
-                raise
-
-        raise RuntimeError("LLM request failed after all retries")
-
-    def _raise_if_daily_quota(self, resp: httpx.Response) -> float | None:
-        """Raise LLMQuotaExhausted for a per-day 429; else return its retryDelay (if any)."""
-        per_day, retry_delay = _parse_quota_error(resp)
-        if per_day:
-            log.error("Gemini daily quota exhausted for %s (%s). Stopping; resume tomorrow.",
-                      self.model, per_day)
-            raise LLMQuotaExhausted(self.model, per_day)
-        return retry_delay
+        """Send one request and return the answer text (JSON text when `schema` is given)."""
+        params = self.request_params(messages, max_tokens=max_tokens, schema=schema, effort=effort)
+        try:
+            message = self.sdk.messages.create(**params)
+        except anthropic.APIError as e:
+            raise _api_error(e) from e
+        log.debug("%s: %s usage %s", self.purpose, self.model, _usage_tokens(message.usage))
+        return response_text(message)
 
     def ask(self, prompt: str, **kwargs) -> str:
         """Convenience: single user prompt -> assistant response."""
         return self.chat([{"role": "user", "content": prompt}], **kwargs)
-
-    def close(self) -> None:
-        self._client.close()
-
-
-class _GeminiCompatForbidden(Exception):
-    """Sentinel: Gemini OpenAI-compat returned 400/403/404. Switch to native API."""
-    def __init__(self, response: httpx.Response) -> None:
-        self.response = response
-        super().__init__(f"Gemini compat {response.status_code}: {response.text[:200]}")
 
 
 # ---------------------------------------------------------------------------
@@ -689,60 +229,17 @@ class _GeminiCompatForbidden(Exception):
 # ---------------------------------------------------------------------------
 
 _clients: dict[str, LLMClient] = {}
-# One RPM window per model, shared by all purposes that use it.
-_rpm_timestamps: dict[str, deque[float]] = {}
 
 
-def get_client(purpose: str = "default") -> LLMClient:
-    """Return (or create) the LLMClient for a pipeline stage.
-
-    `purpose` is one of `PURPOSES` or "default" (plain `LLM_MODEL`). Each
-    purpose is memoized separately so stages can run different models in the
-    same process.
-    """
+def get_client(purpose: str = "discovery") -> LLMClient:
+    """Return (or create) the LLMClient for a pipeline stage (one of `PURPOSES`)."""
     client = _clients.get(purpose)
     if client is None:
-        base_url, model, api_key = _detect_provider(purpose)
-        fallback = _fallback_client(base_url, model, api_key)
-        client = _make_client(base_url, model, api_key, fallback=fallback)
-        log.info("LLM provider (%s): %s  model: %s  limits: %s RPM, %s RPD%s", purpose, base_url, model,
-                 client._rpm_limit or "no", client._rpd_limit or "no",
-                 f"  503 fallback: {fallback.model}" if fallback else "")
+        model, effort = resolve_model(purpose)
+        client = LLMClient(purpose, model, effort)
+        log.info("LLM (%s): %s, effort %s", purpose, model, effort)
         _clients[purpose] = client
     return client
-
-
-def _make_client(base_url: str, model: str, api_key: str, fallback: LLMClient | None = None) -> LLMClient:
-    rpm_limit, rpd_limit = model_limits(model)
-    return LLMClient(
-        base_url, model, api_key,
-        rpm_limit=rpm_limit, rpm_window=float(os.environ.get("LLM_RPM_WINDOW", "60")),
-        request_timestamps=_rpm_timestamps.setdefault(model, deque()),
-        rpd_limit=rpd_limit,
-        fallback=fallback,
-        fallback_cooldown=float(os.environ.get("LLM_FALLBACK_COOLDOWN", _DEFAULT_FALLBACK_COOLDOWN)),
-    )
-
-
-def fallback_model(model: str, base_url: str) -> str | None:
-    """The 503 fallback for a model, or None (non-Gemini provider, disabled, or same model)."""
-    if not base_url.startswith(_GEMINI_COMPAT_BASE):
-        return None
-    name = os.environ.get("LLM_FALLBACK_MODEL", _DEFAULT_FALLBACK_MODEL).strip()
-    if not name or name.lower() == "none" or name == model:
-        return None
-    return name
-
-
-def _fallback_client(base_url: str, model: str, api_key: str) -> LLMClient | None:
-    """One shared client per fallback model (same RPM window and daily count as its stage clients)."""
-    name = fallback_model(model, base_url)
-    if name is None:
-        return None
-    key = f"fallback:{name}"
-    if key not in _clients:
-        _clients[key] = _make_client(base_url, name, api_key)
-    return _clients[key]
 
 
 def get_discovery_client() -> LLMClient:
@@ -751,6 +248,5 @@ def get_discovery_client() -> LLMClient:
 
 
 def reset_clients() -> None:
-    """Drop memoized clients and RPM windows (tests, env changes)."""
+    """Drop memoized clients (tests, env changes)."""
     _clients.clear()
-    _rpm_timestamps.clear()

@@ -1,7 +1,7 @@
 """Background resume / cover-letter generation for the dashboard.
 
 Tasks live in the `dashboard_tasks` table and one daemon thread runs them one at a time, because the LLM
-quota and Chromium (PDF rendering) are shared. A task left `running` by a stopped server is marked
+budget and Chromium (PDF rendering) are shared. A task left `running` by a stopped server is marked
 `error: interrupted` on the next start.
 """
 
@@ -16,15 +16,19 @@ from pathlib import Path
 
 from strelitzia import tracking
 from strelitzia.database import Connection, get_connection
-from strelitzia.llm import LLMOverloaded, LLMQuotaExhausted, LLMStopRun
+from strelitzia.llm import LLMStopRun
 from strelitzia.tracking import _now
 
 log = logging.getLogger(__name__)
 
 KINDS = ("resume", "cover", "both")
 STATES = ("queued", "running", "done", "error")
-QUOTA_MESSAGE = "Daily Gemini quota reached; try again tomorrow."
-OVERLOAD_MESSAGE = "Gemini is overloaded right now; try again in a few minutes."
+# What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
+STOP_MESSAGES = {
+    "budget": "This month's LLM budget (LLM_MONTHLY_BUDGET_USD) is used up; raise it or wait for next month.",
+    "auth": "The Claude API key is missing or was rejected; check ANTHROPIC_API_KEY.",
+    "overloaded": "The Claude API is overloaded right now; try again in a few minutes.",
+}
 
 # generate(url, kind) does the work for one task and raises on failure.
 Generator = Callable[[str, str], None]
@@ -137,10 +141,8 @@ def _needs_resume_first(url: str, use_library: bool) -> bool:
 
 
 def _check(stats: dict, ok_key: str, what: str) -> None:
-    if stats.get("stopped") == "daily_quota":
-        raise LLMQuotaExhausted("gemini", "daily")
-    if stats.get("stopped") == "overloaded":
-        raise LLMOverloaded("gemini")
+    if stats.get("stopped") in STOP_MESSAGES:
+        raise LLMStopRun(stats["stopped"])
     if not stats.get(ok_key):
         if stats.get("errors"):
             raise GenerationFailed(f"The {what} failed with an error (see the server log).")
@@ -204,10 +206,8 @@ class TaskRunner:
         state, error = "done", None
         try:
             self.generate(task["url"], task["kind"])
-        except LLMQuotaExhausted:
-            state, error = "error", QUOTA_MESSAGE
-        except LLMStopRun:
-            state, error = "error", OVERLOAD_MESSAGE
+        except LLMStopRun as e:
+            state, error = "error", STOP_MESSAGES.get(e.reason, str(e))
         except GenerationFailed as e:
             state, error = "error", str(e)
         except Exception as e:  # reported on the task
