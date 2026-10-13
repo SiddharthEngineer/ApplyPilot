@@ -10,6 +10,8 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
 | R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | 🟡 merged (#33); live on strelitzia.engineerfamily.net; you: M17 | M14 |
+| R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | ⏳ | M18 |
+| R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | ⏳ | R20 |
 
 ## Manual steps (you)
 
@@ -26,8 +28,10 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M16 | After M15: engineerfamily PR (nginx `strelitzia*` server_names + 301 from `applypilot*`, compose service/context/mounts/`STRELITZIA_DATABASE_URL`, Makefile `strelitzia-*` targets, restyled homepage/privacy page), then `make deploy-prod`, then `make strelitzia-deploy`. Done 2026-10-13: engineerfamily v1.1.0 (#26) on preprod and prod, runner env updated, prod dashboard at d05aecb. | ☑ |
 | M17 | After M16: Google Cloud OAuth consent screen: app name "Strelitzia", homepage and privacy URLs on `strelitzia.engineerfamily.net`. Before commercializing: USPTO search for "Strelitzia" (classes 9/35/42). | ☐ |
 | M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/done/llm-limits-config.md), "After merge"). Done 2026-10-12: engineerfamily v1.0.3 (PR #25) dropped the `/app/.env` mount, the OAuth token left `~/.applypilot/.env`, ApplyPilot prod at f5fae69. | ☑ |
+| M18 | Before R20 runs: Anthropic Console account + API key, set a monthly spend limit in the Console, put `ANTHROPIC_API_KEY` and `LLM_MONTHLY_BUDGET_USD` in `~/.strelitzia/.env` on the VPS. **Never** in `~/.config/strelitzia-agent/env`: `claude -p` would bill the API instead of the subscription. 2026-10-13: key added (Default Workspace); still to do: Console spend limit, `LLM_MONTHLY_BUDGET_USD`. | ☐ |
 
 ## Decisions (current)
+- 2026-10-13 (user): LLM calls move from the Gemini free tier to the Claude API with an API key (never the Pro subscription; Anthropic's docs point products to API keys). Gemini/OpenAI/OpenCode/local providers are deleted. Haiku 5.5 + Batch for bulk stages, Sonnet 5.5 for writing. One owner key with per-user spend tracking; per-user caps when other users exist. Supersedes 2026-10-01 and 2026-10-02 LLM decisions.
 - 2026-10-12 (user): Every active plan runs unattended. Work only a human can do (Google setup, VPS `.env`, prod deploys) lives in Manual steps, not in plan tasks.
   R0 uses synthetic samples instead of a live capture. The runner's session-usage gate defaults to 70%.
 - 2026-10-11 (user): PIV loop. Planning is always interactive (`/plan`). Implementation runs either interactively or unattended from an hourly VPS
@@ -42,6 +46,6 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 - Pipeline cron on the VPS (`discover → enrich → extract → score`).
 - "Posting closed" liveness check, so jobs without a stated deadline can turn Inactive.
 - Nightly `pg_dump` of the `applypilot` DB to `/srv/backups`.
-- Re-evaluate the OpenCode Zen LLM provider for removal (the `--backend opencode` apply engine went with R18).
+- Resume and cover letter quality pass on Claude (Sonnet 5.5; Opus 5.5 per document as an option): prompts, evidence use, an eval like R21 Task 5.
 - Split the god-files (`smartextract.py`, `scoring/tailor.py`, `cli.py`); review risk.
 - Runner: let the agent address review comments on its own PRs (re-queue on a "changes requested" review).
