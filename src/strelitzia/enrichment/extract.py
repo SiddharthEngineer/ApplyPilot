@@ -1,10 +1,11 @@
-"""`extract` stage: Gemini parses each enriched posting into a JobPosting, several jobs per request.
+"""`extract` stage: Claude parses each enriched posting into a JobPosting, one posting per request.
 
-Jobs are taken best-scored first (then newest), `batch_size` per request, with structured output
-(`batch_schema()`), and matched back by `job_id`. Each batch is committed as soon as its response
-returns, so a stopped run keeps everything it already paid for. A job missing from a multi-job
-response, or with an unusable object, gets `extract_attempts += 1` and is retried on its own later
-in the same run. A daily-quota stop ends the stage cleanly, like scoring.
+Jobs are taken best-scored first (then newest). Every request shares the cached system prompt and asks for
+structured output (`posting_schema()`). In `batch` mode (the default) the requests go through the Message Batches
+API at half price, keyed by `job_id`; `sync` mode sends them one by one (small runs, the dashboard). Each result is
+committed as it arrives, so a stopped run keeps everything it already paid for. A failed job gets
+`extract_attempts += 1` and is picked up by a later run until MAX_EXTRACT_ATTEMPTS. A budget stop ends the stage
+cleanly, like scoring.
 """
 
 from __future__ import annotations
@@ -14,34 +15,56 @@ import logging
 import re
 import time
 from datetime import UTC, datetime
+from typing import Literal
 
-from strelitzia.config import extract_batch_size
-from strelitzia.database import MAX_EXTRACT_ATTEMPTS, PENDING_EXTRACT_WHERE, get_connection, get_jobs_by_stage
-from strelitzia.enrichment.posting_model import EXTRACT_VERSION, JobPosting, batch_schema
-from strelitzia.enrichment.posting_prompt import build_extract_prompt, format_batch, job_id
-from strelitzia.llm import LLMStopRun, get_client
+from strelitzia.database import PENDING_EXTRACT_WHERE, get_connection, get_jobs_by_stage
+from strelitzia.enrichment.posting_model import EXTRACT_VERSION, JobPosting, posting_schema
+from strelitzia.enrichment.posting_prompt import build_extract_prompt, format_posting, job_id
+from strelitzia.llm import LLMStopRun, check_budget, estimate_cost, get_client
+from strelitzia.llm_batch import resume_open_batches, run_batch
 
 log = logging.getLogger(__name__)
 
-# Output budget per job in a batch (the full JSON for a long posting is ~2-3k tokens).
-_TOKENS_PER_JOB = 6000
-_MAX_OUTPUT_TOKENS = 60_000
-# Stop the run after this many requests in a row fail outright (HTTP errors, unparseable replies).
+# Output budget per posting, thinking included (the full JSON for a long posting is ~2-3k tokens).
+_MAX_OUTPUT_TOKENS = 8000
+# Stop a sync run after this many requests in a row fail outright (HTTP errors, unusable replies).
 _MAX_CONSECUTIVE_FAILURES = 3
+# Runs of at most this many jobs go sync: a batch's latency isn't worth it for a handful of requests.
+SYNC_MAX_JOBS = 5
 
 
-def _parse_batch(response: str) -> list[dict]:
-    """The "jobs" array of a batch reply. Raises ValueError if the reply isn't that shape."""
-    text = response.strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+def parse_posting(response: str) -> JobPosting:
+    """The JobPosting in a reply. Raises ValueError if the reply isn't one JSON object."""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response.strip())
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         raise ValueError(f"invalid JSON ({e.msg} at char {e.pos})") from e
-    jobs = data.get("jobs") if isinstance(data, dict) else data
-    if not isinstance(jobs, list):
-        raise ValueError("reply has no \"jobs\" array")  # noqa: TRY004 — ValueError = retryable bad reply
-    return [j for j in jobs if isinstance(j, dict)]
+    return JobPosting.from_dict(data)
+
+
+def _messages(job: dict, today: str) -> list[dict]:
+    return [
+        {"role": "system", "content": build_extract_prompt(today)},
+        {"role": "user", "content": format_posting(job)},
+    ]
+
+
+def _today() -> str:
+    return datetime.now().astimezone().date().isoformat()
+
+
+def extract_one(job: dict, today: str | None = None) -> JobPosting:
+    """One synchronous request for `job`.
+
+    Raises:
+        LLMStopRun: the budget is used up, the key is bad, or the API stayed overloaded (nothing was extracted).
+        Exception: the request failed or the reply wasn't a posting.
+    """
+    response = get_client("extract").chat(
+        _messages(job, today or _today()), schema=posting_schema(), max_tokens=_MAX_OUTPUT_TOKENS, job_url=job["url"],
+    )
+    return parse_posting(response)
 
 
 def _save_posting(conn, url: str, posting: JobPosting) -> None:
@@ -69,120 +92,134 @@ def _save_failure(conn, url: str, error: str) -> None:
     )
 
 
-def extract_batch(jobs: list[dict], today: str | None = None) -> tuple[dict[str, JobPosting], dict[str, str]]:
-    """One LLM request for `jobs`. Returns ({url: posting}, {url: error}) covering every job.
+class _Results:
+    """Saves each result as it arrives and keeps the counts."""
 
-    Raises:
-        LLMStopRun: the daily quota is used up, or the model stayed overloaded through every retry
-            (nothing was extracted).
-        Exception: the request itself failed (HTTP error, timeout) or the reply wasn't a batch.
-    """
-    today = today or datetime.now().astimezone().date().isoformat()
-    messages = [
-        {"role": "system", "content": build_extract_prompt(today)},
-        {"role": "user", "content": format_batch(jobs)},
-    ]
-    client = get_client("extract")
-    response = client.chat(
-        messages, schema=batch_schema(),
-        max_tokens=min(_MAX_OUTPUT_TOKENS, _TOKENS_PER_JOB * len(jobs)),
-    )
-    items = _parse_batch(response)
+    def __init__(self, conn, jobs: list[dict]) -> None:
+        self.conn = conn
+        self.by_id = {job_id(j): j["url"] for j in jobs}
+        self.extracted = self.errors = 0
 
-    by_id = {job_id(j): j for j in jobs}
-    got: dict[str, JobPosting] = {}
-    errors: dict[str, str] = {}
-    for item in items:
-        jid = str(item.get("job_id", "")).strip()
-        if jid not in by_id and len(jobs) == 1 and len(items) == 1:
-            jid = job_id(jobs[0])  # a single job can't be mismatched
-        job = by_id.get(jid)
-        if job is None or job["url"] in got:
-            continue
+    def save(self, url: str, posting: JobPosting | None, error: str | None) -> None:
+        if posting is not None:
+            _save_posting(self.conn, url, posting)
+            self.extracted += 1
+        else:
+            _save_failure(self.conn, url, error or "unknown error")
+            self.errors += 1
+        self.conn.commit()
+
+    def on_batch_result(self, custom_id: str, text: str | None, error: str | None) -> None:
+        """llm_batch callback. A batch resumed from an earlier run carries ids of jobs not in this run's list."""
+        url = self.by_id.get(custom_id)
+        if url is None:
+            row = self.conn.execute("SELECT url FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
+            if row is None:
+                log.warning("Batch result %s matches no job; skipped.", custom_id)
+                return
+            url = row[0]
+        posting = None
+        if text is not None:
+            try:
+                posting = parse_posting(text)
+            except ValueError as e:
+                error = f"invalid reply: {e}"
+        self.save(url, posting, None if posting else f"LLM error: {error}")
+
+
+def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str]:
+    """One request per job. Returns (requests, stopped)."""
+    requests = consecutive_failures = 0
+    for i, job in enumerate(jobs, 1):
+        requests += 1
         try:
-            got[job["url"]] = JobPosting.from_dict(item)
-        except ValueError as e:
-            errors[job["url"]] = f"invalid object: {e}"
-    for job in jobs:
-        if job["url"] not in got and job["url"] not in errors:
-            errors[job["url"]] = "missing from the LLM response"
-    return got, errors
+            posting = extract_one(job, today)
+        except LLMStopRun as e:
+            log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
+            return requests - 1, e.reason
+        except Exception as e:  # noqa: BLE001 -- one bad request must not lose the run
+            consecutive_failures += 1
+            log.error("Extraction failed for %s: %s", job["url"], e)
+            results.save(job["url"], None, f"LLM error: {e}")
+        else:
+            consecutive_failures = 0
+            results.save(job["url"], posting, None)
+        log.info("[%d/%d] extracted %d, failed %d", i, len(jobs), results.extracted, results.errors)
+        if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            log.error("Extraction stopped after %d failed requests in a row.", consecutive_failures)
+            return requests, "errors"
+    return requests, ""
 
 
-def run_extraction(limit: int | None = None, batch_size: int | None = None, conn=None) -> dict:
+def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: float,
+               stats: dict) -> tuple[int, str]:
+    """All jobs in Message Batches, after a cost estimate and budget check. Returns (requests, stopped)."""
+    client = get_client("extract")
+    items = [(job_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
+                                               schema=posting_schema())) for j in jobs]
+    try:
+        estimate = estimate_cost("extract", [params for _, params in items], batch=True)
+        stats["estimate_usd"] = estimate
+        log.info("Extracting %d job(s) in a batch: estimated cost $%.2f (%s).", len(jobs), estimate, client.model)
+        check_budget(estimate)
+        batch = run_batch("extract", items, results.on_batch_result, poll_seconds=poll_seconds)
+    except LLMStopRun as e:
+        log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
+        return 0, e.reason
+    if batch["succeeded"] == 0 and batch["errored"] >= _MAX_CONSECUTIVE_FAILURES:
+        log.error("Every request in the extraction batch failed.")
+        return len(items), "errors"
+    return len(items), ""
+
+
+def run_extraction(limit: int | None = None, conn=None, mode: Literal["batch", "sync"] = "batch",
+                   poll_seconds: float = 30) -> dict:
     """Extract pending jobs (PENDING_EXTRACT_WHERE), best fit_score first, then newest.
 
     Args:
         limit: Max jobs to extract this run (None/0 = all pending).
-        batch_size: Jobs per LLM request (default EXTRACT_BATCH_SIZE, 5).
         conn: DB connection (default: the configured job store).
+        mode: "batch" (Message Batches, half price, default) or "sync" (one request at a time). Runs of at most
+            SYNC_MAX_JOBS jobs are always sync.
+        poll_seconds: How often to check a submitted batch.
 
     Returns:
-        {"extracted", "errors", "requests", "pending_left", "elapsed"} plus "stopped" ("daily_quota",
-        "overloaded" or "errors") when the run ended early.
+        {"extracted", "errors", "requests", "pending_left", "elapsed", "mode"} plus "estimate_usd" for a batch, and
+        "stopped" ("budget", "auth", "overloaded" or "errors") when the run ended early.
     """
     conn = conn or get_connection()
-    batch_size = max(1, batch_size or extract_batch_size())
+    t0 = time.time()
+    today = _today()
+    stats: dict = {}
+    if mode == "batch":
+        # Results of a batch a killed run left open come first, so those jobs aren't paid for twice.
+        resumed = _Results(conn, [])
+        try:
+            resume_open_batches("extract", resumed.on_batch_result, poll_seconds=poll_seconds)
+        except LLMStopRun as e:
+            log.warning("Could not collect open extraction batches: %s", e)
+        stats["resumed"] = resumed.extracted + resumed.errors
     jobs = get_jobs_by_stage(conn=conn, stage="pending_extract", limit=limit or 0)
     if not jobs:
         log.info("No jobs pending extraction.")
-        return {"extracted": 0, "errors": 0, "requests": 0, "pending_left": 0, "elapsed": 0.0}
+        return {**stats, "extracted": 0, "errors": 0, "requests": 0, "pending_left": 0, "elapsed": 0.0,
+                "mode": mode}
 
-    log.info("Extracting %d job(s), %d per request...", len(jobs), batch_size)
-    queue: list[list[dict]] = [jobs[i:i + batch_size] for i in range(0, len(jobs), batch_size)]
-    retried: set[str] = set()
-    extracted = errors = requests = consecutive_failures = 0
-    stopped = ""
-    t0 = time.time()
-
-    while queue:
-        batch = queue.pop(0)
-        requests += 1
-        try:
-            got, failed = extract_batch(batch)
-            consecutive_failures = 0
-        except LLMStopRun as e:
-            requests -= 1
-            stopped = e.reason
-            log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
-            break
-        except Exception as e:  # noqa: BLE001 -- one bad request must not lose the run
-            consecutive_failures += 1
-            got, failed = {}, {j["url"]: f"LLM error: {e}" for j in batch}
-            log.error("Extraction request failed for %d job(s): %s", len(batch), e)
-
-        for url, posting in got.items():
-            _save_posting(conn, url, posting)
-        for url, err in failed.items():
-            _save_failure(conn, url, err)
-        conn.commit()
-        extracted += len(got)
-
-        for job in batch:
-            if job["url"] not in failed:
-                continue
-            attempts = (job.get("extract_attempts") or 0) + 1
-            job["extract_attempts"] = attempts
-            # Retry once on its own, unless it just failed alone or has used up its attempts.
-            if len(batch) > 1 and job["url"] not in retried and attempts < MAX_EXTRACT_ATTEMPTS:
-                retried.add(job["url"])
-                queue.append([job])
-            else:
-                errors += 1
-        log.info("[%d/%d] extracted %d, failed %d in this request", extracted, len(jobs), len(got), len(failed))
-
-        if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-            stopped = "errors"
-            log.error("Extraction stopped after %d failed requests in a row.", consecutive_failures)
-            break
+    if mode == "batch" and len(jobs) <= SYNC_MAX_JOBS:
+        mode = "sync"
+    log.info("Extracting %d job(s) (%s)...", len(jobs), mode)
+    results = _Results(conn, jobs)
+    if mode == "sync":
+        requests, stopped = _run_sync(results, jobs, today)
+    else:
+        requests, stopped = _run_batch(results, jobs, today, poll_seconds, stats)
 
     pending_left = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {PENDING_EXTRACT_WHERE}").fetchone()[0]
     elapsed = time.time() - t0
     log.info("Extraction done: %d extracted, %d errors, %d request(s) in %.1fs; %d still pending.",
-             extracted, errors, requests, elapsed, pending_left)
-    stats = {"extracted": extracted, "errors": errors, "requests": requests,
-             "pending_left": pending_left, "elapsed": elapsed}
+             results.extracted, results.errors, requests, elapsed, pending_left)
+    stats.update({"extracted": results.extracted, "errors": results.errors, "requests": requests,
+                  "pending_left": pending_left, "elapsed": elapsed, "mode": mode})
     if stopped:
         stats["stopped"] = stopped
     return stats
-

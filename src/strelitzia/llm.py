@@ -137,6 +137,28 @@ def cost_usd(model: str, usage, batch: bool = False) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Structured-output schemas
+# ---------------------------------------------------------------------------
+
+def json_object(properties: dict, description: str | None = None) -> dict:
+    """A JSON Schema object as structured outputs need it: every property required, no other keys allowed.
+
+    Numeric and string constraints (minimum, maxLength, pattern) aren't supported; the `from_dict` coercions
+    handle out-of-range values instead.
+    """
+    schema = {"type": "object", "properties": properties, "required": list(properties),
+              "additionalProperties": False}
+    if description:
+        schema["description"] = description
+    return schema
+
+
+def nullable(schema: dict) -> dict:
+    """`schema` or null."""
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+# ---------------------------------------------------------------------------
 # Usage ledger and monthly budget (llm_usage table)
 # ---------------------------------------------------------------------------
 

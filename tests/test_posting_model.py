@@ -1,4 +1,4 @@
-"""Tests for the structured job-posting model and its Gemini schema."""
+"""Tests for the structured job-posting model and its structured-output schema."""
 
 from dataclasses import fields
 
@@ -7,29 +7,9 @@ from strelitzia.enrichment.posting_model import (
     ROLE_CATEGORIES,
     JobPosting,
     Location,
-    batch_schema,
     posting_schema,
 )
-
-# Keywords Gemini's responseSchema (OpenAPI subset) accepts.
-_ALLOWED_KEYS = {
-    "type", "format", "description", "nullable", "enum", "maxItems", "minItems",
-    "properties", "required", "propertyOrdering", "items",
-}
-
-
-def _keys(schema, found=None):
-    found = set() if found is None else found
-    if isinstance(schema, dict):
-        for k, v in schema.items():
-            found.add(k)
-            if k == "properties":
-                for sub in v.values():
-                    _keys(sub, found)
-            elif isinstance(v, dict):
-                _keys(v, found)
-    return found
-
+from schema_rules import assert_strict_schema
 
 SAMPLE = {
     "company": "Acme",
@@ -122,19 +102,20 @@ class TestSchema:
     def test_properties_match_dataclass(self):
         s = posting_schema()
         names = [f.name for f in fields(JobPosting)]
-        assert list(s["properties"]) == names
-        assert s["propertyOrdering"] == names and s["required"] == names
+        assert list(s["properties"]) == names and s["required"] == names
 
     def test_enums_listed(self):
         props = posting_schema()["properties"]
         for name, values in ENUMS.items():
-            assert props[name]["enum"] == list(values)
+            schema = props[name]["anyOf"][0] if name == "salary_period" else props[name]
+            assert schema["enum"] == list(values)
         assert props["role_category"]["enum"] == list(ROLE_CATEGORIES)
 
-    def test_no_unsupported_keywords(self):
-        assert _keys(batch_schema()) <= _ALLOWED_KEYS
+    def test_valid_for_structured_outputs(self):
+        assert_strict_schema(posting_schema())
 
-    def test_batch_has_job_id(self):
-        item = batch_schema()["properties"]["jobs"]["items"]
-        assert item["propertyOrdering"][0] == "job_id"
-        assert "job_id" in item["required"]
+    def test_nullable_fields(self):
+        props = posting_schema()["properties"]
+        assert props["company"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        assert props["salary_period"]["anyOf"][0]["enum"] == list(ENUMS["salary_period"])
+        assert props["posted_date"]["anyOf"][0]["format"] == "date"

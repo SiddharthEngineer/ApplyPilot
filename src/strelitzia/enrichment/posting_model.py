@@ -1,6 +1,6 @@
 """Structured job-posting model: what the `extract` stage pulls out of each posting.
 
-Dataclasses plus a hand-written Gemini `responseSchema` (same approach as
+Dataclasses plus a hand-written JSON Schema for Claude structured output (same approach as
 `scoring/resume_model.py`; no pydantic). `JobPosting.from_dict` is lenient: it drops
 unknown keys, coerces bad enum values to "unknown" and bad numbers to None, so one odd
 field never costs a whole extraction.
@@ -13,9 +13,12 @@ import math
 import re
 from dataclasses import asdict, dataclass, field, fields
 
+from strelitzia.llm import json_object, nullable
+
 # Bump whenever the schema or the extraction prompt changes: rows with an older
 # extract_version are picked up again by the extract stage.
-EXTRACT_VERSION = 3  # 2: title-first categories, no inferred skills/work mode, exact pay figures; 3: "Remote" is not a city
+EXTRACT_VERSION = 4  # 2: title-first categories, no inferred skills/work mode, exact pay figures; 3: "Remote" is not a
+# city; 4: Claude, one posting per request
 
 ROLE_CATEGORIES = (
     "data_science", "data_engineering", "ml_ai_engineering", "data_analytics_bi",
@@ -175,22 +178,20 @@ def _location(data: dict) -> Location:
     return Location(city=_place(data.get("city")), state=_place(data.get("state")), country=_place(data.get("country")))
 
 
-# ── Gemini responseSchema ────────────────────────────────────────────────
+# ── Structured-output schema (JSON Schema) ────────────────────────────────
 
-_NULL_STR = {"type": "STRING", "nullable": True}
-_NULL_NUM = {"type": "NUMBER", "nullable": True}
-_STR_LIST = {"type": "ARRAY", "items": {"type": "STRING"}}
+_NULL_STR = nullable({"type": "string"})
+_NULL_NUM = nullable({"type": "number"})
+_NULL_DATE = nullable({"type": "string", "format": "date"})
+_STR_LIST = {"type": "array", "items": {"type": "string"}}
 
 
-def _enum_schema(values: tuple[str, ...], nullable: bool = False) -> dict:
-    schema = {"type": "STRING", "enum": list(values)}
-    if nullable:
-        schema["nullable"] = True
-    return schema
+def _enum_schema(values: tuple[str, ...]) -> dict:
+    return {"type": "string", "enum": list(values)}
 
 
 def posting_schema() -> dict:
-    """Gemini responseSchema for one JobPosting (property order = JobPosting field order)."""
+    """JSON Schema for one JobPosting (property order = JobPosting field order)."""
     props = {
         "company": _NULL_STR,
         "title_normalized": _NULL_STR,
@@ -198,21 +199,17 @@ def posting_schema() -> dict:
         "seniority": _enum_schema(SENIORITIES),
         "employment_type": _enum_schema(EMPLOYMENT_TYPES),
         "work_mode": _enum_schema(WORK_MODES),
-        "locations": {"type": "ARRAY", "items": {
-            "type": "OBJECT",
-            "properties": {"city": _NULL_STR, "state": _NULL_STR, "country": _NULL_STR},
-            "required": ["city", "state", "country"],
-            "propertyOrdering": ["city", "state", "country"],
-        }},
+        "locations": {"type": "array", "items": json_object(
+            {"city": _NULL_STR, "state": _NULL_STR, "country": _NULL_STR})},
         "remote_region": _NULL_STR,
         "salary_min": _NULL_NUM,
         "salary_max": _NULL_NUM,
         "salary_currency": _NULL_STR,
-        "salary_period": _enum_schema(SALARY_PERIODS, nullable=True),
-        "posted_date": {**_NULL_STR, "description": "YYYY-MM-DD"},
-        "application_deadline": {**_NULL_STR, "description": "YYYY-MM-DD"},
-        "start_date": {**_NULL_STR, "description": "YYYY-MM-DD"},
-        "summary": {"type": "STRING"},
+        "salary_period": nullable(_enum_schema(SALARY_PERIODS)),
+        "posted_date": _NULL_DATE,
+        "application_deadline": _NULL_DATE,
+        "start_date": _NULL_DATE,
+        "summary": {"type": "string"},
         "team": _NULL_STR,
         "responsibilities": _STR_LIST,
         "required_qualifications": _STR_LIST,
@@ -229,22 +226,4 @@ def posting_schema() -> dict:
         "benefits": _STR_LIST,
         "company_blurb": _NULL_STR,
     }
-    order = [f.name for f in fields(JobPosting)]
-    return {"type": "OBJECT", "properties": props, "required": order, "propertyOrdering": order}
-
-
-def batch_schema() -> dict:
-    """Gemini responseSchema for a batch: {"jobs": [{"job_id": str, ...JobPosting}]}."""
-    one = posting_schema()
-    item = {
-        "type": "OBJECT",
-        "properties": {"job_id": {"type": "STRING"}, **one["properties"]},
-        "required": ["job_id", *one["required"]],
-        "propertyOrdering": ["job_id", *one["propertyOrdering"]],
-    }
-    return {
-        "type": "OBJECT",
-        "properties": {"jobs": {"type": "ARRAY", "items": item}},
-        "required": ["jobs"],
-        "propertyOrdering": ["jobs"],
-    }
+    return json_object(props)

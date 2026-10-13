@@ -1,17 +1,16 @@
-"""The batched `extract` stage, against a fake LLM (offline)."""
+"""The `extract` stage (one posting per request, batch or sync), against a fake LLM (offline)."""
 
 import json
-import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from strelitzia import pipeline
-from strelitzia.database import init_db
+from strelitzia.database import MAX_EXTRACT_ATTEMPTS, backfill_job_keys, init_db
 from strelitzia.enrichment import extract
-from strelitzia.enrichment.posting_model import EXTRACT_VERSION
+from strelitzia.enrichment.posting_model import EXTRACT_VERSION, posting_schema
 from strelitzia.enrichment.posting_prompt import job_id
-from strelitzia.llm import LLMStopRun
+from strelitzia.llm import LLMClient, LLMStopRun
 
 STOP = LLMStopRun("budget", "monthly LLM budget used up")
 
@@ -32,12 +31,13 @@ def conn(tmp_path):
              {3: 9, 1: 5}.get(i), f"2026-10-0{i + 1}"),
         )
     c.commit()
+    backfill_job_keys(c)
     return c
 
 
-def _posting(jid: str, **overrides) -> dict:
+def _posting(**overrides) -> dict:
     return {
-        "job_id": jid, "company": "Globex", "title_normalized": "Data Engineer",
+        "company": "Globex", "title_normalized": "Data Engineer",
         "role_category": "data_engineering", "seniority": "senior", "employment_type": "full_time",
         "work_mode": "hybrid", "locations": [{"city": "Chicago", "state": "IL", "country": "US"}],
         "remote_region": None, "salary_min": 120000, "salary_max": 150000, "salary_currency": "USD",
@@ -52,122 +52,191 @@ def _posting(jid: str, **overrides) -> dict:
 
 
 class FakeLLM:
-    """Answers each batch from the JOB_ID lines in the user message; hooks can drop/alter/raise."""
+    """Answers each sync request (by job_url) and each batch item (by custom_id); hooks can alter or fail."""
 
-    def __init__(self, drop=(), overrides=None, fail_calls=()):
-        self.calls: list[list[str]] = []
-        self.drop = set(drop)
+    def __init__(self, overrides=None, fail_calls=(), batch_errors=None, bad_replies=()):
+        self.calls: list[str] = []  # job urls, sync
+        self.batches: list[list[tuple[str, dict]]] = []
         self.overrides = overrides or {}
         self.fail_calls = fail_calls
+        self.batch_errors = batch_errors or {}
+        self.bad_replies = set(bad_replies)
 
     def chat(self, messages, **kwargs):
-        ids = re.findall(r"^JOB_ID: (\w+)$", messages[1]["content"], re.MULTILINE)
-        self.calls.append(ids)
+        url = kwargs["job_url"]
+        self.calls.append(url)
         n = len(self.calls)
         if n in self.fail_calls:
             raise self.fail_calls[n]
-        jobs = [_posting(i, **self.overrides.get(i, {})) for i in ids if not (i in self.drop and len(ids) > 1)]
-        return json.dumps({"jobs": jobs})
+        return json.dumps(_posting(**self.overrides.get(url, {})))
+
+    def run_batch(self, purpose, items, on_result, poll_seconds=30):
+        assert purpose == "extract"
+        self.batches.append(items)
+        for cid, _ in reversed(items):  # any order
+            if cid in self.batch_errors:
+                on_result(cid, None, self.batch_errors[cid])
+            elif cid in self.bad_replies:
+                on_result(cid, '{"jobs": ', None)
+            else:
+                on_result(cid, json.dumps(_posting()), None)
+        errored = sum(1 for cid, _ in items if cid in self.batch_errors)
+        return {"batches": 1, "succeeded": len(items) - errored, "errored": errored,
+                "callback_errors": 0, "cost_usd": 0.0}
 
 
-def _run(conn, fake, **kwargs):
+def _client(fake):
     client = MagicMock()
     client.chat.side_effect = fake.chat
-    with patch.object(extract, "get_client", return_value=client):
-        return extract.run_extraction(conn=conn, **kwargs)
+    client.request_params.side_effect = LLMClient("extract", "claude-haiku-5-5", "low").request_params
+    client.model = "claude-haiku-5-5"
+    return client
+
+
+def _run(conn, fake, estimate=0.25, budget_error=None, resume=None, **kwargs):
+    with patch.object(extract, "get_client", return_value=_client(fake)), \
+            patch.object(extract, "run_batch", side_effect=fake.run_batch), \
+            patch.object(extract, "resume_open_batches", side_effect=resume, return_value={}) as resumed, \
+            patch.object(extract, "estimate_cost", return_value=estimate) as est, \
+            patch.object(extract, "check_budget", side_effect=budget_error) as budget:
+        stats = extract.run_extraction(conn=conn, poll_seconds=0, **kwargs)
+    fake.estimate, fake.budget, fake.resume = est, budget, resumed
+    return stats
 
 
 def _row(conn, i):
     return dict(conn.execute("SELECT * FROM jobs WHERE url = ?", (_url(i),)).fetchone())
 
 
-def test_batch_round_trip(conn):
-    fake = FakeLLM()
-    stats = _run(conn, fake, batch_size=5)
-    assert stats["extracted"] == 7 and stats["errors"] == 0 and stats["requests"] == 2
-    assert [len(c) for c in fake.calls] == [5, 2]
+def _check_saved(conn, stats):
     row = _row(conn, 2)
     assert row["role_category"] == "data_engineering" and row["category_source"] == "llm"
     assert (row["location_city"], row["location_state"], row["location_country"]) == ("Chicago", "IL", "US")
     assert (row["salary_min"], row["salary_max"], row["salary_period"]) == (120000.0, 150000.0, "year")
     assert row["deadline"] == "2026-11-01" and row["posted_date"] == "2026-10-01"
-    assert row["extract_version"] == EXTRACT_VERSION and row["extracted_at"]
+    assert row["extract_version"] == EXTRACT_VERSION == 4 and row["extracted_at"]
     assert json.loads(row["details_json"])["summary"] == "Builds pipelines."
-    assert "job_id" not in json.loads(row["details_json"])
     assert row["company"] == "Globex"  # was NULL
     assert _row(conn, 0)["company"] == "Acme"  # never overwritten
     assert stats["pending_left"] == 0
 
 
-def test_limit_caps_jobs_and_requests(conn):
+def test_batch_round_trip(conn):
     fake = FakeLLM()
-    stats = _run(conn, fake, limit=3, batch_size=5)
-    assert fake.calls and len(fake.calls) == 1 and len(fake.calls[0]) == 3
-    assert stats["extracted"] == 3 and stats["pending_left"] == 4
+    stats = _run(conn, fake)
+    assert stats["mode"] == "batch" and stats["extracted"] == 7 and stats["errors"] == 0 and stats["requests"] == 7
+    assert fake.calls == [] and len(fake.batches) == 1
+    items = fake.batches[0]
+    assert [cid for cid, _ in items] == [job_id({"url": _url(i)}) for i in (3, 1, 6, 5, 4, 2, 0)]
+    params = items[0][1]
+    assert params["output_config"]["format"] == {"type": "json_schema", "schema": posting_schema()}
+    assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert params["messages"][0]["content"].startswith("TITLE: Data Engineer 3\n")
+    # The estimate covers every request at batch price, and the budget is checked against it first.
+    assert len(fake.estimate.call_args.args[1]) == 7 and fake.estimate.call_args.kwargs == {"batch": True}
+    fake.budget.assert_called_once_with(0.25)
+    assert stats["estimate_usd"] == 0.25
+    fake.resume.assert_called_once()
+    _check_saved(conn, stats)
 
 
-def test_ten_jobs_take_two_requests(tmp_path):
-    c = init_db(tmp_path / "ten.db")
-    c.executemany("INSERT INTO jobs (url, title, full_description) VALUES (?, 't', 'd')", [(_url(i),) for i in range(12)])
-    c.commit()
+def test_sync_round_trip(conn):
     fake = FakeLLM()
-    _run(c, fake, limit=10)  # default EXTRACT_BATCH_SIZE = 5
-    assert len(fake.calls) == 2
-    assert c.execute("SELECT COUNT(*) FROM jobs WHERE extracted_at IS NOT NULL").fetchone()[0] == 10
+    stats = _run(conn, fake, mode="sync")
+    assert stats["mode"] == "sync" and stats["extracted"] == 7 and stats["requests"] == 7
+    assert fake.calls == [_url(i) for i in (3, 1, 6, 5, 4, 2, 0)]  # best score, then newest
+    assert fake.batches == [] and not fake.resume.called
+    _check_saved(conn, stats)
 
 
-def test_ordering_best_score_then_newest(conn):
+def test_small_runs_go_sync(conn):
     fake = FakeLLM()
-    _run(conn, fake, batch_size=1)
-    order = [ids[0] for ids in fake.calls]
-    expected = [job_id({"url": _url(i)}) for i in (3, 1, 6, 5, 4, 2, 0)]
-    assert order == expected
+    stats = _run(conn, fake, limit=extract.SYNC_MAX_JOBS)
+    assert stats["mode"] == "sync" and len(fake.calls) == extract.SYNC_MAX_JOBS and fake.batches == []
+    assert stats["pending_left"] == 7 - extract.SYNC_MAX_JOBS
+    assert _run(conn, FakeLLM(), limit=6)["mode"] == "sync"  # only 2 left pending
 
 
-def test_missing_job_is_retried_alone(conn):
-    missing = job_id({"url": _url(3)})
-    fake = FakeLLM(drop={missing})
-    stats = _run(conn, fake, batch_size=5)
-    assert fake.calls[-1] == [missing]  # retried on its own after the batches
-    assert stats["extracted"] == 7 and stats["errors"] == 0 and stats["requests"] == 3
+def test_sync_request_sends_schema_and_job_url():
+    client = MagicMock()
+    client.chat.return_value = json.dumps(_posting())
+    with patch.object(extract, "get_client", return_value=client):
+        posting = extract.extract_one({"url": _url(1), "title": "T", "full_description": "d"}, today="2026-10-13")
+    assert posting.company == "Globex"
+    kwargs = client.chat.call_args.kwargs
+    assert kwargs["schema"] == posting_schema() and kwargs["job_url"] == _url(1)
+    assert "temperature" not in kwargs
+    messages = client.chat.call_args.args[0]
+    assert messages[0]["role"] == "system" and "Today is 2026-10-13" in messages[0]["content"]
+
+
+def test_batch_errors_count_attempts(conn):
+    bad = job_id({"url": _url(3)})
+    invalid = job_id({"url": _url(1)})
+    fake = FakeLLM(batch_errors={bad: "errored: overloaded_error: busy"}, bad_replies={invalid})
+    stats = _run(conn, fake)
+    assert stats["extracted"] == 5 and stats["errors"] == 2
     row = _row(conn, 3)
-    assert row["extracted_at"] and row["extract_attempts"] == 1 and row["extract_error"] is None
+    assert row["extracted_at"] is None and row["extract_attempts"] == 1
+    assert row["extract_error"] == "LLM error: errored: overloaded_error: busy"
+    assert "invalid reply" in _row(conn, 1)["extract_error"]
 
 
-def test_failure_counts_attempts_and_gives_up(conn):
-    missing = job_id({"url": _url(3)})
-    # Missing from every multi-job reply; the single retry then fails with a bad reply.
-    fake = FakeLLM(drop={missing}, fail_calls={3: ValueError("reply has no jobs")})
-    stats = _run(conn, fake, batch_size=5)
-    assert stats["extracted"] == 6 and stats["errors"] == 1
-    row = _row(conn, 3)
-    assert row["extracted_at"] is None and row["extract_attempts"] == 2
-    assert "reply has no jobs" in row["extract_error"]
+def test_failed_jobs_wait_for_a_later_run_until_out_of_attempts(conn):
+    bad = job_id({"url": _url(3)})
+    _run(conn, FakeLLM(batch_errors={bad: "expired"}))
+    assert _row(conn, 3)["extract_attempts"] == 1
+    fake = FakeLLM()
+    assert _run(conn, fake)["extracted"] == 1 and fake.calls == [_url(3)]  # next run picks it up
+    conn.execute("UPDATE jobs SET extracted_at = NULL, extract_attempts = ? WHERE url = ?",
+                 (MAX_EXTRACT_ATTEMPTS, _url(3)))
+    conn.commit()
+    fake = FakeLLM()
+    assert _run(conn, fake)["requests"] == 0 and fake.calls == []  # out of attempts
+
+
+def test_resumed_results_are_saved_by_job_key(conn):
+    def resume(purpose, on_result, poll_seconds=30):
+        on_result(job_id({"url": _url(4)}), json.dumps(_posting(team="Resumed")), None)
+        on_result("ffffffffffff", json.dumps(_posting()), None)  # a job deleted since
+        return {"batches": 1}
+
+    fake = FakeLLM()
+    stats = _run(conn, fake, resume=resume)
+    assert stats["resumed"] == 1
+    assert json.loads(_row(conn, 4)["details_json"])["team"] == "Resumed"
+    assert stats["requests"] == 6 and job_id({"url": _url(4)}) not in dict(fake.batches[0])  # not paid twice
 
 
 def test_invalid_enum_coerced(conn):
-    jid = job_id({"url": _url(3)})
-    fake = FakeLLM(overrides={jid: {"role_category": "astronaut", "work_mode": "moon", "salary_min": "lots"}})
+    fake = FakeLLM(overrides={_url(3): {"role_category": "astronaut", "work_mode": "moon", "salary_min": "lots"}})
     _run(conn, fake, limit=1)
     row = _row(conn, 3)
     assert (row["role_category"], row["work_mode"], row["salary_min"]) == ("other", "unknown", None)
 
 
-def test_budget_stop_keeps_finished_batches(conn):
-    fake = FakeLLM(fail_calls={2: STOP})
-    stats = _run(conn, fake, batch_size=5)
+def test_budget_stop_before_a_batch_submits_nothing(conn):
+    fake = FakeLLM()
+    stats = _run(conn, fake, budget_error=STOP)
+    assert stats["stopped"] == "budget" and stats["requests"] == 0 and fake.batches == []
+    assert pipeline._stage_status(stats) == {"status": pipeline.BUDGET_STOPPED}
+    assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
+
+
+def test_sync_budget_stop_keeps_finished_jobs(conn):
+    fake = FakeLLM(fail_calls={3: STOP})
+    stats = _run(conn, fake, mode="sync")
     assert stats["stopped"] == "budget"
-    assert stats["extracted"] == 5 and stats["requests"] == 1
-    assert conn.execute("SELECT COUNT(*) FROM jobs WHERE extracted_at IS NOT NULL").fetchone()[0] == 5
+    assert stats["extracted"] == 2 and stats["requests"] == 2
+    assert conn.execute("SELECT COUNT(*) FROM jobs WHERE extracted_at IS NOT NULL").fetchone()[0] == 2
     # Jobs left by a stop aren't charged an attempt.
     assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
 
 
 def test_overload_stops_without_charging_attempts(conn):
     fake = FakeLLM(fail_calls={2: LLMStopRun("overloaded")})
-    stats = _run(conn, fake, batch_size=5)
-    assert stats["stopped"] == "overloaded"
-    assert stats["extracted"] == 5 and stats["requests"] == 1
+    stats = _run(conn, fake, mode="sync")
+    assert stats["stopped"] == "overloaded" and stats["extracted"] == 1
     assert conn.execute("SELECT MAX(COALESCE(extract_attempts, 0)) FROM jobs").fetchone()[0] == 0
     assert pipeline._stage_status(stats) == {"status": pipeline.OVERLOAD_STOPPED}
 
@@ -175,8 +244,14 @@ def test_overload_stops_without_charging_attempts(conn):
 def test_repeated_request_failures_stop_the_run(conn):
     boom = RuntimeError("HTTP 500")
     fake = FakeLLM(fail_calls={1: boom, 2: boom, 3: boom, 4: boom, 5: boom})
-    stats = _run(conn, fake, batch_size=1)
+    stats = _run(conn, fake, mode="sync")
     assert stats["stopped"] == "errors" and len(fake.calls) == 3
+    assert _row(conn, 3)["extract_error"] == "LLM error: HTTP 500"
+
+
+def test_a_batch_where_everything_failed_reports_errors(conn):
+    fake = FakeLLM(batch_errors={job_id({"url": _url(i)}): "expired" for i in range(7)})
+    assert _run(conn, fake)["stopped"] == "errors"
 
 
 def test_version_bump_reselects(conn):
@@ -185,14 +260,22 @@ def test_version_bump_reselects(conn):
     conn.commit()
     fake = FakeLLM()
     stats = _run(conn, fake)
-    assert fake.calls == [[job_id({"url": _url(4)})]] and stats["extracted"] == 1
+    assert fake.calls == [_url(4)] and stats["extracted"] == 1
 
 
 def test_nothing_pending_makes_no_request(conn):
     conn.execute("UPDATE jobs SET full_description = NULL")
     conn.commit()
     fake = FakeLLM()
-    assert _run(conn, fake)["requests"] == 0 and fake.calls == []
+    assert _run(conn, fake)["requests"] == 0 and fake.calls == [] and fake.batches == []
+
+
+def test_parse_posting():
+    assert extract.parse_posting("```json\n" + json.dumps(_posting()) + "\n```").company == "Globex"
+    with pytest.raises(ValueError):
+        extract.parse_posting('{"company": ')
+    with pytest.raises(ValueError):
+        extract.parse_posting("[1, 2]")
 
 
 def test_pipeline_stage_wiring():
