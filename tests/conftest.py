@@ -96,7 +96,7 @@ def _reset_pg_schema(url: str) -> None:
 
     conn = PgConnection(url)
     try:
-        for table in ("jobs", "status_events", "dashboard_tasks"):
+        for table in ("jobs", "status_events", "dashboard_tasks", "llm_usage"):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
     finally:
         conn.close()

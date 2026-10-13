@@ -4,10 +4,15 @@ LLM client for Strelitzia: every call goes to the Claude API through the `anthro
 Each pipeline stage (`PURPOSES`) has its own model and effort, from the packaged config/llm_models.yaml;
 `LLM_{PURPOSE}_MODEL` and `LLM_{PURPOSE}_EFFORT` override them. The key is `ANTHROPIC_API_KEY`, read from
 ~/.strelitzia/.env by `config.load_env()`.
+
+Every response is written to the `llm_usage` table with its dollar cost, and `LLM_MONTHLY_BUDGET_USD` stops a run
+(`LLMStopRun("budget")`) before month-to-date spend would pass it.
 """
 
 import logging
 import os
+import uuid
+from datetime import datetime, timezone
 from functools import cache
 
 import anthropic
@@ -132,6 +137,110 @@ def cost_usd(model: str, usage, batch: bool = False) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Usage ledger and monthly budget (llm_usage table)
+# ---------------------------------------------------------------------------
+
+# Requests counted with count_tokens when estimating a large run; the rest are extrapolated from them.
+_ESTIMATE_SAMPLE = 20
+
+
+def _ledger_conn():
+    """The connection usage rows go to: the default job store (tests point this elsewhere)."""
+    from strelitzia.database import get_connection
+    return get_connection()
+
+
+def record_usage(purpose: str, model: str, usage, batch: bool = False, job_url: str | None = None,
+                 conn=None) -> float:
+    """Write one `llm_usage` row and return its cost. A failed write is logged, never raised: the answer is paid."""
+    cost = cost_usd(model, usage, batch)
+    t = _usage_tokens(usage)
+    try:
+        conn = conn or _ledger_conn()
+        conn.execute(
+            "INSERT INTO llm_usage (id, ts, purpose, model, batch, input_tokens, cache_read_tokens, "
+            "cache_write_tokens, output_tokens, cost_usd, job_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (uuid.uuid4().hex, datetime.now(timezone.utc).isoformat(timespec="seconds"), purpose, model,
+             int(batch), t["input_tokens"], t["cache_read_tokens"], t["cache_write_tokens"], t["output_tokens"],
+             cost, job_url),
+        )
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 - spend tracking must not lose a paid answer
+        log.warning("Could not record LLM usage (%s %s, $%.5f): %s", purpose, model, cost, e)
+    return cost
+
+
+def _month_start() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-01")
+
+
+def month_spend(conn=None) -> float:
+    """Month-to-date LLM spend in USD (calendar month, UTC)."""
+    conn = conn or _ledger_conn()
+    row = conn.execute("SELECT SUM(cost_usd) FROM llm_usage WHERE ts >= ?", (_month_start(),)).fetchone()
+    return float(row[0] or 0.0)
+
+
+def monthly_budget() -> float | None:
+    """LLM_MONTHLY_BUDGET_USD, or None for no limit (unset or unreadable, warned once)."""
+    raw = os.environ.get("LLM_MONTHLY_BUDGET_USD", "").strip()
+    if not raw:
+        _warn_once("budget:unset", "LLM_MONTHLY_BUDGET_USD is not set: LLM spend has no monthly limit.")
+        return None
+    try:
+        budget = float(raw)
+    except ValueError:
+        _warn_once("budget:bad", "Ignoring LLM_MONTHLY_BUDGET_USD=%s (not a number): no monthly limit.", raw)
+        return None
+    return max(budget, 0.0)
+
+
+def check_budget(estimated_usd: float = 0.0, conn=None) -> None:
+    """Raise LLMStopRun("budget") if month-to-date spend has reached the budget or `estimated_usd` would pass it."""
+    budget = monthly_budget()
+    if budget is None:
+        return
+    spent = month_spend(conn)
+    if spent >= budget or spent + estimated_usd > budget:
+        raise LLMStopRun(
+            "budget",
+            f"Monthly LLM budget reached: ${spent:.2f} spent this month + ${estimated_usd:.2f} estimated > "
+            f"${budget:.2f} (LLM_MONTHLY_BUDGET_USD)",
+        )
+
+
+def _input_tokens(client: "LLMClient", params: dict) -> int:
+    """Input tokens for one request (count_tokens; a characters/3 guess if that call fails)."""
+    try:
+        return client.sdk.messages.count_tokens(
+            **{k: params[k] for k in ("model", "messages", "system", "output_config") if k in params}
+        ).input_tokens
+    except anthropic.APIError as e:
+        _warn_once("count_tokens", "count_tokens failed (%s); estimating from text length.", e)
+        text = "".join(str(m["content"]) for m in params["messages"]) + "".join(
+            b["text"] for b in params.get("system", []))
+        return len(text) // 3
+
+
+def estimate_cost(purpose: str, requests: list[dict], batch: bool = False) -> float:
+    """Expected USD for `requests` (Messages API params, as from `LLMClient.request_params`).
+
+    Input is counted with count_tokens on up to _ESTIMATE_SAMPLE requests (spread over the list) and scaled up;
+    output is the stage's `output_tokens` guess from llm_models.yaml. Cache savings are ignored, so it errs high.
+    """
+    if not requests:
+        return 0.0
+    client = get_client(purpose)
+    step = max(1, len(requests) // _ESTIMATE_SAMPLE)
+    sample = requests[::step][:_ESTIMATE_SAMPLE]
+    input_tokens = sum(_input_tokens(client, r) for r in sample) * len(requests) / len(sample)
+    output_tokens = _purpose_config(purpose)["output_tokens"] * len(requests)
+    usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    model = requests[0].get("model", client.model)
+    return cost_usd(model, usage, batch)
+
+
+# ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
 
@@ -209,14 +318,19 @@ class LLMClient:
         max_tokens: int = 4096,
         schema: dict | None = None,
         effort: str | None = None,
+        job_url: str | None = None,
     ) -> str:
-        """Send one request and return the answer text (JSON text when `schema` is given)."""
+        """Send one request and return the answer text (JSON text when `schema` is given).
+
+        Checks the monthly budget first and records the response's usage (tagged with `job_url`) afterwards.
+        """
         params = self.request_params(messages, max_tokens=max_tokens, schema=schema, effort=effort)
+        check_budget()
         try:
             message = self.sdk.messages.create(**params)
         except anthropic.APIError as e:
             raise _api_error(e) from e
-        log.debug("%s: %s usage %s", self.purpose, self.model, _usage_tokens(message.usage))
+        record_usage(self.purpose, self.model, message.usage, job_url=job_url)
         return response_text(message)
 
     def ask(self, prompt: str, **kwargs) -> str:
