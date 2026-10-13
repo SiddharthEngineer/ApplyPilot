@@ -1,5 +1,5 @@
 # Plan: Claude API as the only LLM provider (Batch API for bulk stages, spend tracking)
-**Status:** 🚧 In progress
+**Status:** 🟡 Tasks 1-6 done (2026-10-13); Task 7 (interactive, paid live run) left for the user
 **Risk:** review (replaces `llm.py`, touches `pyproject.toml`, `config.py`, `database.py`, the CLI and every LLM call site)
 
 ## Goal

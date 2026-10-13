@@ -10,7 +10,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
 | R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | 🟡 merged (#33); live on strelitzia.engineerfamily.net; you: M17 | M14 |
-| R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | ⏳ | M18 |
+| R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | 🟡 Tasks 1-6 done, PR open; you: Task 7 live run (M19) | M18 |
 | R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | ⏳ | R20 |
 
 ## Manual steps (you)
