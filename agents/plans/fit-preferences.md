@@ -39,6 +39,15 @@ Users never see or edit the prompt.
 - Never put the user's real preferences or resume in tests or fixtures. Use synthetic ones.
 
 ## Tasks
+### Task 0: Precondition (R20 merged)
+**Runs:** unattended
+**Files:** none
+**What:** The build queue has no dependencies, so check first: `git fetch -q origin && git cat-file -e origin/trunk:src/strelitzia/llm_batch.py`.
+If that fails, plan `claude-llm-provider` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
+"waiting for claude-llm-provider to merge; requeue with buildqueue.py add fit-preferences".
+**Validate:** the command exits 0.
+**Status:** ❌
+
 ### Task 1: Preference model and code scorer
 **Runs:** unattended
 **Files:** src/strelitzia/scoring/preferences.py (new), src/strelitzia/database.py (modify), tests/test_preferences.py (new)

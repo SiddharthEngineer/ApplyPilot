@@ -71,6 +71,9 @@ tests/test_quota_stop.py (delete or rewrite), tests/test_structured_output.py (m
   - discovery, extract, scoring: `claude-haiku-5-5`, effort `low`
   - tailor, cover: `claude-sonnet-5-5`, effort `medium`
   - `LLM_{PURPOSE}_MODEL` / `LLM_{PURPOSE}_EFFORT` env vars still override.
+  - An override that isn't a `claude-*` model id (e.g. a leftover `LLM_SCORING_MODEL=gemini-...` in
+    `~/.strelitzia/.env`) is ignored with a one-time warning, so stale Gemini settings can't break the stages after
+    this merges. `GEMINI_API_KEY` and other legacy keys are ignored silently.
 - New `llm.py` API:
   - `LLMClient.chat(messages, max_tokens=..., schema: dict | None = None, effort: str | None = None) -> str`.
     The system message becomes a cached system block. With `schema`, it sends `output_config.format` and returns the
