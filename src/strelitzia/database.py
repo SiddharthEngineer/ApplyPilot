@@ -209,6 +209,15 @@ def _ensure_tables(conn: Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_url ON dashboard_tasks (url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_state ON dashboard_tasks (state)")
+    # One row per Claude response (strelitzia.llm.record_usage); batch 0|1, ts ISO UTC. user_id stays NULL until
+    # there are users, so per-user caps won't need a migration.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_usage ("
+        "id TEXT PRIMARY KEY, ts TEXT, purpose TEXT, model TEXT, batch INTEGER, input_tokens INTEGER, "
+        "cache_read_tokens INTEGER, cache_write_tokens INTEGER, output_tokens INTEGER, cost_usd DOUBLE PRECISION, "
+        "job_url TEXT NULL, user_id TEXT NULL)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage (ts)")
     conn.commit()
 
 

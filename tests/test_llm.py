@@ -9,6 +9,7 @@ import httpx2
 import pytest
 
 from strelitzia import llm
+from strelitzia.database import init_db
 from strelitzia.llm import (
     LLMClient,
     LLMResponseError,
@@ -22,10 +23,12 @@ PURPOSE_VARS = [f"LLM_{p.upper()}_{kind}" for p in llm.PURPOSES for kind in ("MO
 
 
 @pytest.fixture(autouse=True)
-def _clean(monkeypatch):
-    for var in PURPOSE_VARS:
+def _clean(monkeypatch, tmp_path):
+    for var in [*PURPOSE_VARS, "LLM_MONTHLY_BUDGET_USD"]:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    conn = init_db(tmp_path / "t.db")
+    monkeypatch.setattr(llm, "_ledger_conn", lambda: conn)
     llm.reset_clients()
     llm._warned.clear()
     yield

@@ -105,7 +105,7 @@ present, no `temperature` sent, schema forwarded, refusal → error, cost math o
   plus a per-purpose output-token guess from the YAML. This is the API plan `fit-preferences` will use for its
   "rescore costs ~$X" dialog.
 **Validate:** `pytest tests/test_llm_usage.py -q` → rows written with correct cost; budget stop triggers at the limit.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit)
 
 ### Task 3: Batch runner
 **Runs:** unattended
