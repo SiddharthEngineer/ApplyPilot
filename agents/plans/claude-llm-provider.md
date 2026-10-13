@@ -176,7 +176,7 @@ src/strelitzia/scoring/cover_letter.py (modify), tests/test_scoring_errors.py (m
 **What:** Point the `llm` tier at Claude. Run one sync extraction, one score, one 2-job batch, and one cover letter,
 checking `cache_read_input_tokens > 0` on the second same-purpose call.
 **Validate:** `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py -q` → pass; `llm_usage` has rows.
-**Status:** ❌
+**Status:** ⏸ 2026-10-13: tests rewritten for Claude (this commit, collected and skipped without a key); the paid run is left for the user (interactive).
 
 ## Validation
 - `scripts/validate.sh --full` passes.
