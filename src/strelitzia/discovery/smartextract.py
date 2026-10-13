@@ -532,7 +532,7 @@ def _judge_sequential(
         )
 
         try:
-            raw, _, _ = ask_llm(prompt, max_tokens=1024)
+            raw, _, _ = ask_llm(prompt, max_tokens=4096)
             verdict = extract_json(raw)
             is_relevant = verdict.get("relevant", False)
             reason = verdict.get("reason", "?")
@@ -554,7 +554,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
 
     Applies a deterministic heuristic pre-filter first to skip obvious
     non-job responses (recaptcha, telemetry, auth endpoints) without
-    consuming LLM quota. Remaining candidates are judged in a single
+    spending LLM budget. Remaining candidates are judged in a single
     batched LLM call. Falls back to sequential per-response calls if
     the batched response is unparseable.
     """
@@ -837,12 +837,11 @@ PAGE HTML:
 
 # -- LLM helpers -------------------------------------------------------------
 
-def ask_llm(prompt: str, max_tokens: int = 4096) -> tuple[str, float, dict]:
+def ask_llm(prompt: str, max_tokens: int = 8000) -> tuple[str, float, dict]:
     """Send prompt to LLM. Returns (response_text, seconds_taken, metadata).
 
-    Uses the cheaper discovery-stage client/model by default so smart-extract
-    (strategy selection + API judging) stays on ``gemini-3.1-flash-lite`` while
-    scoring/tailoring keep the full-quality model.
+    Uses the discovery-stage client (Haiku at low effort by default), so smart-extract (strategy selection +
+    API judging) stays cheap while tailoring keeps the stronger model. `max_tokens` includes thinking.
     """
     client = get_discovery_client()
     t0 = time.time()
@@ -1191,14 +1190,14 @@ def _run_one_site(name: str, url: str) -> dict:
 def _run_one_site_safe(name: str, url: str) -> dict:
     """``_run_one_site`` that never raises, so one broken site can't end the whole run.
 
-    A missing Playwright browser or an exhausted daily LLM quota is marked ``fatal`` (every other
-    site would fail the same way).
+    A missing Playwright browser or an LLM stop (budget used up, bad key, API overloaded) is marked ``fatal``
+    (every other site would fail the same way).
     """
     try:
         return _run_one_site(name, url)
     except LLMStopRun as e:
         log.warning("SmartExtract stopped: %s", e)
-        return {"name": name, "status": "QUOTA", "error": str(e), "fatal": True, "stopped": e.reason}
+        return {"name": name, "status": "LLM_STOPPED", "error": str(e), "fatal": True, "stopped": e.reason}
     except Exception as e:  # noqa: BLE001 - page/network errors vary; report and continue
         msg = str(e).splitlines()[0] if str(e) else type(e).__name__
         if "Executable doesn't exist" in msg:

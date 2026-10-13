@@ -140,7 +140,7 @@ src/strelitzia/enrichment/detail.py (modify), src/strelitzia/discovery/smartextr
   estimate and call `check_budget` first.
 - `detail.py`/`smartextract.py` call `get_client("discovery").chat(...)` without `temperature`.
 **Validate:** `pytest tests/test_posting_extract.py tests/test_posting_model.py tests/test_smartextract_* -q` → pass.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit)
 
 ### Task 5: Scoring, tailoring, cover letters on Claude
 **Runs:** unattended

@@ -1,4 +1,4 @@
-"""Tests for the extraction prompt and batch formatting (offline)."""
+"""Tests for the extraction prompt and posting formatting (offline)."""
 
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ from strelitzia.enrichment.posting_model import ENUMS, ROLE_CATEGORIES, JobPosti
 from strelitzia.enrichment.posting_prompt import (
     MAX_DESCRIPTION_CHARS,
     build_extract_prompt,
-    format_batch,
+    format_posting,
     job_id,
     truncate_description,
 )
@@ -31,18 +31,20 @@ def test_prompt_lists_every_enum_value():
     for c in ROLE_CATEGORIES:
         assert f"- {c}:" in prompt
     assert "Today is 2026-10-05" in prompt
+    # The cached prefix may only change with the date.
+    assert build_extract_prompt("2026-10-05") == prompt
+    assert build_extract_prompt("2026-10-06").replace("2026-10-06", "2026-10-05") == prompt
 
 
-def test_format_batch_labels_each_job():
-    jobs = [_fixture_job(n) for n in FIXTURES]
-    msg = format_batch(jobs)
-    assert msg.startswith(f"{len(jobs)} posting(s)")
-    for job in jobs:
-        assert f"JOB_ID: {job_id(job)}" in msg
-        assert f"TITLE: {job['title']}" in msg
+def test_format_posting_has_metadata_then_description():
+    for name in FIXTURES:
+        job = _fixture_job(name)
+        msg = format_posting(job)
+        assert msg.startswith(f"TITLE: {job['title']}\n")
+        assert "\nDESCRIPTION:\n" in msg and "JOB_ID" not in msg
     # Job boards are a source, not the employer.
     indeed = _fixture_job("indeed_epoch_data_scientist")
-    block = format_batch([indeed])
+    block = format_posting(indeed)
     assert "COMPANY: not given" in block and "SOURCE: jobspy (indeed)" in block
     assert "SALARY: USD30-USD40/hourly" in block
 
@@ -60,7 +62,7 @@ def test_truncates_long_text_and_keeps_pay():
     assert len(out) <= MAX_DESCRIPTION_CHARS
     assert pay in out
     assert "equal opportunity" not in out
-    msg = format_batch([{"url": "u", "title": "t", "full_description": text}])
+    msg = format_posting({"url": "u", "title": "t", "full_description": text})
     assert len(msg) < MAX_DESCRIPTION_CHARS + 500
 
 

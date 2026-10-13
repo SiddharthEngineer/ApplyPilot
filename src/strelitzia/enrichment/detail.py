@@ -460,9 +460,9 @@ def extract_with_llm(page, url: str) -> dict:
     )
 
     try:
-        client = get_client()
+        client = get_client("discovery")
         t0 = time.time()
-        raw = client.ask(prompt, max_tokens=4096)
+        raw = client.ask(prompt, max_tokens=8000, job_url=url)
         elapsed = time.time() - t0
         log.info("LLM: %d chars in, %.1fs", len(prompt), elapsed)
 

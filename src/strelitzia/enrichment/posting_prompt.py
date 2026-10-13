@@ -1,11 +1,12 @@
-"""Prompt for the `extract` stage: system prompt plus the batched user message.
+"""Prompt for the `extract` stage: the system prompt plus one posting per user message.
 
 The rules come from a sample of real postings on the VPS (see the R8 plan's Historical Record):
 Workday tenants ("What you'll be doing:" / "What we need to see:" / "Ways to stand out from the crowd:",
 "Minimum Qualifications:" / "Preferred Qualifications:", pay ranges in a closing paragraph, application
 windows), Greenhouse/Ashby ("Pay Transparency Notice", "Annual Salary: $X — $Y USD", Logistics blocks with
 education and visa policy), and Indeed/LinkedIn (markdown `**Header**` sections, hourly pay, recruiter
-fluff). The system prompt is identical for every batch, so it is eligible for Gemini implicit caching.
+fluff). The system prompt is identical for every posting (it changes only with `today`), so Claude caches it:
+keep per-posting text out of it.
 """
 
 from __future__ import annotations
@@ -43,9 +44,8 @@ def build_extract_prompt(today: str) -> str:
     role_lines = "\n".join(f"  - {c}: {_ROLE_HINTS[c]}" for c in ROLE_CATEGORIES)
     return f"""You extract structured data from job postings. Today is {today}.
 
-You get several postings, each starting with a JOB_ID line and a metadata block (title, company, location,
-salary, source) followed by the description. Return one object per posting in "jobs", with its JOB_ID copied
-exactly into "job_id". Never mix facts between postings.
+You get one posting: a metadata block (title, company, location, salary, source) followed by the description.
+Return one object for it.
 
 CORE RULE: extract, never infer. If the posting doesn't state something, use null, "unknown" or [].
 Never invent a company, salary, date, skill, or requirement. Copy names, numbers and tools as written.
@@ -149,28 +149,23 @@ def truncate_description(text: str, limit: int = MAX_DESCRIPTION_CHARS) -> str:
 
 
 def job_id(job: dict) -> str:
-    """The id a job carries through a batch (same key as its Drive files)."""
+    """The id a job carries through a Message Batch (custom_id; same key as its Drive files)."""
     return job_key(job["url"])
 
 
-def format_batch(jobs: list[dict]) -> str:
-    """User message for one extraction request: every job labelled with its JOB_ID and metadata."""
-    blocks = []
-    for job in jobs:
-        site = (job.get("site") or "").strip()
-        company = (job.get("company") or "").strip() or (site if site.lower() not in JOB_BOARD_SITES else "")
-        source = job.get("strategy") or ""
-        if site.lower() in JOB_BOARD_SITES:
-            source = f"{source} ({site})" if source else site
-        meta = [
-            f"JOB_ID: {job_id(job)}",
-            f"TITLE: {job.get('title') or ''}",
-            f"COMPANY: {company or 'not given'}",
-            f"LOCATION: {job.get('location') or 'not given'}",
-            f"SALARY: {job.get('salary') or 'not given'}",
-            f"SOURCE: {source or 'unknown'}",
-        ]
-        description = truncate_description(job.get("full_description") or job.get("description") or "")
-        blocks.append("\n".join(meta) + "\nDESCRIPTION:\n" + description)
-    header = f"{len(jobs)} posting(s). Return exactly {len(jobs)} object(s) in \"jobs\".\n\n"
-    return header + "\n\n=====\n\n".join(blocks)
+def format_posting(job: dict) -> str:
+    """User message for one extraction request: the job's metadata, then its (trimmed) description."""
+    site = (job.get("site") or "").strip()
+    company = (job.get("company") or "").strip() or (site if site.lower() not in JOB_BOARD_SITES else "")
+    source = job.get("strategy") or ""
+    if site.lower() in JOB_BOARD_SITES:
+        source = f"{source} ({site})" if source else site
+    meta = [
+        f"TITLE: {job.get('title') or ''}",
+        f"COMPANY: {company or 'not given'}",
+        f"LOCATION: {job.get('location') or 'not given'}",
+        f"SALARY: {job.get('salary') or 'not given'}",
+        f"SOURCE: {source or 'unknown'}",
+    ]
+    description = truncate_description(job.get("full_description") or job.get("description") or "")
+    return "\n".join(meta) + "\nDESCRIPTION:\n" + description
