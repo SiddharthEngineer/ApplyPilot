@@ -18,7 +18,7 @@ from pathlib import Path
 
 from strelitzia.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
 from strelitzia.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
-from strelitzia.llm import LLMStopRun, get_client
+from strelitzia.llm import LLMStopRun, get_client, json_object
 from strelitzia.llm_json import extract_json
 from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
 from strelitzia.scoring.resume_model import TailoredResume
@@ -38,38 +38,23 @@ MAX_ATTEMPTS = 5  # max cross-run retries before giving up
 
 # ── Prompt Builders (profile-driven) ──────────────────────────────────────
 
-_SECTION_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "header": {"type": "STRING"},
-        "subtitle": {"type": "STRING"},
-        "bullets": {"type": "ARRAY", "items": {"type": "STRING"}},
-    },
-    "required": ["header", "subtitle", "bullets"],
-    "propertyOrdering": ["header", "subtitle", "bullets"],
-}
+_SECTION_SCHEMA = json_object({
+    "header": {"type": "string"},
+    "subtitle": {"type": "string"},
+    "bullets": {"type": "array", "items": {"type": "string"}},
+})
 _SKILL_CATEGORIES = ["Languages", "Frameworks", "DevOps & Infra", "Databases", "Tools"]
 
-# Gemini structured output (responseSchema format) for the legacy --source resume JSON shape.
+# Structured output (JSON Schema) for the legacy --source resume JSON shape.
 # The content-library path uses tailored_resume_schema(library) instead.
-RESUME_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "title": {"type": "STRING"},
-        "summary": {"type": "STRING"},
-        "skills": {
-            "type": "OBJECT",
-            "properties": {cat: {"type": "STRING"} for cat in _SKILL_CATEGORIES},
-            "required": _SKILL_CATEGORIES,
-            "propertyOrdering": _SKILL_CATEGORIES,
-        },
-        "experience": {"type": "ARRAY", "items": _SECTION_SCHEMA},
-        "projects": {"type": "ARRAY", "items": _SECTION_SCHEMA},
-        "education": {"type": "STRING"},
-    },
-    "required": ["title", "summary", "skills", "experience", "projects", "education"],
-    "propertyOrdering": ["title", "summary", "skills", "experience", "projects", "education"],
-}
+RESUME_SCHEMA = json_object({
+    "title": {"type": "string"},
+    "summary": {"type": "string"},
+    "skills": json_object({cat: {"type": "string"} for cat in _SKILL_CATEGORIES}),
+    "experience": {"type": "array", "items": _SECTION_SCHEMA},
+    "projects": {"type": "array", "items": _SECTION_SCHEMA},
+    "education": {"type": "string"},
+})
 
 
 def _build_tailor_prompt(profile: dict) -> str:
@@ -193,41 +178,21 @@ def _role_slots(
 
 
 def tailored_resume_schema(library: ContentLibrary) -> dict:
-    """Gemini responseSchema for TailoredResume, with role keys and project slugs as enums."""
+    """JSON Schema for TailoredResume, with role keys and project slugs as enums."""
     role_keys = [r.key for r in library.roles] or [""]
     slugs = [p.slug for r in library.roles for p in r.projects] or [""]
-    bullet = {
-        "type": "OBJECT",
-        "properties": {
-            "text": {"type": "STRING"},
-            "project_ids": {"type": "ARRAY", "items": {"type": "STRING", "enum": slugs}},
-        },
-        "required": ["text", "project_ids"],
-        "propertyOrdering": ["text", "project_ids"],
-    }
-    return {
-        "type": "OBJECT",
-        "properties": {
-            "roles": {"type": "ARRAY", "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "role_key": {"type": "STRING", "enum": role_keys},
-                    "bullets": {"type": "ARRAY", "items": bullet},
-                },
-                "required": ["role_key", "bullets"],
-                "propertyOrdering": ["role_key", "bullets"],
-            }},
-            "skills": {"type": "ARRAY", "items": {
-                "type": "OBJECT",
-                "properties": {"category": {"type": "STRING"}, "items": {"type": "STRING"}},
-                "required": ["category", "items"],
-                "propertyOrdering": ["category", "items"],
-            }},
-            "dropped_roles": {"type": "ARRAY", "items": {"type": "STRING", "enum": role_keys}},
-        },
-        "required": ["roles", "skills", "dropped_roles"],
-        "propertyOrdering": ["roles", "skills", "dropped_roles"],
-    }
+    bullet = json_object({
+        "text": {"type": "string"},
+        "project_ids": {"type": "array", "items": {"type": "string", "enum": slugs}},
+    })
+    return json_object({
+        "roles": {"type": "array", "items": json_object({
+            "role_key": {"type": "string", "enum": role_keys},
+            "bullets": {"type": "array", "items": bullet},
+        })},
+        "skills": {"type": "array", "items": json_object({"category": {"type": "string"}, "items": {"type": "string"}})},
+        "dropped_roles": {"type": "array", "items": {"type": "string", "enum": role_keys}},
+    })
 
 
 def _build_content_library_tailor_prompt(
@@ -239,7 +204,7 @@ def _build_content_library_tailor_prompt(
     """System prompt for template-mode tailoring from the content library.
 
     Everything here is the same for every job (library first, then rules), so the prompt
-    prefix stays identical across jobs and is eligible for Gemini implicit caching. The job
+    prefix stays identical across jobs and Claude caches it (the cached system block). The job
     description and any retry notes go in the user message.
 
     Args:
@@ -598,7 +563,7 @@ def tailor_from_content_library(
             {"role": "user", "content": user},
         ]
 
-        raw = client.chat(messages, max_tokens=4096, schema=schema)
+        raw = client.chat(messages, max_tokens=16000, schema=schema, job_url=job.get("url"))
 
         try:
             data = extract_json(raw)
@@ -695,7 +660,7 @@ def judge_content_library_resume(
     ]
 
     client = get_client("tailor")
-    response = client.chat(messages, max_tokens=512)
+    response = client.chat(messages, max_tokens=4096)
 
     passed = "VERDICT: PASS" in response.upper()
     issues = "none"
@@ -752,7 +717,7 @@ def judge_tailored_resume(
     ]
 
     client = get_client("tailor")
-    response = client.chat(messages, max_tokens=512)
+    response = client.chat(messages, max_tokens=4096)
 
     passed = "VERDICT: PASS" in response.upper()
     issues = "none"
@@ -826,7 +791,7 @@ def tailor_resume(
             {"role": "user", "content": f"ORIGINAL RESUME:\n{resume_text}\n\n---\n\nTARGET JOB:\n{job_text}\n\nReturn the JSON:"},
         ]
 
-        raw = client.chat(messages, max_tokens=2048, schema=RESUME_SCHEMA)
+        raw = client.chat(messages, max_tokens=16000, schema=RESUME_SCHEMA, job_url=job.get("url"))
 
         # Parse JSON from response
         try:

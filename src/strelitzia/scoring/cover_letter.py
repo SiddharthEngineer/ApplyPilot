@@ -115,7 +115,7 @@ Start DIRECTLY with "Dear Hiring Manager," and end with the name."""
 def _strip_preamble(text: str) -> str:
     """Remove LLM preamble before 'Dear Hiring Manager,' if present.
 
-    Gemini and other models sometimes output "Here is the cover letter:" or
+    Models sometimes output "Here is the cover letter:" or
     similar meta-commentary before the actual letter text. Strip everything
     before the first occurrence of "Dear" so the validator's start-check passes.
     """
@@ -214,7 +214,7 @@ def generate_cover_letter(
             )},
         ]
 
-        letter = client.chat(messages, max_tokens=1024)
+        letter = client.chat(messages, max_tokens=8000, job_url=job.get("url"))
         letter = sanitize_text(letter)  # auto-fix em dashes, smart quotes
         letter = _strip_preamble(letter)  # remove any "Here is the letter:" prefix
 

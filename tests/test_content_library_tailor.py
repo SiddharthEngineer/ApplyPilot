@@ -260,6 +260,8 @@ class TestTailorFromContentLibrary:
         assert set(schema["properties"]) == {"roles", "skills", "dropped_roles"}
         slugs = schema["properties"]["roles"]["items"]["properties"]["bullets"]["items"]["properties"]["project_ids"]
         assert slugs["items"]["enum"] == ["patentsview-pipeline", "cafe-pipeline", "project-talent-ocr"]
+        from schema_rules import assert_strict_schema
+        assert_strict_schema(schema)
 
     @patch("strelitzia.scoring.tailor.get_client")
     def test_roles_sorted_in_library_order(self, mock_get_client):

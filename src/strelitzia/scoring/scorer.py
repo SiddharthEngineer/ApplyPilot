@@ -3,6 +3,9 @@
 Scores jobs on a 1-10 scale by comparing the user's resume against each
 job description. All personal data is loaded at runtime from the user's
 profile and resume file.
+
+The rubric and the resume form the cached system prompt and the job is the user turn, so every request after the
+first reuses the resume prefix. Bulk runs go through the Message Batches API (half price); small ones are sync.
 """
 
 import json
@@ -10,12 +13,14 @@ import logging
 import re
 import time
 from datetime import UTC, datetime, timezone
+from typing import Literal
 
-import httpx
+import anthropic
 
 from strelitzia.config import RESUME_PATH, load_profile, load_search_config
-from strelitzia.database import get_connection, get_jobs_by_stage
-from strelitzia.llm import LLMStopRun, get_client
+from strelitzia.database import get_connection, get_jobs_by_stage, job_key
+from strelitzia.llm import LLMStopRun, check_budget, estimate_cost, get_client, json_object
+from strelitzia.llm_batch import resume_open_batches, run_batch
 
 log = logging.getLogger(__name__)
 
@@ -37,24 +42,21 @@ IMPORTANT FACTORS:
 - Factor in the candidate's project experience
 - Be realistic about experience level vs. job requirements (years of experience, seniority)
 
-RESPOND IN EXACTLY THIS FORMAT (no other text):
-SCORE: [1-10]
-KEYWORDS: [comma-separated ATS keywords from the job description that match or could match the candidate]
-REASONING: [2-3 sentences explaining the score]"""
+ANSWER FIELDS:
+- score: the fit score, an integer from 1 to 10
+- keywords: comma-separated ATS keywords from the job description that match or could match the candidate
+- reasoning: 2-3 sentences explaining the score"""
 
+SCORE_SCHEMA = json_object({
+    "score": {"type": "integer", "description": "Fit score from 1 to 10"},
+    "keywords": {"type": "string", "description": "Comma-separated matching ATS keywords"},
+    "reasoning": {"type": "string", "description": "2-3 sentences explaining the score"},
+})
 
-# Gemini structured output (responseSchema format). Other providers get the
-# text format from SCORE_PROMPT; _parse_score_response accepts both.
-SCORE_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "score": {"type": "INTEGER", "description": "Fit score from 1 to 10"},
-        "keywords": {"type": "STRING", "description": "Comma-separated matching ATS keywords"},
-        "reasoning": {"type": "STRING", "description": "2-3 sentences explaining the score"},
-    },
-    "required": ["score", "keywords", "reasoning"],
-    "propertyOrdering": ["score", "keywords", "reasoning"],
-}
+# Output budget per job, thinking included.
+_MAX_OUTPUT_TOKENS = 2048
+# Runs of at most this many jobs go sync: a batch's latency isn't worth it for a handful of requests.
+SYNC_MAX_JOBS = 5
 
 
 def _parse_score_json(response: str) -> dict | None:
@@ -68,36 +70,36 @@ def _parse_score_json(response: str) -> dict | None:
 
 
 def _parse_score_response(response: str) -> dict:
-    """Parse the LLM's score response into structured data.
-
-    Args:
-        response: Raw LLM response text (structured JSON or the SCORE/KEYWORDS/REASONING format).
+    """Parse the LLM's structured-output score reply.
 
     Returns:
         {"score": int, "keywords": str, "reasoning": str}; score 0 means unparseable.
     """
     parsed = _parse_score_json(response.strip())
-    if parsed is not None:
-        return parsed
+    return parsed if parsed is not None else {"score": 0, "keywords": "", "reasoning": response}
 
-    score = 0
-    keywords = ""
-    reasoning = response
 
-    for line in response.split("\n"):
-        line = line.strip()
-        if line.startswith("SCORE:"):
-            try:
-                score = int(re.search(r"\d+", line).group())
-                score = max(1, min(10, score))
-            except (AttributeError, ValueError):
-                score = 0
-        elif line.startswith("KEYWORDS:"):
-            keywords = line.replace("KEYWORDS:", "").strip()
-        elif line.startswith("REASONING:"):
-            reasoning = line.replace("REASONING:", "").strip()
+def score_messages(resume_text: str, job: dict) -> list[dict]:
+    """Messages for one scoring request: rubric + resume (the cached system prompt), then the job."""
+    job_text = (
+        f"TITLE: {job['title']}\n"
+        f"COMPANY: {job['site']}\n"
+        f"LOCATION: {job.get('location', 'N/A')}\n\n"
+        f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
+    )
+    return [
+        {"role": "system", "content": f"{SCORE_PROMPT}\n\nCANDIDATE RESUME:\n{resume_text}"},
+        {"role": "user", "content": f"JOB POSTING:\n{job_text}"},
+    ]
 
-    return {"score": score, "keywords": keywords, "reasoning": reasoning}
+
+def _result_from_reply(response: str) -> dict:
+    parsed = _parse_score_response(response)
+    if parsed["score"] == 0:  # not the JSON object; real scores are clamped to 1-10
+        result = _error_result(f"unparseable response: {response[:200]!r}")
+        result["parse_error"] = True
+        return result
+    return parsed
 
 
 def score_job(resume_text: str, job: dict) -> dict:
@@ -111,43 +113,16 @@ def score_job(resume_text: str, job: dict) -> dict:
         {"score": int, "keywords": str, "reasoning": str} on success. On an LLM error or an unparseable
         reply, "score" is None and "error" holds the message, so the job stays unscored and retryable.
     """
-    job_text = (
-        f"TITLE: {job['title']}\n"
-        f"COMPANY: {job['site']}\n"
-        f"LOCATION: {job.get('location', 'N/A')}\n\n"
-        f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
-    )
-
-    messages = [
-        {"role": "system", "content": SCORE_PROMPT},
-        {"role": "user", "content": f"RESUME:\n{resume_text}\n\n---\n\nJOB POSTING:\n{job_text}"},
-    ]
-
     try:
         client = get_client("scoring")
-        response = client.chat(messages, max_tokens=512, schema=SCORE_SCHEMA)
-        parsed = _parse_score_response(response)
-        if parsed["score"] == 0:  # no usable SCORE line; real scores are clamped to 1-10
-            result = _error_result(f"unparseable response: {response[:200]!r}")
-            result["parse_error"] = True
-            return result
-        return parsed
+        response = client.chat(score_messages(resume_text, job), max_tokens=_MAX_OUTPUT_TOKENS, schema=SCORE_SCHEMA,
+                               job_url=job.get("url"))
+        return _result_from_reply(response)
     except LLMStopRun:
         raise  # run_scoring stops the stage; this job stays untouched
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        body = e.response.text[:300]
-        hint = ""
-        if status in (400, 403, 404):
-            hint = (
-                " — check GEMINI_API_KEY, LLM_MODEL (default gemini-3.6-flash), "
-                "and that model exists on https://ai.google.dev/gemini-api/docs/models"
-            )
-        log.error(
-            "LLM error scoring job '%s': HTTP %d%s — %s",
-            job.get("title", "?"), status, hint, body,
-        )
-        return _error_result(f"HTTP {status}")
+    except anthropic.APIStatusError as e:
+        log.error("LLM error scoring job '%s': HTTP %d: %s", job.get("title", "?"), e.status_code, e.message)
+        return _error_result(f"HTTP {e.status_code}")
     except Exception as e:
         log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
         return _error_result(str(e))
@@ -225,11 +200,93 @@ def _save_score(conn, r: dict) -> None:
     conn.commit()
 
 
-def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -> dict:
+class _Tally:
+    """Saves each result as it arrives and keeps the counts."""
+
+    def __init__(self, conn, total: int) -> None:
+        self.conn = conn
+        self.total = total
+        self.results: list[dict] = []
+        self.errors = self.parse_errors = 0
+        self.first_error = ""
+
+    def add(self, url: str, result: dict, title: str = "?") -> None:
+        result["url"] = url
+        if result.get("parse_error"):
+            self.parse_errors += 1
+        if result["score"] is None:
+            self.errors += 1
+            self.first_error = self.first_error or result.get("reasoning", "")
+        self.results.append(result)
+        _save_score(self.conn, result)
+        log.info("[%d/%d] score=%s  %s", len(self.results), self.total,
+                 result["score"] if result["score"] is not None else "error", title[:60])
+
+
+def _score_sync(tally: _Tally, resume_text: str, jobs: list[dict]) -> str:
+    """One request per job. Returns the stop reason ("" if it ran to the end)."""
+    for job in jobs:
+        try:
+            result = score_job(resume_text, job)
+        except LLMStopRun as e:
+            log.warning("Scoring stopped: %s. %d jobs left unscored for the next run.", e, len(jobs) - len(tally.results))
+            return e.reason
+        tally.add(job["url"], result, job.get("title") or "?")
+    return ""
+
+
+def _score_batch(tally: _Tally, resume_text: str, jobs: list[dict], poll_seconds: float, extra: dict) -> str:
+    """Every job in Message Batches, after a cost estimate and budget check. Returns the stop reason."""
+    client = get_client("scoring")
+    by_key = {job_key(j["url"]): j for j in jobs}
+    items = [(key, client.request_params(score_messages(resume_text, j), max_tokens=_MAX_OUTPUT_TOKENS,
+                                         schema=SCORE_SCHEMA)) for key, j in by_key.items()]
+
+    def on_result(custom_id: str, text: str | None, error: str | None) -> None:
+        job = by_key.get(custom_id)
+        if job is None:
+            log.warning("Batch result %s matches no job in this run; skipped.", custom_id)
+            return
+        tally.add(job["url"], _result_from_reply(text) if text is not None else _error_result(error or "?"),
+                  job.get("title") or "?")
+
+    try:
+        estimate = estimate_cost("scoring", [params for _, params in items], batch=True)
+        extra["estimate_usd"] = estimate
+        log.info("Scoring %d job(s) in a batch: estimated cost $%.2f (%s).", len(items), estimate, client.model)
+        check_budget(estimate)
+        run_batch("scoring", items, on_result, poll_seconds=poll_seconds)
+    except LLMStopRun as e:
+        log.warning("Scoring stopped: %s. Unscored jobs stay pending for the next run.", e)
+        return e.reason
+    return ""
+
+
+def _collect_open_batches(conn) -> set[str]:
+    """Save the results of scoring batches a killed run left open (matched by job_key). Returns their urls."""
+    tally = _Tally(conn, 0)
+
+    def on_result(custom_id: str, text: str | None, error: str | None) -> None:
+        row = conn.execute("SELECT url, title FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
+        if row is None:
+            log.warning("Batch result %s matches no job; skipped.", custom_id)
+            return
+        tally.add(row[0], _result_from_reply(text) if text is not None else _error_result(error or "?"),
+                  row[1] or "?")
+
+    try:
+        resume_open_batches("scoring", on_result)
+    except LLMStopRun as e:
+        log.warning("Could not collect open scoring batches: %s", e)
+    return {r["url"] for r in tally.results}
+
+
+def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
+                mode: Literal["batch", "sync"] = "batch", poll_seconds: float = 30) -> dict:
     """Score unscored jobs that have full descriptions.
 
-    Each result is written to the DB as soon as its LLM call returns, so a run that is
-    stopped (Ctrl-C, quota, crash) keeps every score it already paid for.
+    Each result is written to the DB as soon as it arrives, so a run that is stopped (Ctrl-C, budget, crash)
+    keeps every score it already paid for; a batch left open is collected by the next batch run.
 
     Args:
         limit: Maximum number of jobs sent to the LLM in this run (0 = all). Applied after
@@ -237,12 +294,17 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
         rescore: If True, re-score all jobs (not just unscored ones).
         prefilter: If True, jobs whose title shares no word with the search queries / target role
             get fit_score 1 without an LLM call.
+        mode: "batch" (Message Batches, half price, default) or "sync" (one request at a time). Runs of at most
+            SYNC_MAX_JOBS jobs are always sync.
+        poll_seconds: How often to check a submitted batch.
 
     Returns:
-        {"scored": int, "errors": int, "elapsed": float, "distribution": list}
+        {"scored", "errors", "parse_errors", "prefiltered", "elapsed", "distribution", "mode"}, plus
+        "estimate_usd" for a batch and "stopped" when the budget, key or API stopped the run.
     """
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
+    extra: dict = {}
 
     if rescore:
         query = "SELECT * FROM jobs WHERE full_description IS NOT NULL"
@@ -283,56 +345,30 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
         log.info("--limit %d: scoring %d of %d jobs; the rest stay pending.", limit, limit, len(jobs))
         jobs = jobs[:limit]
 
-    log.info("Scoring %d jobs sequentially...", len(jobs))
+    if mode == "batch" and len(jobs) <= SYNC_MAX_JOBS:
+        mode = "sync"
+    if mode == "batch":
+        # Results of a batch a killed run left open come first, so those jobs aren't paid for twice.
+        resumed = _collect_open_batches(conn)
+        extra["resumed"] = len(resumed)
+        jobs = [j for j in jobs if j["url"] not in resumed]
+    log.info("Scoring %d jobs (%s)...", len(jobs), mode)
     t0 = time.time()
-    completed = 0
-    errors = 0
-    first_error_msg = ""
-    parse_errors = 0
-    results: list[dict] = []
-    stopped = ""
+    tally = _Tally(conn, len(jobs))
+    if mode == "sync":
+        stopped = _score_sync(tally, resume_text, jobs)
+    else:
+        stopped = _score_batch(tally, resume_text, jobs, poll_seconds, extra)
+    results, errors, parse_errors = tally.results, tally.errors, tally.parse_errors
 
-    for job in jobs:
-        try:
-            result = score_job(resume_text, job)
-        except LLMStopRun as e:
-            stopped = e.reason
-            log.warning("Scoring stopped: %s. %d jobs left unscored for the next run.",
-                        e, len(jobs) - completed)
-            break
-        result["url"] = job["url"]
-        completed += 1
-
-        if result.get("parse_error"):
-            parse_errors += 1
-        if result["score"] is None:
-            errors += 1
-            if not first_error_msg:
-                first_error_msg = result.get("reasoning", "")
-
-        results.append(result)
-        _save_score(conn, result)
-
-        log.info(
-            "[%d/%d] score=%s  %s",
-            completed, len(jobs), result["score"] if result["score"] is not None else "error",
-            job.get("title", "?")[:60],
-        )
-
-    # If all jobs failed, check for systemic LLM config issue
-    if not stopped and errors == len(jobs) and errors > 0 and ("404" in first_error_msg or "400" in first_error_msg):
-        log.error(
-            "ALL %d jobs failed to score — likely a systemic LLM configuration issue.\n"
-            "  Check GEMINI_API_KEY, LLM_MODEL (default gemini-3.6-flash), "
-            "and that model exists on https://ai.google.dev/gemini-api/docs/models\n"
-            "  First error: %s",
-            errors, first_error_msg,
-        )
+    if not stopped and errors == len(jobs) and errors > 0:
+        log.error("ALL %d jobs failed to score; check the Claude setup with `strelitzia doctor`. First error: %s",
+                  errors, tally.first_error)
 
     elapsed = time.time() - t0
     log.info("Done: %d scored, %d errors in %.1fs (%.1f jobs/sec)", len(results) - errors, errors, elapsed,
              len(results) / elapsed if elapsed > 0 else 0)
-    # Each unparseable reply costs a retry on a later run (another quota request).
+    # Each unparseable reply costs a retry on a later run (another paid request).
     log.info("JSON parse retries (scoring): %d", parse_errors)
 
     # Score distribution
@@ -351,6 +387,7 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True) -
         "elapsed": elapsed,
         "distribution": distribution,
     }
+    stats.update(extra, mode=mode)
     if stopped:
         stats["stopped"] = stopped
     return stats

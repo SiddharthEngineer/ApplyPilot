@@ -156,7 +156,7 @@ src/strelitzia/scoring/cover_letter.py (modify), tests/test_scoring_errors.py (m
   backlog).
 - Delete the Gemini-specific error hints (`scorer.py:140-150`).
 **Validate:** `pytest tests/test_scoring_errors.py tests/test_scoring_prefilter.py tests/test_content_library_tailor.py -q` → pass.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit). `RESUME_SCHEMA` lives in `tailor.py`, not `resume_model.py`.
 
 ### Task 6: CLI, doctor, init wizard, docs
 **Runs:** unattended
