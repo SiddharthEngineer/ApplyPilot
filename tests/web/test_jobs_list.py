@@ -20,22 +20,22 @@ def fixed_today(monkeypatch):
 def jobs(conn):
     """Seven jobs covering every status, role, mode and date the filters look at."""
     add_job(conn, "https://x/ds-remote", title="Data Scientist", company="Acme", role_category="data_science",
-            work_mode="remote", location="Remote, US", fit_score=9, discovered_at="2026-10-01T10:00:00+00:00",
+            work_mode="remote", location="Remote, US", fit_score=90, discovered_at="2026-10-01T10:00:00+00:00",
             deadline="2026-10-20", user_status="submitted", submitted_at="2026-09-28T00:00:00+00:00")
     add_job(conn, "https://x/ds-chicago", title="Senior Data Scientist", company="Globex",
             role_category="data_science", work_mode="hybrid", location="Chicago, IL", location_city="Chicago",
-            location_state="IL", fit_score=7, discovered_at="2026-10-03T10:00:00+00:00", deadline="2026-10-01")
+            location_state="IL", fit_score=70, discovered_at="2026-10-03T10:00:00+00:00", deadline="2026-10-01")
     add_job(conn, "https://x/mle", title="ML Engineer", company="Initech", role_category="ml_ai", work_mode="onsite",
-            location="New York, NY", fit_score=8, discovered_at="2026-09-20T10:00:00+00:00",
+            location="New York, NY", fit_score=80, discovered_at="2026-09-20T10:00:00+00:00",
             user_status="rejected", submitted_at="2026-09-21", responded_at="2026-09-30T00:00:00+00:00")
     add_job(conn, "https://x/swe", title="Software Engineer", company="Hooli", role_category="software_engineering",
             work_mode="remote", location="Austin, TX", fit_score=None, discovered_at="2026-10-04T10:00:00+00:00",
             user_status="in_progress")
     add_job(conn, "https://x/de", title="Data Engineer", company=None, site="Umbrella", role_category="data_engineering",
-            work_mode="onsite", location="Chicago, IL", fit_score=5, discovered_at="2026-10-05T01:00:00+00:00",
+            work_mode="onsite", location="Chicago, IL", fit_score=50, discovered_at="2026-10-05T01:00:00+00:00",
             deadline="2026-10-05", user_status="heard_back", responded_at="2026-10-04")
     add_job(conn, "https://x/applied", title="Analytics Engineer", company="Stark", role_category="data_engineering",
-            work_mode="remote", location="Remote", fit_score=6, discovered_at="2026-09-01T10:00:00+00:00",
+            work_mode="remote", location="Remote", fit_score=60, discovered_at="2026-09-01T10:00:00+00:00",
             apply_status="applied", applied_at="2026-10-02T09:00:00")
     add_job(conn, "https://x/no-desc", title="Data Analyst 100%_off", company="Wayne", full_description=None,
             discovered_at="2026-09-15T10:00:00+00:00", deadline="")
@@ -68,9 +68,10 @@ def test_item_shape(client, jobs):
     ds = items[job_key("https://x/ds-remote")]
     assert ds == {
         "key": job_key("https://x/ds-remote"), "title": "Data Scientist", "company": "Acme",
-        "role_category": "data_science", "location": "Remote, US", "work_mode": "remote", "fit_score": 9,
+        "role_category": "data_science", "location": "Remote, US", "work_mode": "remote", "fit_score": 90,
         "discovered_at": "2026-10-01T10:00:00+00:00", "deadline": "2026-10-20", "status": "submitted",
         "status_color": "blue", "days_since_submitted": 7,
+        "fit_breakdown": [], "fit_flags": [], "flag_reasons": [], "assessment_stale": False,
     }
     assert items[job_key("https://x/de")]["company"] == "Umbrella"  # site stands in for a missing company
     assert items[job_key("https://x/no-desc")]["deadline"] is None
@@ -128,9 +129,9 @@ def test_due_dates(client, jobs):
 
 
 def test_score_range(client, jobs):
-    assert sorted(_urls(get(client, score_min=8))) == sorted(_keys("ds-remote", "mle"))
-    assert sorted(_urls(get(client, score_min=6, score_max=7))) == sorted(_keys("ds-chicago", "applied"))
-    assert get(client, score_min=11).status_code == 422
+    assert sorted(_urls(get(client, score_min=80))) == sorted(_keys("ds-remote", "mle"))
+    assert sorted(_urls(get(client, score_min=60, score_max=70))) == sorted(_keys("ds-chicago", "applied"))
+    assert get(client, score_min=101).status_code == 422
 
 
 def test_text_search(client, jobs):

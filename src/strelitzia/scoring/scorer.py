@@ -23,6 +23,7 @@ from strelitzia.scoring.assessment import (
     ASSESS_SCHEMA,
     assess_messages,
     assessment_key,
+    load_resume_text,
     parse_assessment,
     recompute_fit,
 )
@@ -290,6 +291,31 @@ def _prefilter(conn, jobs: list[dict], key: str, prefs: Preferences) -> tuple[li
     log.info("prefilter skipped %d/%d jobs (title not relevant; --no-prefilter to assess them)",
              len(skipped), total)
     return jobs, len(skipped)
+
+
+# Requests built to estimate a re-assessment's cost; the estimate scales them up to the job count.
+_PREVIEW_SAMPLE = 5
+
+
+def reassess_preview(conn, new_prefs: Preferences) -> dict:
+    """What saving `new_prefs` would cost in re-assessment, before anything is saved.
+
+    Returns:
+        {"reassess_needed", "jobs_to_reassess", "estimated_usd"}. reassess_needed is False when the assessment
+        inputs are unchanged (preference-only edits are free); then nothing needs re-assessing.
+    """
+    resume_text = load_resume_text()
+    old_key = assessment_key(load_preferences(conn), resume_text)
+    new_key = assessment_key(new_prefs, resume_text)
+    if old_key == new_key:
+        return {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
+    jobs = _select_jobs(conn, new_key, 0, rescore=False, reassess=True, urls=None)
+    estimate = 0.0
+    if jobs:
+        sample = jobs[::max(1, len(jobs) // _PREVIEW_SAMPLE)][:_PREVIEW_SAMPLE]
+        requests = [params for _, params in assessment_requests(new_prefs, resume_text, sample)]
+        estimate = estimate_cost("scoring", requests, batch=True) * len(jobs) / len(sample)
+    return {"reassess_needed": True, "jobs_to_reassess": len(jobs), "estimated_usd": round(estimate, 4)}
 
 
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,

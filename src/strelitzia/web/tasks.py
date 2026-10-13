@@ -1,4 +1,4 @@
-"""Background resume / cover-letter generation for the dashboard.
+"""Background work for the dashboard: resume / cover-letter generation and fit re-assessment.
 
 Tasks live in the `dashboard_tasks` table and one daemon thread runs them one at a time, because the LLM
 budget and Chromium (PDF rendering) are shared. A task left `running` by a stopped server is marked
@@ -21,7 +21,10 @@ from strelitzia.tracking import _now
 
 log = logging.getLogger(__name__)
 
-KINDS = ("resume", "cover", "both")
+GENERATE_KINDS = ("resume", "cover", "both")
+# rescore: assess one job now (sync). reassess_all: re-assess every stale job in a batch (url is NULL); only
+# queued after the user confirmed the cost estimate.
+KINDS = (*GENERATE_KINDS, "rescore", "reassess_all")
 STATES = ("queued", "running", "done", "error")
 # What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
 STOP_MESSAGES = {
@@ -30,8 +33,8 @@ STOP_MESSAGES = {
     "overloaded": "The Claude API is overloaded right now; try again in a few minutes.",
 }
 
-# generate(url, kind) does the work for one task and raises on failure.
-Generator = Callable[[str, str], None]
+# generate(url, kind) does the work for one task and raises on failure (url is None for reassess_all).
+Generator = Callable[[str | None, str], None]
 
 
 class GenerationFailed(RuntimeError):
@@ -54,16 +57,23 @@ def job_tasks(conn: Connection, url: str) -> list[dict]:
     return [task_dict(r) for r in rows]
 
 
-def enqueue(conn: Connection, url: str, kind: str) -> dict:
-    """Queue a generation task (or return the identical one already waiting) and mark the job In progress.
+def enqueue(conn: Connection, url: str | None, kind: str) -> dict:
+    """Queue a task (or return the identical one already waiting). Generation marks the job In progress.
 
     The status only changes when the user hasn't set one (Active/Inactive jobs).
     """
     if kind not in KINDS:
         raise ValueError(f"Unknown task kind {kind!r}")
-    row = conn.execute(
-        "SELECT * FROM dashboard_tasks WHERE url = ? AND kind = ? AND state = 'queued'", (url, kind)
-    ).fetchone()
+    if (url is None) != (kind == "reassess_all"):
+        raise ValueError(f"Task kind {kind!r} {'takes no' if url is None else 'needs a'} job")
+    if url is None:
+        row = conn.execute(
+            "SELECT * FROM dashboard_tasks WHERE url IS NULL AND kind = ? AND state = 'queued'", (kind,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM dashboard_tasks WHERE url = ? AND kind = ? AND state = 'queued'", (url, kind)
+        ).fetchone()
     if row:
         return task_dict(row)
     task_id = uuid.uuid4().hex
@@ -72,6 +82,8 @@ def enqueue(conn: Connection, url: str, kind: str) -> dict:
         (task_id, url, kind, _now()),
     )
     conn.commit()
+    if kind not in GENERATE_KINDS:
+        return get_task(conn, task_id)
     job = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
     if job is not None and tracking.effective_status(dict(job), datetime.now(UTC).date()) in ("active", "inactive"):
         tracking.set_status(conn, url, "in_progress", source="generate")
@@ -94,12 +106,34 @@ def _drive_configured() -> bool:
     return drive_status()[0] == "authorized"
 
 
-def generate_for_job(url: str, kind: str) -> None:
+def assess_task(url: str | None, kind: str) -> None:
+    """rescore: assess one job now. reassess_all: re-assess every stale job in a Message Batch (can take an hour)."""
+    from strelitzia.scoring.scorer import run_scoring
+
+    if kind == "rescore":
+        stats = run_scoring(urls=[url], mode="sync", prefilter=False)
+    else:
+        stats = run_scoring(mode="batch", reassess=True)
+    if stats.get("stopped") in STOP_MESSAGES:
+        raise LLMStopRun(stats["stopped"])
+    if stats.get("stopped"):
+        raise GenerationFailed(f"The assessment stopped: {stats['stopped']}.")
+    if stats.get("errors"):
+        raise GenerationFailed(f"{stats['errors']} assessment(s) failed with an error (see the server log).")
+    if kind == "rescore" and not stats.get("scored"):
+        raise GenerationFailed("The job can't be assessed until its posting has been extracted.")
+
+
+def generate_for_job(url: str | None, kind: str) -> None:
     """The real work: tailor and/or write the cover letter for one job, then move its PDFs to Drive.
 
     Uses the same settings as `strelitzia run` (content-library tailoring when the library exists, lenient
-    validation for it, normal for cover letters). Runs against the configured database.
+    validation for it, normal for cover letters). Runs against the configured database. The assessment kinds
+    go to `assess_task`.
     """
+    if kind not in GENERATE_KINDS:
+        assess_task(url, kind)
+        return
     from strelitzia.config import CONTENT_LIBRARY_PATH
     from strelitzia.pipeline import tailor_validation_mode
 
