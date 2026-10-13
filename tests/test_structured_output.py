@@ -1,4 +1,4 @@
-"""Scoring and tailoring request Gemini structured output (gemini-free-tier-llm Task 3)."""
+"""Scoring and tailoring request Claude structured output (JSON Schema via output_config.format)."""
 
 from unittest.mock import MagicMock, patch
 
@@ -16,9 +16,30 @@ def test_score_job_sends_schema_and_parses_json():
     assert result == {"score": 8, "keywords": "sql, python", "reasoning": "Good fit."}
 
 
-def test_score_parser_still_reads_text_format():
-    parsed = scorer._parse_score_response("SCORE: 6\nKEYWORDS: a, b\nREASONING: ok")
-    assert parsed == {"score": 6, "keywords": "a, b", "reasoning": "ok"}
+def test_score_parser_reads_only_json():
+    assert scorer._parse_score_response('{"score": 6, "keywords": "a, b", "reasoning": "ok"}') == \
+        {"score": 6, "keywords": "a, b", "reasoning": "ok"}
+    # The old plain-text format is no longer accepted: structured output always returns JSON.
+    assert scorer._parse_score_response("SCORE: 6\nKEYWORDS: a, b\nREASONING: ok")["score"] == 0
+
+
+def test_schemas_are_valid_for_structured_outputs():
+    from schema_rules import assert_strict_schema
+    assert_strict_schema(scorer.SCORE_SCHEMA)
+    assert_strict_schema(tailor.RESUME_SCHEMA)
+
+
+def test_resume_goes_in_the_cached_system_prompt():
+    client = MagicMock()
+    client.chat.return_value = '{"score": 8, "keywords": "", "reasoning": ""}'
+    with patch.object(scorer, "get_client", return_value=client):
+        scorer.score_job("MY RESUME", {**JOB, "url": "https://x/1"})
+    system, user = client.chat.call_args.args[0]
+    assert system["role"] == "system" and system["content"].startswith(scorer.SCORE_PROMPT)
+    assert "MY RESUME" in system["content"] and "MY RESUME" not in user["content"]
+    assert user["content"].startswith("JOB POSTING:") and "Data Engineer" in user["content"]
+    assert client.chat.call_args.kwargs["job_url"] == "https://x/1"
+    assert "temperature" not in client.chat.call_args.kwargs
 
 
 def test_score_json_is_clamped():
