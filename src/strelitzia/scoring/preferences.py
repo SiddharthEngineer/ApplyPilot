@@ -223,9 +223,19 @@ def _money(amount: float, currency: str) -> str:
     return f"${amount:,.0f}" if currency == "USD" else f"{amount:,.0f} {currency}"
 
 
-def _yearly(amount: float, period: str | None) -> float:
-    if period not in SALARY_PERIODS_PER_YEAR:  # not stated: a small figure is an hourly rate
-        period = "hour" if amount < 1000 else "year"
+# A posting's pay with no stated period is read as hourly below this and yearly at or above the next; anything in
+# between (a monthly figure? a low yearly one?) is too ambiguous to compare and scores as unknown.
+_HOURLY_BELOW, _YEARLY_FROM = 1000, 20000
+
+
+def _yearly(amount: float, period: str | None) -> float | None:
+    if period not in SALARY_PERIODS_PER_YEAR:
+        if amount < _HOURLY_BELOW:
+            period = "hour"
+        elif amount >= _YEARLY_FROM:
+            period = "year"
+        else:
+            return None
     return amount * SALARY_PERIODS_PER_YEAR[period]
 
 
@@ -233,7 +243,7 @@ def _score_salary(crit: Criterion, p: JobPosting) -> tuple[float | None, str]:
     want = crit.value
     if not want.get("min"):
         return None, ""
-    floor = _yearly(want["min"], want.get("period"))
+    floor = _yearly(want["min"], want.get("period") or "year")
     top = p.salary_max if p.salary_max is not None else p.salary_min
     if top is None:
         return UNKNOWN, "salary not listed"
@@ -241,6 +251,8 @@ def _score_salary(crit: Criterion, p: JobPosting) -> tuple[float | None, str]:
     if currency != want["currency"]:
         return UNKNOWN, f"salary in {currency}, not {want['currency']}"
     yearly = _yearly(top, p.salary_period)
+    if yearly is None:
+        return UNKNOWN, "salary period not stated"
     if yearly >= floor:
         return 1.0, f"up to {_money(yearly, currency)}/year meets your {_money(floor, currency)} minimum"
     return 0.0, f"salary below minimum ({_money(yearly, currency)}/year < {_money(floor, currency)})"
@@ -410,7 +422,9 @@ def combine(components: list[Component]) -> tuple[int | None, list[str]]:
 
 def load_preferences(conn) -> Preferences:
     """The saved preferences, or the defaults."""
-    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id IS NULL").fetchone()
+    # NULLs never clash under UNIQUE, so two racing first saves can leave two rows: the newest wins.
+    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id IS NULL "
+                       "ORDER BY updated_at DESC LIMIT 1").fetchone()
     if row is None or not row[0]:
         return Preferences()
     try:

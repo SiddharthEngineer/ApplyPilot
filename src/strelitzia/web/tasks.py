@@ -118,7 +118,8 @@ def assess_task(url: str | None, kind: str) -> None:
         raise LLMStopRun(stats["stopped"])
     if stats.get("stopped"):
         raise GenerationFailed(f"The assessment stopped: {stats['stopped']}.")
-    if stats.get("errors"):
+    # A re-assessment that saved most results succeeded: the failed jobs keep their old assessment.
+    if stats.get("errors") and (kind == "rescore" or not stats.get("scored")):
         raise GenerationFailed(f"{stats['errors']} assessment(s) failed with an error (see the server log).")
     if kind == "rescore" and not stats.get("scored"):
         raise GenerationFailed("The job can't be assessed until its posting has been extracted.")

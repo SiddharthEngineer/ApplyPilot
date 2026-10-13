@@ -8,7 +8,7 @@ import pytest
 
 from strelitzia.database import MAX_SCORE_ATTEMPTS, get_jobs_by_stage, get_stats, init_db, reset_score_errors
 from strelitzia.scoring import scorer
-from strelitzia.scoring.assessment import ASSESS_PROMPT
+from strelitzia.scoring.assessment import ASSESS_PROMPT, assessment_key
 from strelitzia.scoring.preferences import Preferences
 from fit_helpers import add_extracted_job, reply
 
@@ -173,6 +173,7 @@ def test_each_score_is_saved_before_the_next_call(tmp_path, resume):
 # ── Batch mode ───────────────────────────────────────────────────────────
 
 BATCH_URLS = [f"https://example.com/batch/{i}" for i in range(8)]
+CURRENT_KEY = assessment_key(Preferences(), "Test resume")
 
 
 @pytest.fixture
@@ -187,7 +188,6 @@ def batch_conn(tmp_path):
 
 def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None, resume_error=None):
     """run_scoring in batch mode; `results(custom_id)` gives (text, error) per job."""
-    from strelitzia.database import job_key
     from strelitzia.llm import LLMClient
 
     seen = {}
@@ -204,7 +204,8 @@ def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None, resu
         if resume_error:
             raise resume_error
         for url, text in (resumed or {}).items():
-            on_result(job_key(url), text, None)
+            text, key = text if isinstance(text, tuple) else (text, CURRENT_KEY)
+            on_result(scorer.batch_custom_id(url, key), text, None)
         return {"still_open": 0}
 
     client = MagicMock()
@@ -231,7 +232,8 @@ def _score_of(conn, url):
 def test_batch_scores_every_job_by_custom_id(batch_conn, resume):
     from strelitzia.database import job_key
     skills = {job_key(u): 1 + i % 5 for i, u in enumerate(BATCH_URLS)}
-    stats, items, budget = _run_batch_mode(batch_conn, resume, lambda cid: (reply(skills=skills[cid]), None))
+    stats, items, budget = _run_batch_mode(batch_conn, resume,
+                                           lambda cid: (reply(skills=skills[cid.split("-")[0]]), None))
     assert stats["mode"] == "batch" and stats["scored"] == 8 and stats["estimate_usd"] == 0.04
     assert budget.call_args.args[0] == 0.04
     assert budget.seen["estimate_usd"] == 0.04 and budget.seen["wait"] is True  # reserved against the budget
@@ -289,3 +291,19 @@ def test_sync_runs_collect_only_ended_batches(conn, resume):
         assert scorer.run_scoring(prefilter=False, mode="sync")["mode"] == "sync"
     assert resume_batches.call_args.kwargs["wait"] is False
     assert _row(conn)[0] == 50
+
+
+def test_a_leftover_batch_made_with_other_inputs_is_saved_as_stale(batch_conn, resume):
+    old_key = assessment_key(Preferences(skills_want=["Cobol"]), "Test resume")
+    stats, _, _ = _run_batch_mode(batch_conn, resume, lambda cid: (reply(skills=3), None),
+                                  resumed={BATCH_URLS[0]: (reply(skills=5), old_key)})
+    assert stats["resumed"] == 1
+    row = batch_conn.execute("SELECT fit_score, assessment_hash FROM jobs WHERE url = ?", (BATCH_URLS[0],)).fetchone()
+    assert row[0] == 100 and row[1] != CURRENT_KEY and old_key.startswith(row[1])  # stale: truncated old hash
+
+
+def test_old_scorer_batch_results_are_skipped(batch_conn, resume):
+    from strelitzia.database import job_key
+    assert scorer._parse_custom_id(job_key(BATCH_URLS[0]), CURRENT_KEY) is None
+    assert scorer._parse_custom_id(scorer.batch_custom_id(BATCH_URLS[0], CURRENT_KEY), CURRENT_KEY) == \
+        (job_key(BATCH_URLS[0]), CURRENT_KEY)

@@ -164,9 +164,10 @@ def test_migration_scales_old_scores(tmp_path):
     old.commit()
     old.close()
     conn = init_db(path)
-    rows = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT url, fit_score, fit_flags FROM jobs").fetchall()}
-    assert rows == {"https://e.com/a": (70, None), "https://e.com/b": (None, None),
-                    "https://e.com/c": (0, '["prefilter"]')}
+    rows = {r[0]: tuple(r[1:]) for r in
+            conn.execute("SELECT url, fit_score, fit_flags, assessment_hash FROM jobs").fetchall()}
+    assert rows == {"https://e.com/a": (70, None, "0:legacy"), "https://e.com/b": (None, None, None),
+                    "https://e.com/c": (0, '["prefilter"]', "0:legacy")}
     init_db(path)  # runs once: the columns exist now
     assert conn.execute("SELECT fit_score FROM jobs WHERE url = 'https://e.com/a'").fetchone()[0] == 70
 
@@ -226,3 +227,25 @@ def test_breakdown_after_a_run(conn, tmp_path):
     row = conn.execute("SELECT fit_assessment, assessment_hash, assessed_at FROM jobs").fetchone()
     assert json.loads(row[0])["red_flags"][0]["code"] == "vague_posting"
     assert row[1] == assessment_key(Preferences.from_dict({}), RESUME) and row[2]
+
+
+def test_old_scored_jobs_wait_for_a_confirmed_reassess(conn, tmp_path):
+    add_extracted_job(conn, "https://e.com/legacy", fit_score=80, assessment_hash="0:legacy")
+    add_extracted_job(conn, "https://e.com/new")
+    _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=4))
+    assert client.chat.call_count == 1  # only the new job
+    assert _fit(conn, "https://e.com/legacy")[0] == 80
+    _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
+    assert client.chat.call_count == 1 and _fit(conn, "https://e.com/legacy")[0] == 25
+
+
+def test_preferences_saved_during_a_run_win(conn, tmp_path):
+    add_extracted_job(conn, "https://e.com/1")
+    dealbreaker = Preferences.from_dict({"salary": {"importance": "dealbreaker", "value": {"min": 500000}}})
+
+    def chat(*_a, **_k):  # the user saves new preferences while the run is going
+        save_preferences(conn, dealbreaker)
+        return reply(skills=4)
+
+    _run(conn, tmp_path, chat)
+    assert _fit(conn, "https://e.com/1")[2] == ["salary"]

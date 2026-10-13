@@ -1,5 +1,5 @@
 # Plan: Preferences page and two-layer fit score (code-scored preferences + LLM rubric)
-**Status:** 🟡 In progress
+**Status:** 🟡 Tasks 0-4 done; Task 5 (interactive eval) left for the user
 **Risk:** review (new DB tables, web API and dashboard page; changes what `fit_score` means)
 **Depends on:** [claude-llm-provider](claude-llm-provider.md) (Claude client, batch runner, `estimate_cost`, `llm_usage`)
 
@@ -113,7 +113,7 @@ the mean, all-dont_care → overall from the LLM layer only.
 - Update the `>= 7` thresholds (`database.py:463` and the others listed in Context) to `>= 70`.
 **Validate:** `pytest tests/test_assessment.py tests/test_scoring_errors.py tests/test_scoring_prefilter.py -q` → pass;
 the hash is stable across dict orderings; changing only salary prefs leaves the hash unchanged.
-**Status:** ✅ 2026-10-13 (this commit). A pipeline run only assesses never-assessed jobs; stale ones wait for a confirmed `reassess` (Decision 5). `fit_flags` holds failed dealbreakers (red flags count when Red flags is a dealbreaker) and `prefilter`; flagged jobs are not tailored.
+**Status:** ✅ 2026-10-13 (this commit). A pipeline run only assesses never-assessed jobs; stale ones wait for a confirmed `reassess` (Decision 5). `fit_flags` holds failed dealbreakers (red flags count when Red flags is a dealbreaker) and `prefilter`; flagged jobs are not tailored. Jobs scored by the old 1-10 scorer get `assessment_hash = "0:legacy"`: they show as stale and wait for a confirmed re-assessment. Batch custom_ids carry the input hash, so a leftover batch made with older inputs is saved as stale.
 
 ### Task 3: Preferences and rescore API
 **Runs:** unattended

@@ -139,6 +139,7 @@ def _save_result(conn, r: dict, key: str, prefs: Preferences) -> None:
         conn.commit()
         return
     a = r["assessment"]
+    key = r.get("key", key)  # a result collected from an earlier run's batch carries the key it was made with
     now = datetime.now(UTC).isoformat()
     conn.execute(
         "UPDATE jobs SET fit_assessment = ?, assessment_hash = ?, assessed_at = ?, scored_at = ?, score_reasoning = ? "
@@ -190,22 +191,40 @@ def _score_sync(tally: _Tally, resume_text: str, jobs: list[dict]) -> str:
     return ""
 
 
+def batch_custom_id(url: str, key: str) -> str:
+    """"<job_key>-<ASSESS_VERSION>-<first 16 of the input hash>": a batch collected by a later run knows which
+    inputs its answers were made with."""
+    version, digest = key.split(":", 1)
+    return f"{job_key(url)}-{version}-{digest[:16]}"
+
+
+def _parse_custom_id(custom_id: str, key: str) -> tuple[str, str] | None:
+    """(job_key, the assessment_hash to store) for a batch custom_id; None for a pre-assessment scoring batch."""
+    parts = custom_id.split("-")
+    if len(parts) != 3:
+        return None
+    version, digest = key.split(":", 1)
+    same = parts[1] == version and digest.startswith(parts[2])
+    # A truncated hash never equals a current key, so a batch made with older inputs shows as stale.
+    return parts[0], key if same else f"{parts[1]}:{parts[2]}"
+
+
 def assessment_requests(prefs: Preferences, resume_text: str, jobs: list[dict]) -> list[tuple[str, dict]]:
-    """(job_key, Messages API params) for each job: the Message Batches items, also used for cost estimates."""
+    """(custom_id, Messages API params) for each job: the Message Batches items, also used for cost estimates."""
     client = get_client("scoring")
-    return [(job_key(j["url"]), client.request_params(assess_messages(prefs, resume_text, j),
-                                                      max_tokens=_MAX_OUTPUT_TOKENS, schema=ASSESS_SCHEMA))
-            for j in jobs]
+    key = assessment_key(prefs, resume_text)
+    return [(batch_custom_id(j["url"], key), client.request_params(
+        assess_messages(prefs, resume_text, j), max_tokens=_MAX_OUTPUT_TOKENS, schema=ASSESS_SCHEMA)) for j in jobs]
 
 
 def _score_batch(tally: _Tally, resume_text: str, jobs: list[dict], poll_seconds: float, extra: dict) -> str:
     """Every job in Message Batches, after a cost estimate and budget check. Returns the stop reason."""
     client = get_client("scoring")
-    by_key = {job_key(j["url"]): j for j in jobs}
-    items = assessment_requests(tally.prefs, resume_text, list(by_key.values()))
+    by_id = {batch_custom_id(j["url"], tally.key): j for j in jobs}
+    items = assessment_requests(tally.prefs, resume_text, list(by_id.values()))
 
     def on_result(custom_id: str, text: str | None, error: str | None) -> None:
-        job = by_key.get(custom_id)
+        job = by_id.get(custom_id)
         if job is None:
             log.warning("Batch result %s matches no job in this run; skipped.", custom_id)
             return
@@ -227,21 +246,26 @@ def _score_batch(tally: _Tally, resume_text: str, jobs: list[dict], poll_seconds
 def _collect_open_batches(conn, poll_seconds: float, wait: bool, key: str, prefs: Preferences) -> int:
     """Save the results of scoring batches a killed run left open (matched by job_key). Returns how many.
 
-    A job assessed since with the current inputs keeps that assessment. Raises LLMStopRun if the batches can't be
-    collected.
+    A job assessed since with the current inputs keeps that assessment; a result made with older inputs is saved
+    as stale. Raises LLMStopRun if the batches can't be collected.
     """
     tally = _Tally(conn, 0, key, prefs)
 
     def on_result(custom_id: str, text: str | None, error: str | None) -> None:
-        row = conn.execute("SELECT url, title, assessment_hash FROM jobs WHERE job_key = ?", (custom_id,)).fetchone()
+        parsed = _parse_custom_id(custom_id, key)
+        if parsed is None:
+            log.warning("Batch result %s is from the old 1-10 scorer; skipped.", custom_id)
+            return
+        jkey, made_with = parsed
+        row = conn.execute("SELECT url, title, assessment_hash FROM jobs WHERE job_key = ?", (jkey,)).fetchone()
         if row is None:
             log.warning("Batch result %s matches no job; skipped.", custom_id)
             return
         if row[2] == key:
             log.info("Batch result for %s skipped: assessed since.", row[0])
             return
-        tally.add(row[0], _result_from_reply(text) if text is not None else _error_result(error or "?"),
-                  row[1] or "?")
+        result = _result_from_reply(text) if text is not None else _error_result(error or "?")
+        tally.add(row[0], {**result, "key": made_with}, row[1] or "?")
 
     open_left = resume_open_batches("scoring", on_result, poll_seconds=poll_seconds, wait=wait, conn=conn)["still_open"]
     if open_left:
@@ -300,22 +324,29 @@ _PREVIEW_SAMPLE = 5
 def reassess_preview(conn, new_prefs: Preferences) -> dict:
     """What saving `new_prefs` would cost in re-assessment, before anything is saved.
 
+    Re-assessment is needed when some job was assessed with other inputs than `new_prefs` and the current resume:
+    because these prefs change the assessment inputs, or because an earlier save skipped re-assessing or the resume
+    changed. Preference-only edits with every assessment up to date are free.
+
     Returns:
-        {"reassess_needed", "jobs_to_reassess", "estimated_usd"}. reassess_needed is False when the assessment
-        inputs are unchanged (preference-only edits are free); then nothing needs re-assessing.
+        {"reassess_needed", "jobs_to_reassess", "estimated_usd"}: the jobs a confirmed re-assessment sends to Claude
+        (never-assessed ones included, prefiltered titles left out) and their estimated Batch cost.
     """
     resume_text = load_resume_text()
-    old_key = assessment_key(load_preferences(conn), resume_text)
     new_key = assessment_key(new_prefs, resume_text)
-    if old_key == new_key:
+    stale = conn.execute(
+        f"SELECT COUNT(*) FROM jobs WHERE {_EXTRACTED} AND assessment_hash IS NOT NULL AND assessment_hash != ? "
+        f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}", (new_key,)).fetchone()[0]
+    if not stale:
         return {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
     jobs = _select_jobs(conn, new_key, 0, rescore=False, reassess=True, urls=None)
+    jobs, _ = prefilter_jobs(jobs, load_target_tokens(new_prefs))  # skipped for free by the run
     estimate = 0.0
     if jobs:
         sample = jobs[::max(1, len(jobs) // _PREVIEW_SAMPLE)][:_PREVIEW_SAMPLE]
         requests = [params for _, params in assessment_requests(new_prefs, resume_text, sample)]
         estimate = estimate_cost("scoring", requests, batch=True) * len(jobs) / len(sample)
-    return {"reassess_needed": True, "jobs_to_reassess": len(jobs), "estimated_usd": round(estimate, 4)}
+    return {"reassess_needed": bool(jobs), "jobs_to_reassess": len(jobs), "estimated_usd": round(estimate, 4)}
 
 
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
@@ -362,14 +393,12 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
     jobs = _select_jobs(conn, key, limit, rescore, reassess, urls)
     if not jobs:
         log.info("No extracted jobs waiting for an assessment.")
-        recompute_fit(conn, prefs=prefs)
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": []}
 
     prefiltered = 0
     if prefilter and urls is None:
         jobs, prefiltered = _prefilter(conn, jobs, key, prefs)
         if not jobs:
-            recompute_fit(conn, prefs=prefs)
             return {"scored": 0, "errors": 0, "parse_errors": 0, "prefiltered": prefiltered,
                     "elapsed": 0.0, "distribution": []}
 
@@ -398,7 +427,9 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
     # Each unparseable reply costs a retry on a later run (another paid request).
     log.info("JSON parse retries (scoring): %d", parse_errors)
 
-    recompute_fit(conn, prefs=prefs)
+    # Every job again, with the preferences as saved now: the Preferences page may have changed them during a long
+    # batch, and the per-result recomputes used the ones this run started with.
+    recompute_fit(conn)
     dist = conn.execute("""
         SELECT (fit_score / 10) * 10 AS band, COUNT(*) FROM jobs
         WHERE fit_score IS NOT NULL
