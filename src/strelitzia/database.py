@@ -218,6 +218,11 @@ def _ensure_tables(conn: Connection) -> None:
         "job_url TEXT NULL, user_id TEXT NULL)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage (ts)")
+    # Message Batches (strelitzia.llm_batch): status submitted -> collected (or lost, if the API no longer has it).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_batches ("
+        "id TEXT PRIMARY KEY, purpose TEXT, submitted_at TEXT, status TEXT, request_count INTEGER)"
+    )
     conn.commit()
 
 
