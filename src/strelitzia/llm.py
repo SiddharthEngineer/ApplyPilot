@@ -259,7 +259,7 @@ def _input_tokens(client: "LLMClient", params: dict) -> int:
         return client.sdk.messages.count_tokens(
             **{k: params[k] for k in ("model", "messages", "system", "output_config") if k in params}
         ).input_tokens
-    except anthropic.APIError as e:
+    except (anthropic.APIError, LLMStopRun) as e:  # LLMStopRun: no API key yet
         _warn_once("count_tokens", "count_tokens failed (%s); estimating from text length.", e)
         text = "".join(str(m["content"]) for m in params["messages"]) + "".join(
             b["text"] for b in params.get("system", []))

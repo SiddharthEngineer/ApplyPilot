@@ -21,7 +21,7 @@ def fixed_today(monkeypatch):
 
 @pytest.fixture
 def job(conn):
-    add_job(conn, URL, title="Data Scientist", company="Acme", fit_score=8, deadline="2026-10-20",
+    add_job(conn, URL, title="Data Scientist", company="Acme", fit_score=80, deadline="2026-10-20",
             application_url="https://apply.example.com/42", full_description="Long description",
             description="short", details_json=json.dumps({"summary": "Models", "skills": ["python"]}),
             resume_drive_url="https://drive.google.com/file/d/r/view", job_key=KEY)
@@ -41,7 +41,7 @@ def _status(client, status, **extra):
 def test_detail_shape(client, job):
     d = _detail(client)
     assert d["key"] == KEY and d["url"] == URL and d["title"] == "Data Scientist" and d["company"] == "Acme"
-    assert d["fit_score"] == 8
+    assert d["fit_score"] == 80
     assert d["description_text"] == "Long description"
     for raw in ("full_description", "description", "details_json"):
         assert raw not in d

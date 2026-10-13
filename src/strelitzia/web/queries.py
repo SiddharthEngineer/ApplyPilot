@@ -5,11 +5,13 @@ Only whitelisted column names are ever formatted into SQL; every value is a boun
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
-from strelitzia.database import Connection, job_company
+from strelitzia.database import UNFLAGGED_WHERE, Connection, job_company
+from strelitzia.scoring.assessment import PREFILTER_FLAG
 from strelitzia.tracking import COLORS, STATUSES, days_since_submitted, effective_status, status_sql
 
 SORT_COLUMNS = {
@@ -25,7 +27,9 @@ MAX_PAGE_SIZE = 200
 _LIST_COLUMNS = (
     "url", "job_key", "title", "company", "site", "role_category", "location", "work_mode", "fit_score",
     "discovered_at", "deadline", "user_status", "apply_status", "applied_at", "submitted_at", "responded_at",
+    "fit_flags", "fit_breakdown", "assessment_hash",
 )
+PREFILTER_REASON = "title doesn't match your target roles"
 
 
 @dataclass
@@ -41,6 +45,7 @@ class JobFilters:
     score_min: int | None = None
     score_max: int | None = None
     q: str | None = None
+    hide_flagged: bool = True
 
 
 def _like(text: str) -> str:
@@ -99,6 +104,8 @@ def where_clause(f: JobFilters, today: date) -> tuple[str, list]:
     if f.score_max is not None:
         conds.append("fit_score <= ?")
         params.append(f.score_max)
+    if f.hide_flagged:
+        conds.append(UNFLAGGED_WHERE)
     if f.q and f.q.strip():
         cols = ("title", "company", "site")
         conds.append("(" + " OR ".join(f"LOWER(COALESCE({c}, '')) LIKE ? ESCAPE '!'" for c in cols) + ")")
@@ -115,7 +122,29 @@ def order_clause(sort: str) -> str:
     return f"{SORT_COLUMNS[name]} {'DESC' if desc else 'ASC'} NULLS LAST, url ASC"
 
 
-def list_item(row: dict, today: date) -> dict:
+def _json(text: str | None, default):
+    try:
+        return json.loads(text) if text else default
+    except ValueError:
+        return default
+
+
+def fit_fields(row: dict, current_key: str | None) -> dict:
+    """fit_breakdown and fit_flags parsed, the reason for each flag, and whether the assessment is stale."""
+    breakdown = _json(row.get("fit_breakdown"), [])
+    flags = _json(row.get("fit_flags"), [])
+    notes = {c.get("key"): c.get("note") or c.get("label") for c in breakdown if isinstance(c, dict)}
+    reasons = [PREFILTER_REASON if f == PREFILTER_FLAG else notes.get(f) or f for f in flags]
+    stored = row.get("assessment_hash")
+    return {
+        "fit_breakdown": breakdown,
+        "fit_flags": flags,
+        "flag_reasons": reasons,
+        "assessment_stale": bool(stored and current_key and stored != current_key),
+    }
+
+
+def list_item(row: dict, today: date, current_key: str | None = None) -> dict:
     status = effective_status(row, today)
     return {
         "key": row["job_key"],
@@ -130,11 +159,12 @@ def list_item(row: dict, today: date) -> dict:
         "status": status,
         "status_color": COLORS[status],
         "days_since_submitted": days_since_submitted(row, today),
+        **fit_fields(row, current_key),
     }
 
 
 def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered_at", page: int = 1,
-              page_size: int = 50, today: date) -> dict:
+              page_size: int = 50, today: date, current_key: str | None = None) -> dict:
     where, params = where_clause(filters, today)
     total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {where}", params).fetchone()[0]
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
@@ -143,7 +173,7 @@ def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered
         [*params, page_size, (max(page, 1) - 1) * page_size],
     ).fetchall()
     return {"total": total, "page": page, "page_size": page_size,
-            "items": [list_item(dict(r), today) for r in rows]}
+            "items": [list_item(dict(r), today, current_key) for r in rows]}
 
 
 def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
@@ -170,4 +200,5 @@ def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
         "role_category": counts("role_category"),
         "work_mode": counts("work_mode"),
         "location": locations,
+        "flagged": conn.execute(f"SELECT COUNT(*) FROM jobs WHERE NOT ({UNFLAGGED_WHERE})").fetchone()[0],
     }

@@ -22,6 +22,9 @@ from pydantic import BaseModel
 from strelitzia import __version__, tracking
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
+from strelitzia.llm import LLMStopRun, check_budget, month_spend
+from strelitzia.scoring import preferences as prefs_mod
+from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
 from strelitzia.web import queries, tasks
 
 PREFIX = "/app"
@@ -60,8 +63,9 @@ def list_jobs(
     found_to: date | None = None,
     due_from: date | None = None,
     due_to: date | None = None,
-    score_min: Annotated[int | None, Query(ge=0, le=10)] = None,
-    score_max: Annotated[int | None, Query(ge=0, le=10)] = None,
+    score_min: Annotated[int | None, Query(ge=0, le=100)] = None,
+    score_max: Annotated[int | None, Query(ge=0, le=100)] = None,
+    hide_flagged: bool = True,
     q: str | None = None,
     sort: Annotated[str, Query(pattern=queries.SORT_PATTERN)] = "-discovered_at",
     page: Annotated[int, Query(ge=1)] = 1,
@@ -72,9 +76,10 @@ def list_jobs(
     filters = queries.JobFilters(
         status=list(status), role=role, work_mode=work_mode, location=location,
         found_from=found_from, found_to=found_to, due_from=due_from, due_to=due_to,
-        score_min=score_min, score_max=score_max, q=q,
+        score_min=score_min, score_max=score_max, q=q, hide_flagged=hide_flagged,
     )
-    return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today())
+    return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today(),
+                             current_key=current_assessment_key(conn))
 
 
 @api.get("/facets")
@@ -83,7 +88,7 @@ def facets(request: Request) -> dict:
 
 
 # Large raw columns left out of the detail response (the description comes back once, as description_text).
-_RAW_COLUMNS = ("full_description", "description", "details_json")
+_RAW_COLUMNS = ("full_description", "description", "details_json", "fit_assessment")
 
 
 def job_by_key(conn: Connection, key: str) -> dict:
@@ -105,8 +110,10 @@ def job_detail(conn: Connection, job: dict) -> dict:
     except ValueError:
         details = None
     out = {k: v for k, v in job.items() if k not in _RAW_COLUMNS}
+    out.update(queries.fit_fields(job, current_assessment_key(conn)))
     out.update(
         key=job["job_key"],
+        fit_assessment=queries._json(job.get("fit_assessment"), None),
         company=job_company(job),
         description_text=job.get("full_description") or job.get("description"),
         details=details,
@@ -180,10 +187,86 @@ def generate(key: str, body: GenerateRequest, request: Request) -> dict:
     job = job_by_key(conn, key)
     kind = "both" if body.resume and body.cover else ("resume" if body.resume else "cover")
     task = tasks.enqueue(conn, job["url"], kind)
+    _notify(request)
+    return {**task, "key": key}
+
+
+def budget_stop(conn: Connection, estimated_usd: float = 0.0) -> None:
+    """402 with the month's spend if `estimated_usd` more would pass LLM_MONTHLY_BUDGET_USD."""
+    try:
+        check_budget(estimated_usd, conn)
+    except LLMStopRun as e:
+        raise HTTPException(status_code=402, detail={
+            "message": f"{e} {tasks.STOP_MESSAGES['budget']}", "month_spend": round(month_spend(conn), 2),
+            "estimated_usd": round(estimated_usd, 4)}) from e
+
+
+def _notify(request: Request) -> None:
     runner = request.app.state.runner
     if runner:
         runner.notify()
+
+
+@api.post("/jobs/{key}/rescore")
+def rescore(key: str, request: Request) -> dict:
+    """Queue a sync assessment of one job (whatever its state). Poll GET /app/api/tasks/{id}."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    budget_stop(conn)
+    task = tasks.enqueue(conn, job["url"], "rescore")
+    _notify(request)
     return {**task, "key": key}
+
+
+@api.get("/preferences")
+def get_preferences(request: Request) -> dict:
+    """The saved preferences, plus the labels and value lists the Preferences page offers."""
+    return {
+        "prefs": prefs_mod.load_preferences(db_conn(request)).to_dict(),
+        "options": {**prefs_mod.OPTIONS, "red_flags": list(RED_FLAGS)},
+        "labels": prefs_mod.LABELS,
+    }
+
+
+class PrefsBody(BaseModel):
+    prefs: dict
+
+
+class PrefsSave(PrefsBody):
+    confirm_reassess: bool = False
+
+
+def _preview(conn: Connection, prefs: prefs_mod.Preferences) -> dict:
+    from strelitzia.scoring.scorer import reassess_preview
+
+    return reassess_preview(conn, prefs)
+
+
+@api.post("/preferences/preview")
+def preview_preferences(body: PrefsBody, request: Request) -> dict:
+    """What saving these preferences would re-assess and roughly cost (Batch pricing). Changes nothing."""
+    return _preview(db_conn(request), prefs_mod.Preferences.from_dict(body.prefs))
+
+
+@api.put("/preferences")
+def put_preferences(body: PrefsSave, request: Request) -> dict:
+    """Save, then re-rank every job now (no LLM). With confirm_reassess, also queue re-assessment of stale jobs.
+
+    Without the confirmation, jobs keep their old assessment and show as stale. A budget stop (402) saves nothing.
+    """
+    conn = db_conn(request)
+    prefs = prefs_mod.Preferences.from_dict(body.prefs)
+    preview = _preview(conn, prefs) if body.confirm_reassess else None
+    reassess = bool(preview and preview["reassess_needed"] and preview["jobs_to_reassess"])
+    if reassess:
+        budget_stop(conn, preview["estimated_usd"])
+    prefs_mod.save_preferences(conn, prefs)
+    rescored = recompute_fit(conn, prefs=prefs)
+    task = None
+    if reassess:
+        task = tasks.enqueue(conn, None, "reassess_all")
+        _notify(request)
+    return {"prefs": prefs.to_dict(), "rescored": rescored, "task": task}
 
 
 @api.get("/tasks/{task_id}")

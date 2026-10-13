@@ -133,7 +133,7 @@ the hash is stable across dict orderings; changing only salary prefs leaves the 
 - Every LLM-triggering endpoint checks `check_budget`. A budget stop returns 402 with the month spend.
 **Validate:** `pytest tests/web -q` → preview reports 0 reassess for a salary-only change and N for a skills change;
 PUT without confirm leaves `assessment_hash` untouched; the budget stop returns 402.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit). Preview and PUT take `{"prefs": {...}}`; a 402 body is `{message, month_spend, estimated_usd}`; list items also carry `flag_reasons`, and facets a `flagged` count.
 
 ### Task 4: Preferences page and fit breakdown UI
 **Runs:** unattended
