@@ -647,9 +647,16 @@ class TestSetupAiFeaturesPrefill:
         assert "Enter keeps" in ask.call_args_list[0].args[0]
         assert ask.call_args_list[1].kwargs["default"] == "40"
 
-    def test_zero_budget_means_no_limit_line(self):
-        content, _ = self._run({}, ["sk-ant-new", "0"])
+    @pytest.mark.parametrize("answer", ["0", "0.0", ""])
+    def test_zero_budget_means_no_limit_line(self, answer):
+        content, _ = self._run({}, ["sk-ant-new", answer])
         assert "LLM_MONTHLY_BUDGET_USD" not in content
+
+    def test_quoted_claude_override_is_kept(self):
+        content, _ = self._run({"LLM_TAILOR_MODEL": '"claude-opus-5-5"', "export LLM_COVER_MODEL": "'gemini-x'"},
+                               ["sk-ant-new", "20"])
+        assert 'LLM_TAILOR_MODEL="claude-opus-5-5"' in content
+        assert "LLM_COVER_MODEL" not in content
 
     def test_old_provider_settings_dropped_and_others_kept(self):
         existing = {"GEMINI_API_KEY": "g", "LLM_MODEL": "gemini-2.0-flash", "LLM_SCORING_MODEL": "gemini-x",

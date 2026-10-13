@@ -197,14 +197,15 @@ class TestDoctorClaude:
         db = tmp_path / "doctor.db"
         conn = init_db(db)
         record_usage("tailor", "claude-sonnet-5-5", {"input_tokens": 1_000_000}, conn=conn)  # $2.00
-        conn.execute("INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count) "
-                     "VALUES ('msgbatch_1', 'extract', '2026-10-13T01:00:00+00:00', 'submitted', 40)")
+        conn.execute("INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count, estimate_usd) "
+                     "VALUES ('msgbatch_1', 'extract', '2026-10-13T01:00:00+00:00', 'submitted', 40, 0.5)")
         conn.commit()
         close_connection(db)
         result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k", "LLM_MONTHLY_BUDGET_USD": "20"})
         assert result.exit_code == 0, result.output
-        assert "$2.00 of $20.00 this month" in result.output
-        assert "extract msgbatch_1 (40 requests" in result.output
+        out = " ".join(result.output.split())  # rich wraps long lines
+        assert "$2.00 + $0.50 estimated in open batches of $20.00 this month" in out
+        assert "extract msgbatch_1 (40 requests" in out
 
     def test_no_database_yet(self, tmp_path, monkeypatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k"})

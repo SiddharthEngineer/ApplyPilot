@@ -479,9 +479,19 @@ _LEGACY_LLM_KEYS = frozenset({
 
 def _is_legacy_llm_setting(key: str, value: str) -> bool:
     """A pre-Claude provider setting, or a per-stage model override that isn't a Claude model."""
+    key = key.removeprefix("export ").strip()
+    value = value.split(" #")[0].strip().strip("'\"")
     if key in _LEGACY_LLM_KEYS:
         return True
     return key.startswith("LLM_") and key.endswith("_MODEL") and not value.startswith("claude-")
+
+
+def _no_limit(budget: str) -> bool:
+    """Empty or zero: no monthly budget (the line is left out of .env)."""
+    try:
+        return float(budget or 0) <= 0
+    except ValueError:
+        return False
 
 
 def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
@@ -520,7 +530,7 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
     kept = {k: v for k, v in env.items()
             if k not in dropped and k not in ("ANTHROPIC_API_KEY", "LLM_MONTHLY_BUDGET_USD")}
     env_lines = ["# Strelitzia configuration", "", f"ANTHROPIC_API_KEY={api_key}"]
-    if budget and budget != "0":
+    if not _no_limit(budget):
         env_lines.append(f"LLM_MONTHLY_BUDGET_USD={budget}")
     env_lines += [f"{k}={v}" for k, v in kept.items()]
 

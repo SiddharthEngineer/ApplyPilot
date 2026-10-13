@@ -70,7 +70,7 @@ class FakeLLM:
             raise self.fail_calls[n]
         return json.dumps(_posting(**self.overrides.get(url, {})))
 
-    def run_batch(self, purpose, items, on_result, poll_seconds=30):
+    def run_batch(self, purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None):
         assert purpose == "extract"
         self.batches.append(items)
         for cid, _ in reversed(items):  # any order
@@ -96,7 +96,7 @@ def _client(fake):
 def _run(conn, fake, estimate=0.25, budget_error=None, resume=None, **kwargs):
     with patch.object(extract, "get_client", return_value=_client(fake)), \
             patch.object(extract, "run_batch", side_effect=fake.run_batch), \
-            patch.object(extract, "resume_open_batches", side_effect=resume, return_value={}) as resumed, \
+            patch.object(extract, "resume_open_batches", side_effect=resume, return_value={"still_open": 0}) as resumed, \
             patch.object(extract, "estimate_cost", return_value=estimate) as est, \
             patch.object(extract, "check_budget", side_effect=budget_error) as budget:
         stats = extract.run_extraction(conn=conn, poll_seconds=0, **kwargs)
@@ -134,9 +134,9 @@ def test_batch_round_trip(conn):
     assert params["messages"][0]["content"].startswith("TITLE: Data Engineer 3\n")
     # The estimate covers every request at batch price, and the budget is checked against it first.
     assert len(fake.estimate.call_args.args[1]) == 7 and fake.estimate.call_args.kwargs == {"batch": True}
-    fake.budget.assert_called_once_with(0.25)
+    assert fake.budget.call_args.args[0] == 0.25
     assert stats["estimate_usd"] == 0.25
-    fake.resume.assert_called_once()
+    assert fake.resume.call_args.kwargs["wait"] is True
     _check_saved(conn, stats)
 
 
@@ -145,7 +145,8 @@ def test_sync_round_trip(conn):
     stats = _run(conn, fake, mode="sync")
     assert stats["mode"] == "sync" and stats["extracted"] == 7 and stats["requests"] == 7
     assert fake.calls == [_url(i) for i in (3, 1, 6, 5, 4, 2, 0)]  # best score, then newest
-    assert fake.batches == [] and not fake.resume.called
+    assert fake.batches == []
+    assert fake.resume.call_args.kwargs["wait"] is False  # a sync run only collects batches that have ended
     _check_saved(conn, stats)
 
 
@@ -196,16 +197,28 @@ def test_failed_jobs_wait_for_a_later_run_until_out_of_attempts(conn):
 
 
 def test_resumed_results_are_saved_by_job_key(conn):
-    def resume(purpose, on_result, poll_seconds=30):
+    conn.execute("UPDATE jobs SET extracted_at = '2026-10-12', extract_version = ? WHERE url = ?",
+                 (EXTRACT_VERSION, _url(5)))
+    conn.commit()
+
+    def resume(purpose, on_result, poll_seconds=30, wait=True, conn=None):
         on_result(job_id({"url": _url(4)}), json.dumps(_posting(team="Resumed")), None)
+        on_result(job_id({"url": _url(5)}), json.dumps(_posting(team="Stale")), None)  # extracted since: skipped
         on_result("ffffffffffff", json.dumps(_posting()), None)  # a job deleted since
-        return {"batches": 1}
+        return {"batches": 1, "still_open": 0}
 
     fake = FakeLLM()
     stats = _run(conn, fake, resume=resume)
     assert stats["resumed"] == 1
     assert json.loads(_row(conn, 4)["details_json"])["team"] == "Resumed"
-    assert stats["requests"] == 6 and job_id({"url": _url(4)}) not in dict(fake.batches[0])  # not paid twice
+    assert stats["requests"] == 5 and _url(4) not in fake.calls and _url(5) not in fake.calls  # not paid twice
+    assert json.loads(_row(conn, 5)["details_json"] or "{}").get("team") != "Stale"
+
+
+def test_a_failed_resume_stops_before_paying_again(conn):
+    fake = FakeLLM()
+    stats = _run(conn, fake, resume=LLMStopRun("overloaded"))
+    assert stats["stopped"] == "overloaded" and fake.batches == [] and fake.calls == []
 
 
 def test_invalid_enum_coerced(conn):

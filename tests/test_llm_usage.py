@@ -98,6 +98,13 @@ def test_chat_checks_the_budget_before_sending(conn, monkeypatch):
     client._sdk.messages.create.assert_not_called()
 
 
+def test_zero_budget_means_no_limit(conn, monkeypatch):
+    monkeypatch.setenv("LLM_MONTHLY_BUDGET_USD", "0")
+    record_usage("scoring", "claude-sonnet-5-5", {"output_tokens": 10_000_000})
+    check_budget(5.0)
+    assert llm.monthly_budget() is None
+
+
 def test_bad_budget_value_means_no_limit(conn, monkeypatch):
     monkeypatch.setenv("LLM_MONTHLY_BUDGET_USD", "twenty")
     record_usage("scoring", "claude-sonnet-5-5", {"output_tokens": 10_000_000})

@@ -101,10 +101,17 @@ def resolve_model(purpose: str) -> tuple[str, str]:
 
 
 def model_prices(model: str) -> dict[str, float]:
-    """USD per million tokens for a model. An unknown model is priced as the dearest known one (warned once)."""
+    """USD per million tokens for a model.
+
+    A dated id (`claude-haiku-5-5-20261001`) is priced as its base model; an unknown model as the dearest known one
+    (warned once), so the budget errs on the safe side.
+    """
     models = load_models_config()["models"]
     if model in models:
         return models[model]
+    base = max((m for m in models if model.startswith(m + "-")), key=len, default=None)
+    if base:
+        return models[base]
     dearest = max(models.values(), key=lambda p: p["output"])
     _warn_once(f"price:{model}", "No price for %s in llm_models.yaml; counting it at the highest known price.", model)
     return dearest
@@ -173,16 +180,21 @@ def _ledger_conn():
 
 
 def record_usage(purpose: str, model: str, usage, batch: bool = False, job_url: str | None = None,
-                 conn=None) -> float:
-    """Write one `llm_usage` row and return its cost. A failed write is logged, never raised: the answer is paid."""
+                 conn=None, row_id: str | None = None) -> float:
+    """Write one `llm_usage` row and return its cost. A failed write is logged, never raised: the answer is paid.
+
+    `row_id` makes the write idempotent (batch results use "<batch id>:<custom_id>", so collecting a batch twice
+    doesn't count it twice).
+    """
     cost = cost_usd(model, usage, batch)
     t = _usage_tokens(usage)
     try:
         conn = conn or _ledger_conn()
         conn.execute(
             "INSERT INTO llm_usage (id, ts, purpose, model, batch, input_tokens, cache_read_tokens, "
-            "cache_write_tokens, output_tokens, cost_usd, job_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (uuid.uuid4().hex, datetime.now(timezone.utc).isoformat(timespec="seconds"), purpose, model,
+            "cache_write_tokens, output_tokens, cost_usd, job_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (id) DO NOTHING",
+            (row_id or uuid.uuid4().hex, datetime.now(timezone.utc).isoformat(timespec="seconds"), purpose, model,
              int(batch), t["input_tokens"], t["cache_read_tokens"], t["cache_write_tokens"], t["output_tokens"],
              cost, job_url),
         )
@@ -204,7 +216,7 @@ def month_spend(conn=None) -> float:
 
 
 def monthly_budget() -> float | None:
-    """LLM_MONTHLY_BUDGET_USD, or None for no limit (unset or unreadable, warned once)."""
+    """LLM_MONTHLY_BUDGET_USD, or None for no limit (unset, 0, or unreadable; warned once)."""
     raw = os.environ.get("LLM_MONTHLY_BUDGET_USD", "").strip()
     if not raw:
         _warn_once("budget:unset", "LLM_MONTHLY_BUDGET_USD is not set: LLM spend has no monthly limit.")
@@ -214,20 +226,30 @@ def monthly_budget() -> float | None:
     except ValueError:
         _warn_once("budget:bad", "Ignoring LLM_MONTHLY_BUDGET_USD=%s (not a number): no monthly limit.", raw)
         return None
-    return max(budget, 0.0)
+    return budget if budget > 0 else None
+
+
+def reserved_spend(conn=None) -> float:
+    """Estimated cost of Message Batches submitted but not yet collected (their usage isn't in the ledger yet)."""
+    conn = conn or _ledger_conn()
+    row = conn.execute("SELECT SUM(estimate_usd) FROM llm_batches WHERE status = 'submitted'").fetchone()
+    return float(row[0] or 0.0)
 
 
 def check_budget(estimated_usd: float = 0.0, conn=None) -> None:
-    """Raise LLMStopRun("budget") if month-to-date spend has reached the budget or `estimated_usd` would pass it."""
+    """Raise LLMStopRun("budget") if month-to-date spend has reached the budget or `estimated_usd` would pass it.
+
+    Open batches count at their estimate until they are collected.
+    """
     budget = monthly_budget()
     if budget is None:
         return
-    spent = month_spend(conn)
+    spent = month_spend(conn) + reserved_spend(conn)
     if spent >= budget or spent + estimated_usd > budget:
         raise LLMStopRun(
             "budget",
-            f"Monthly LLM budget reached: ${spent:.2f} spent this month + ${estimated_usd:.2f} estimated > "
-            f"${budget:.2f} (LLM_MONTHLY_BUDGET_USD)",
+            f"Monthly LLM budget reached: ${spent:.2f} spent or reserved this month + ${estimated_usd:.2f} "
+            f"estimated > ${budget:.2f} (LLM_MONTHLY_BUDGET_USD)",
         )
 
 

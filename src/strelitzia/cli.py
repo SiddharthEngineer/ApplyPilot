@@ -626,10 +626,10 @@ def _doctor_database_row(ok_mark: str) -> tuple[str, str, str]:
 def _doctor_spend_rows(ok_mark: str, warn_mark: str) -> list[tuple[str, str, str]]:
     """Month-to-date LLM spend against LLM_MONTHLY_BUDGET_USD, and Message Batches not yet collected."""
     from strelitzia.config import DB_PATH, database_url
-    from strelitzia.llm import month_spend, monthly_budget
+    from strelitzia.llm import month_spend, monthly_budget, reserved_spend
 
     budget = monthly_budget()
-    spent, batches = 0.0, []
+    spent, reserved, batches = 0.0, 0.0, []
     if database_url() or DB_PATH.exists():
         try:
             from strelitzia.database import get_connection, table_columns
@@ -639,15 +639,18 @@ def _doctor_spend_rows(ok_mark: str, warn_mark: str) -> list[tuple[str, str, str
             if table_columns(conn, "llm_usage"):
                 spent = month_spend(conn)
             if table_columns(conn, "llm_batches"):
-                batches = open_batches()
+                batches = open_batches(conn=conn)
+                reserved = reserved_spend(conn)
         except Exception as exc:  # noqa: BLE001 - the Database row above reports connection problems
             return [("LLM spend", warn_mark, f"unavailable: {exc}")]
+    open_note = f" + ${reserved:.2f} estimated in open batches" if reserved else ""
     if budget is None:
-        rows = [("LLM spend", warn_mark, f"${spent:.2f} this month, no budget (set LLM_MONTHLY_BUDGET_USD)")]
+        rows = [("LLM spend", warn_mark,
+                 f"${spent:.2f} this month{open_note}, no budget (set LLM_MONTHLY_BUDGET_USD)")]
     else:
-        over = spent >= budget
-        rows = [("LLM spend", warn_mark if over else ok_mark,
-                 f"${spent:.2f} of ${budget:.2f} this month" + (" (budget reached: LLM stages stop)" if over else ""))]
+        over = spent + reserved >= budget
+        rows = [("LLM spend", warn_mark if over else ok_mark, f"${spent:.2f}{open_note} of ${budget:.2f} this month"
+                 + (" (budget reached: LLM stages stop)" if over else ""))]
     if batches:
         detail = ", ".join(f"{b['purpose']} {b['id']} ({b['request_count']} requests, {b['submitted_at']})"
                            for b in batches)

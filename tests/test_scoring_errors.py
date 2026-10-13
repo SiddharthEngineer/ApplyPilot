@@ -186,23 +186,27 @@ def batch_conn(tmp_path):
     return c
 
 
-def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None):
+def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None, resume_error=None):
     """run_scoring in batch mode; `results(custom_id)` gives (text, error) per job."""
     from strelitzia.database import job_key
     from strelitzia.llm import LLMClient
 
     seen = {}
 
-    def fake_run_batch(purpose, items, on_result, poll_seconds=30):
+    def fake_run_batch(purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None):
         seen["items"] = items
+        seen["estimate_usd"] = estimate_usd
         for cid, _ in reversed(items):
             on_result(cid, *results(cid))
         return {}
 
-    def fake_resume(purpose, on_result, poll_seconds=30):
+    def fake_resume(purpose, on_result, poll_seconds=30, wait=True, conn=None):
+        seen["wait"] = wait
+        if resume_error:
+            raise resume_error
         for url, text in (resumed or {}).items():
             on_result(job_key(url), text, None)
-        return {}
+        return {"still_open": 0}
 
     client = MagicMock()
     client.request_params.side_effect = LLMClient("scoring", "claude-haiku-5-5", "low").request_params
@@ -216,7 +220,9 @@ def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None):
             patch.object(scorer, "check_budget", side_effect=budget_error) as budget:
         stats = scorer.run_scoring(prefilter=False, poll_seconds=0)
     client.chat.assert_not_called()
-    return stats, seen.get("items"), budget
+    seen_items = seen.get("items")
+    budget.seen = seen
+    return stats, seen_items, budget
 
 
 def _score_of(conn, url):
@@ -229,7 +235,8 @@ def test_batch_scores_every_job_by_custom_id(batch_conn, resume):
     stats, items, budget = _run_batch_mode(
         batch_conn, resume, lambda cid: (f'{{"score": {scores[cid]}, "keywords": "", "reasoning": "r"}}', None))
     assert stats["mode"] == "batch" and stats["scored"] == 8 and stats["estimate_usd"] == 0.04
-    budget.assert_called_once_with(0.04)
+    assert budget.call_args.args[0] == 0.04
+    assert budget.seen["estimate_usd"] == 0.04 and budget.seen["wait"] is True  # reserved against the budget
     assert [_score_of(batch_conn, u)[0] for u in BATCH_URLS] == list(range(1, 9))
     params = items[0][1]
     assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
@@ -252,8 +259,31 @@ def test_batch_budget_stop_submits_nothing(batch_conn, resume):
 
 
 def test_open_batches_are_collected_first(batch_conn, resume):
+    batch_conn.execute("UPDATE jobs SET fit_score = 4 WHERE url = ?", (BATCH_URLS[1],))  # scored since
+    batch_conn.commit()
     stats, items, _ = _run_batch_mode(
         batch_conn, resume, lambda cid: ('{"score": 6, "keywords": "", "reasoning": "r"}', None),
-        resumed={BATCH_URLS[0]: '{"score": 9, "keywords": "", "reasoning": "old run"}'})
-    assert stats["resumed"] == 1 and len(items) == 7
+        resumed={BATCH_URLS[0]: '{"score": 9, "keywords": "", "reasoning": "old run"}',
+                 BATCH_URLS[1]: '{"score": 9, "keywords": "", "reasoning": "stale"}'})
+    assert stats["resumed"] == 1 and len(items) == 6
     assert _score_of(batch_conn, BATCH_URLS[0])[0] == 9
+    assert _score_of(batch_conn, BATCH_URLS[1])[0] == 4  # the newer score wins
+
+
+def test_a_failed_resume_stops_before_paying_again(batch_conn, resume):
+    from strelitzia.llm import LLMStopRun
+    stats, items, _ = _run_batch_mode(batch_conn, resume, lambda cid: (None, "x"),
+                                      resume_error=LLMStopRun("overloaded"))
+    assert stats["stopped"] == "overloaded" and items is None
+
+
+def test_sync_runs_collect_only_ended_batches(conn, resume):
+    client = MagicMock()
+    client.chat.return_value = '{"score": 5, "keywords": "x", "reasoning": "Okay."}'
+    with patch.object(scorer, "get_connection", return_value=conn), \
+            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "get_client", return_value=client), \
+            patch.object(scorer, "resume_open_batches", return_value={"still_open": 1}) as resume_batches:
+        assert scorer.run_scoring(prefilter=False, mode="sync")["mode"] == "sync"
+    assert resume_batches.call_args.kwargs["wait"] is False
+    assert _row(conn)[0] == 5
