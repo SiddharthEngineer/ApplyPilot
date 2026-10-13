@@ -9,14 +9,15 @@ For running a deploy step by step, Claude has the `engineerfamily-deploy` skill 
 ## Layout
 | Path | Role |
 |---|---|
-| `~/src/Strelitzia` | Dev clone (`AGENT_REPO`; `~/src/ApplyPilot` is a symlink to it). All edits, branches and commits happen here; unattended agents work in worktrees under `~/.local/state/strelitzia-agent/worktrees/`. Nothing builds from it. |
+| `~/src/Strelitzia` | Dev clone (`AGENT_REPO`). All edits, branches and commits happen here; unattended agents work in worktrees under `~/.local/state/strelitzia-agent/worktrees/`. Nothing builds from it. |
 | `~/src/engineerfamily` | engineerfamily dev clone (`main`). Commit here. |
-| `/srv/Strelitzia-prod` | Prod build context, detached at a trunk commit. Moved only by `make strelitzia-deploy`; never edited by hand. It has no `.env`: the dashboard reads `~/.strelitzia/.env` through its `~/.strelitzia` mount, which is also mounted at `/home/dev/.applypilot` because older DB rows hold paths there. |
+| `/srv/Strelitzia-prod` | Prod build context, detached at a trunk commit. Moved only by `make strelitzia-deploy`; never edited by hand. It has no `.env`: the dashboard reads `~/.strelitzia/.env` through its `~/.strelitzia` mount. |
 | `/srv/Strelitzia-preprod` | Preprod build context, moved to a review PR's head by `scripts/agent/preprod.sh`. |
 | `/srv/engineerfamily-prod` | prod checkout (branch `prod`, compose project `engineerfamily`). |
 | `/srv/engineerfamily-preprod` | preprod checkout (compose project `engineerfamily-preprod`, port 8080). |
 
-The old `/srv/ApplyPilot-*`, `~/.applypilot*` and `*/applypilot-agent` paths are symlinks to the new ones (M15).
+The old `/srv/ApplyPilot-*`, `~/.applypilot*` and `*/applypilot-agent` paths are gone (2026-10-13): nothing uses them and DB rows
+hold `/home/dev/.strelitzia/...` paths.
 `/srv` checkouts are `deploy:srv`, setgid, group-writable (`core.sharedRepository=group`), so nothing ever needs `chown`. git needs
 each real path in `safe.directory` (`git config --global --get-all safe.directory`); the symlinked old path doesn't count.
 Compose project names are pinned (`-p` and `COMPOSE_PROJECT_NAME`), so renaming a checkout never changes volume names.

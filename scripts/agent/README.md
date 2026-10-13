@@ -26,8 +26,7 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 - A run that ends without a result file, or whose `ready` fails `validate.sh --full`, counts as a failed attempt. After 2 failures the item is `blocked` and you get a notice.
 
 ## One-time setup (you)
-Paths: the runner uses `~/.config/strelitzia-agent` and `~/.local/state/strelitzia-agent` when they exist, else the legacy
-`applypilot-agent` dirs (`scripts/migrate_to_strelitzia.sh` moves them). engineerfamily's compose service is `strelitzia`.
+Paths: the runner uses `~/.config/strelitzia-agent` and `~/.local/state/strelitzia-agent`. engineerfamily's compose service is `strelitzia`.
 
 1. Create the private inbox repo: `gh repo create SiddharthEngineer/agent-inbox --private --description "Agent questions and notices"`.
 2. Install the ntfy app and subscribe to a hard-to-guess topic (e.g. `strelitzia-<random>`).

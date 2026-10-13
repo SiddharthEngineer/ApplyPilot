@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build queue for unattended agent runs (machine-local, never committed).
 
-State lives in $STRELITZIA_AGENT_STATE (default ~/.local/state/strelitzia-agent, or the legacy applypilot-agent dir):
+State lives in $STRELITZIA_AGENT_STATE (default ~/.local/state/strelitzia-agent):
   queue.json   items keyed by plan slug
   runs.jsonl   one line per started run (drives the optional daily cap)
 
@@ -35,15 +35,8 @@ from pathlib import Path
 
 
 
-def pick_dir(new: Path, legacy: Path) -> Path:
-    """new if it exists, else the legacy applypilot-agent path if that exists (until the post-merge migration, M15),
-    else new."""
-    return legacy if legacy.exists() and not new.exists() else new
-
-
-CONFIG_DIR = pick_dir(Path.home() / ".config/strelitzia-agent", Path.home() / ".config/applypilot-agent")
-STATE = Path(os.environ.get("STRELITZIA_AGENT_STATE") or os.environ.get("APPLYPILOT_AGENT_STATE")
-             or pick_dir(Path.home() / ".local/state/strelitzia-agent", Path.home() / ".local/state/applypilot-agent"))
+CONFIG_DIR = Path.home() / ".config/strelitzia-agent"
+STATE = Path(os.environ.get("STRELITZIA_AGENT_STATE") or Path.home() / ".local/state/strelitzia-agent")
 QUEUE = STATE / "queue.json"
 RUNS = STATE / "runs.jsonl"
 MAX_ATTEMPTS = int(os.environ.get("AGENT_MAX_ATTEMPTS", "2"))

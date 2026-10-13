@@ -6,19 +6,17 @@
 #   preprod.sh release       drop the lock and redeploy origin/trunk
 #   preprod.sh tick          status, then deploy the oldest awaiting-preprod item if the lock is free (cron, no Claude)
 #
-# Config (~/.config/strelitzia-agent/env, or the legacy applypilot-agent dir): PREPROD_APP_DIR (the checkout that
+# Config (~/.config/strelitzia-agent/env): PREPROD_APP_DIR (the checkout that
 # preprod builds from), PREPROD_DEPLOY_CMD (rebuilds only the preprod dashboard service), PREPROD_HEALTH_URL, AGENT_REPO,
 # PREPROD_SEED_CMD (optional: wipes and reseeds the preprod DB with scripts/seed_preprod.py after each deploy).
 # If the required ones are unset, deploy exits 3 ("not configured"); see agents/DEPLOY.md.
 # Sourcing this file (tests) defines the functions without running a command.
 set -uo pipefail
 
-# New paths if they exist, else the legacy applypilot-agent ones (until the post-merge migration, M15).
-pick_dir() { if [ -e "$1" ] || [ ! -e "$2" ]; then echo "$1"; else echo "$2"; fi; }
-CONFIG_DIR=$(pick_dir "$HOME/.config/strelitzia-agent" "$HOME/.config/applypilot-agent")
+CONFIG_DIR=$HOME/.config/strelitzia-agent
 [ -f "$CONFIG_DIR/env" ] && . "$CONFIG_DIR/env"
 HERE=$(cd "$(dirname "$0")" && pwd)
-STATE=${STRELITZIA_AGENT_STATE:-${APPLYPILOT_AGENT_STATE:-$(pick_dir "$HOME/.local/state/strelitzia-agent" "$HOME/.local/state/applypilot-agent")}}
+STATE=${STRELITZIA_AGENT_STATE:-$HOME/.local/state/strelitzia-agent}
 LOCK=$STATE/preprod.lock
 GH_REPO=${GH_REPO:-SiddharthEngineer/Strelitzia}
 Q=(python3 "$HERE/buildqueue.py")
