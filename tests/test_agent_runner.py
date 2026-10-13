@@ -29,23 +29,18 @@ def q(tmp_path, monkeypatch):
     return run
 
 
-@pytest.mark.parametrize("legacy", [True, False])
-def test_queue_uses_legacy_state_dir_until_migrated(tmp_path, legacy):
-    """Before the post-merge migration (M15) only ~/.local/state/applypilot-agent exists; the queue keeps using it."""
-    old, new = tmp_path / ".local/state/applypilot-agent", tmp_path / ".local/state/strelitzia-agent"
-    if legacy:
-        old.mkdir(parents=True)
+def test_queue_uses_strelitzia_state_dir(tmp_path):
+    """Without $STRELITZIA_AGENT_STATE the queue lives in ~/.local/state/strelitzia-agent."""
     env = {k: v for k, v in os.environ.items() if not k.endswith("_AGENT_STATE")}
     env["HOME"] = str(tmp_path)
 
     def run(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(AGENT / "buildqueue.py"), *args], env=env, capture_output=True, text=True)
 
-    assert run("add", "old-item").returncode == 0
+    assert run("add", "an-item").returncode == 0
     listed = run("list")
-    assert listed.returncode == 0 and "old-item" in listed.stdout
-    assert (old if legacy else new).joinpath("queue.json").exists()
-    assert not (new if legacy else old).exists()
+    assert listed.returncode == 0 and "an-item" in listed.stdout
+    assert (tmp_path / ".local/state/strelitzia-agent/queue.json").exists()
 
 
 def test_empty_queue_has_nothing_next(q):

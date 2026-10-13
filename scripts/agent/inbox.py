@@ -6,7 +6,7 @@ Usage:
   inbox.py notify --title T --body B [--slug S]  open an `agent-notice` issue (PR on preprod, item blocked, …)
   inbox.py poll                                  re-queue items whose question issue has a reply (cron, no Claude)
 
-Config (~/.config/strelitzia-agent/env, or the legacy applypilot-agent dir, or the environment):
+Config (~/.config/strelitzia-agent/env, or the environment):
   AGENT_INBOX_REPO  owner/name of the private inbox repo (required)
   NTFY_TOPIC        optional ntfy.sh topic. GitHub doesn't push-notify you about issues your own account
                     opens, so without this you only see them in the app's inbox.

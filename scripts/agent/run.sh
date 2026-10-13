@@ -19,14 +19,12 @@ set -uo pipefail
 export HOME=${HOME:-/home/dev}
 export PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 # CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`), AGENT_REPO, AGENT_INBOX_REPO, NTFY_TOPIC, PREPROD_*.
-# New paths if they exist, else the legacy applypilot-agent ones (until the post-merge migration, M15).
-pick_dir() { if [ -e "$1" ] || [ ! -e "$2" ]; then echo "$1"; else echo "$2"; fi; }
-CONFIG_DIR=$(pick_dir "$HOME/.config/strelitzia-agent" "$HOME/.config/applypilot-agent")
+CONFIG_DIR=$HOME/.config/strelitzia-agent
 [ -f "$CONFIG_DIR/env" ] && . "$CONFIG_DIR/env"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 AGENT_REPO=${AGENT_REPO:-$(cd "$HERE/../.." && pwd)}
-STATE=${STRELITZIA_AGENT_STATE:-${APPLYPILOT_AGENT_STATE:-$(pick_dir "$HOME/.local/state/strelitzia-agent" "$HOME/.local/state/applypilot-agent")}}
+STATE=${STRELITZIA_AGENT_STATE:-$HOME/.local/state/strelitzia-agent}
 GH_REPO=${GH_REPO:-SiddharthEngineer/Strelitzia}
 MAX_RUNTIME=${AGENT_MAX_RUNTIME:-3h}
 MERGE_POLICY=${AGENT_MERGE_POLICY:-gate}
