@@ -121,7 +121,7 @@ present, no `temperature` sent, schema forwarded, refusal → error, cost math o
 - `custom_id` must match `^[a-zA-Z0-9_-]{1,64}$`. Use the existing `job_id()` hash, not the URL.
 **Validate:** `pytest tests/test_llm_batch.py -q` → out-of-order results matched by custom_id; errored/expired results
 reported as errors; resume picks up an open batch.
-**Status:** ❌
+**Status:** ✅ 2026-10-13 (this commit)
 
 ### Task 4: Extraction and smartextract on Claude
 **Runs:** unattended
