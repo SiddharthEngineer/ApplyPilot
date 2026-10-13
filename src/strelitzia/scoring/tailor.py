@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from strelitzia.config import CONTENT_LIBRARY_PATH, RESUME_PATH, TAILORED_DIR, load_profile
-from strelitzia.database import get_connection, get_jobs_by_stage, get_jobs_by_urls
+from strelitzia.database import DEFAULT_MIN_SCORE, get_connection, get_jobs_by_stage, get_jobs_by_urls
 from strelitzia.llm import LLMStopRun, get_client, json_object
 from strelitzia.llm_json import extract_json
 from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
@@ -967,7 +967,7 @@ def _save_template_outputs(
     return pdf_path or str(json_path), pdf_path, overflow_info
 
 
-def run_tailoring(min_score: int = 7, limit: int = 20,
+def run_tailoring(min_score: int = DEFAULT_MIN_SCORE, limit: int = 20,
                   validation_mode: str = "normal",
                   source: str = "resume",
                   urls: list[str] | None = None) -> dict:

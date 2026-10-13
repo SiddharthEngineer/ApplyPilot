@@ -53,7 +53,7 @@ def test_seed_covers_every_stage_and_status(seed_mod, db, capsys):
     assert any(r["full_description"] is None for r in rows)  # discovered only
     assert any(r["full_description"] and r["detail_scraped_at"] and r["fit_score"] is None for r in rows)
     scores = [r["fit_score"] for r in rows if r["fit_score"] is not None]
-    assert scores and all(3 <= s <= 10 for s in scores)
+    assert scores and all(30 <= s <= 100 for s in scores)
     assert all(r["score_reasoning"] for r in rows if r["fit_score"] is not None)
     assert any(r["tailored_at"] and not r["cover_letter_at"] for r in rows)
     assert any(r["cover_letter_at"] for r in rows)

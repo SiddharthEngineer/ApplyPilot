@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from strelitzia.config import CONTENT_LIBRARY_PATH, COVER_LETTER_DIR, RESUME_PATH, load_profile
-from strelitzia.database import get_connection, get_jobs_by_urls
+from strelitzia.database import DEFAULT_MIN_SCORE, get_connection, get_jobs_by_urls
 from strelitzia.llm import LLMStopRun, get_client
 from strelitzia.scoring.content_library import parse_content_library
 from strelitzia.scoring.validator import (
@@ -234,7 +234,7 @@ def generate_cover_letter(
 
 # ── Batch Entry Point ────────────────────────────────────────────────────
 
-def run_cover_letters(min_score: int = 7, limit: int = 20,
+def run_cover_letters(min_score: int = DEFAULT_MIN_SCORE, limit: int = 20,
                       validation_mode: str = "normal",
                       urls: list[str] | None = None) -> dict:
     """Generate cover letters for high-scoring jobs that have tailored resumes.

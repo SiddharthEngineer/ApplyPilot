@@ -87,10 +87,12 @@ def test_integrity_error_is_catchable(db_target):
 def _seed_stages(conn) -> None:
     store_jobs(conn, _jobs(6), site="RemoteOK", strategy="json_ld")
     u = "https://example.com/job/"
-    conn.execute("UPDATE jobs SET full_description = 'jd', detail_scraped_at = 'x' WHERE url != ?", (f"{u}5",))
-    conn.execute("UPDATE jobs SET fit_score = 9, scored_at = '2026-10-05' WHERE url = ?", (f"{u}0",))
-    conn.execute("UPDATE jobs SET fit_score = 7, scored_at = '2026-10-05' WHERE url = ?", (f"{u}1",))
-    conn.execute("UPDATE jobs SET fit_score = 3, scored_at = '2026-10-05' WHERE url = ?", (f"{u}2",))
+    conn.execute("UPDATE jobs SET full_description = 'jd', detail_scraped_at = 'x', details_json = '{}' "
+                 "WHERE url != ?", (f"{u}5",))
+    scored = "fit_score = ?, scored_at = '2026-10-05', assessment_hash = '1:h'"
+    conn.execute(f"UPDATE jobs SET {scored} WHERE url = ?", (90, f"{u}0"))
+    conn.execute(f"UPDATE jobs SET {scored} WHERE url = ?", (70, f"{u}1"))
+    conn.execute(f"UPDATE jobs SET {scored} WHERE url = ?", (30, f"{u}2"))
     conn.execute("UPDATE jobs SET tailored_resume_path = '/r.pdf', application_url = 'https://apply' WHERE url = ?",
                  (f"{u}0",))
     conn.commit()
@@ -122,7 +124,7 @@ def test_get_stats(db_target):
     assert stats["with_description"] == 5
     assert stats["scored"] == 3
     assert stats["unscored"] == 2
-    assert stats["score_distribution"] == [(9, 1), (7, 1), (3, 1)]
+    assert stats["score_distribution"] == [(90, 1), (70, 1), (30, 1)]
     assert stats["tailored"] == 1
     assert stats["untailored_eligible"] == 1
     assert stats["ready_to_apply"] == 1

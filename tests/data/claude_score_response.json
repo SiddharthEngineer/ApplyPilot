@@ -1,5 +1,0 @@
-{
-  "model": "synthetic",
-  "job_url": "https://www.indeed.com/viewjob?jk=synthetic1",
-  "response": "{\"score\": 7, \"keywords\": \"Python, distributed systems, PostgreSQL, Docker, APIs\", \"reasoning\": \"The candidate's backend Python and distributed systems experience matches the core requirements. Robotics domain experience is missing, which keeps the score below 8.\"}"
-}

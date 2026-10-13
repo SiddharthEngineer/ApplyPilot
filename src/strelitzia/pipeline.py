@@ -22,7 +22,15 @@ from rich.panel import Panel
 from rich.table import Table
 
 from strelitzia.config import load_env, ensure_dirs
-from strelitzia.database import PENDING_EXTRACT_WHERE, init_db, get_connection, get_stats
+from strelitzia.database import (
+    DEFAULT_MIN_SCORE,
+    PENDING_EXTRACT_WHERE,
+    PENDING_SCORE_WHERE,
+    UNFLAGGED_WHERE,
+    get_connection,
+    get_stats,
+    init_db,
+)
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -203,7 +211,7 @@ def _drive_sync_after(stage: str) -> None:
         log.warning("Drive sync after %s failed (run `strelitzia drive sync` later): %s", stage, e)
 
 
-def _run_tailor(min_score: int = 7, validation_mode: str | None = "normal",
+def _run_tailor(min_score: int = DEFAULT_MIN_SCORE, validation_mode: str | None = "normal",
                 source: str = "resume", limit: int | None = None) -> dict:
     """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
     validation_mode = tailor_validation_mode(validation_mode, source)
@@ -219,7 +227,7 @@ def _run_tailor(min_score: int = 7, validation_mode: str | None = "normal",
     return result
 
 
-def _run_cover(min_score: int = 7, validation_mode: str | None = "normal", limit: int | None = None) -> dict:
+def _run_cover(min_score: int = DEFAULT_MIN_SCORE, validation_mode: str | None = "normal", limit: int | None = None) -> dict:
     """Stage: Cover letter generation."""
     validation_mode = validation_mode or "normal"
     try:
@@ -313,10 +321,10 @@ class _StageTracker:
 # SQL to count pending work for each stage
 _PENDING_SQL: dict[str, str] = {
     "enrich": "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
-    "score":  "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL",
+    "score":  f"SELECT COUNT(*) FROM jobs WHERE {PENDING_SCORE_WHERE}",
     "extract": f"SELECT COUNT(*) FROM jobs WHERE {PENDING_EXTRACT_WHERE}",
     "tailor": (
-        "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? "
+        f"SELECT COUNT(*) FROM jobs WHERE fit_score >= ? AND {UNFLAGGED_WHERE} "
         "AND full_description IS NOT NULL "
         "AND tailored_resume_path IS NULL "
         "AND COALESCE(tailor_attempts, 0) < 5"
@@ -336,7 +344,7 @@ _PENDING_SQL: dict[str, str] = {
 _STREAM_POLL_INTERVAL = 10
 
 
-def _count_pending(stage: str, min_score: int = 7) -> int:
+def _count_pending(stage: str, min_score: int = DEFAULT_MIN_SCORE) -> int:
     """Count pending work items for a stage."""
     sql = _PENDING_SQL.get(stage)
     if sql is None:
@@ -351,7 +359,7 @@ def _run_stage_streaming(
     stage: str,
     tracker: _StageTracker,
     stop_event: threading.Event,
-    min_score: int = 7,
+    min_score: int = DEFAULT_MIN_SCORE,
     workers: int = 1,
     validation_mode: str = "normal",
     source: str = "resume",
@@ -583,7 +591,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
 
 def run_pipeline(
     stages: list[str] | None = None,
-    min_score: int = 7,
+    min_score: int = DEFAULT_MIN_SCORE,
     dry_run: bool = False,
     stream: bool = False,
     workers: int = 1,

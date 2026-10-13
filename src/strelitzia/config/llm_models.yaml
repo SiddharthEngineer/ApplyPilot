@@ -5,7 +5,7 @@
 purposes:
   discovery: {model: claude-haiku-5-5, effort: low, output_tokens: 600}
   extract: {model: claude-haiku-5-5, effort: low, output_tokens: 900}
-  scoring: {model: claude-haiku-5-5, effort: low, output_tokens: 400}
+  scoring: {model: claude-haiku-5-5, effort: low, output_tokens: 600}
   tailor: {model: claude-sonnet-5-5, effort: medium, output_tokens: 3000}
   cover: {model: claude-sonnet-5-5, effort: medium, output_tokens: 1200}
 

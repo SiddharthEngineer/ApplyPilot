@@ -1,0 +1,5 @@
+{
+  "model": "synthetic",
+  "job_url": "https://www.indeed.com/viewjob?jk=synthetic1",
+  "response": "{\"skills_match\": {\"score\": 4, \"evidence\": \"The posting asks for Python, PostgreSQL and Docker, all used in the candidate's backend roles; Kubernetes is missing.\"}, \"experience_match\": {\"score\": 4, \"evidence\": \"Mid-level backend scope matches the candidate's last two roles, though the posting asks for one more year.\"}, \"domain_interest\": {\"score\": 3, \"evidence\": \"Robotics is neither in the favoured nor the avoided industries.\"}, \"red_flags\": [], \"matched_keywords\": [\"Python\", \"distributed systems\", \"PostgreSQL\", \"Docker\", \"APIs\"], \"summary\": \"A strong technical match on backend Python and distributed systems. Robotics domain experience is the main gap.\"}"
+}

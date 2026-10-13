@@ -102,13 +102,15 @@ def test_workday_page_parses():
     assert jobs and all(j["title"] and j["external_path"] for j in jobs)
 
 
-def test_claude_score_response_parses():
-    from strelitzia.scoring.scorer import _parse_score_response
+def test_claude_assess_response_parses():
+    from strelitzia.scoring.assessment import parse_assessment
 
-    sample = _load("claude_score_response.json")
-    parsed = _parse_score_response(sample["response"])
-    assert 1 <= parsed["score"] <= 10
-    assert parsed["reasoning"]
+    sample = _load("claude_assess_response.json")
+    parsed = parse_assessment(sample["response"])
+    assert parsed is not None
+    assert all(1 <= parsed[k]["score"] <= 5 and parsed[k]["evidence"] for k in
+               ("skills_match", "experience_match", "domain_interest"))
+    assert parsed["summary"] and parsed["matched_keywords"]
 
 
 def test_committed_data_has_no_personal_markers():

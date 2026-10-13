@@ -103,22 +103,22 @@ Python, JavaScript, SQL, Git, Docker, AWS
 @pytest.mark.llm
 @pytest.mark.expensive
 class TestScoreJob:
-    """Test score_job with real LLM."""
+    """Test assess_job with real LLM."""
 
-    def test_score_returns_valid_range(self, ledger):
-        from strelitzia.scoring.scorer import score_job
+    def test_assessment_has_every_rating(self, ledger):
+        from strelitzia.scoring.preferences import Preferences
+        from strelitzia.scoring.scorer import assess_job
 
         resume = _load_resume()
         job = _load_enriched_jobs()[0]
 
-        result = score_job(resume, job)
+        result = assess_job(Preferences(skills_want=["Python"]), resume, job)
 
-        assert isinstance(result, dict)
-        assert "score" in result
-        assert 1 <= result["score"] <= 10, f"Score {result['score']} out of range"
-        assert isinstance(result.get("keywords", ""), str)
-        assert isinstance(result.get("reasoning", ""), str)
-        assert len(result.get("reasoning", "")) > 20, "Reasoning too short"
+        a = result["assessment"]
+        assert a is not None, result
+        for key in ("skills_match", "experience_match", "domain_interest"):
+            assert 1 <= a[key]["score"] <= 5 and len(a[key]["evidence"]) > 20, a
+        assert isinstance(a["red_flags"], list) and a["summary"]
         (row,) = _usage(ledger, "scoring")
         assert row["model"] == "claude-haiku-5-5" and row["batch"] == 0 and row["cost_usd"] > 0
         assert row["job_url"] == job["url"]
@@ -151,23 +151,21 @@ class TestExtraction:
 @pytest.mark.expensive
 class TestBatch:
     def test_two_job_scoring_batch(self, ledger):
-        from strelitzia.database import job_key
-        from strelitzia.llm import get_client
         from strelitzia.llm_batch import open_batches, run_batch
-        from strelitzia.scoring.scorer import SCORE_SCHEMA, _parse_score_response, score_messages
+        from strelitzia.scoring.assessment import parse_assessment
+        from strelitzia.scoring.preferences import Preferences
+        from strelitzia.scoring.scorer import assessment_requests
 
         resume = _load_resume()
         jobs = _load_enriched_jobs()
-        client = get_client("scoring")
-        items = [(job_key(j["url"]), client.request_params(score_messages(resume, j), max_tokens=2048,
-                                                           schema=SCORE_SCHEMA)) for j in jobs]
+        items = assessment_requests(Preferences(), resume, jobs)
         got = {}
         stats = run_batch("scoring", items, lambda cid, text, err: got.__setitem__(cid, (text, err)),
                           poll_seconds=15)
         assert stats["succeeded"] == 2, got
         for cid, _ in items:
             text, err = got[cid]
-            assert err is None and 1 <= _parse_score_response(text)["score"] <= 10
+            assert err is None and parse_assessment(text) is not None
         rows = _usage(ledger, "scoring")
         assert len(rows) == 2 and all(r["batch"] == 1 for r in rows)
         assert open_batches() == []

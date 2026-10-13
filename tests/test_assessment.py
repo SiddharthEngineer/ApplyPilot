@@ -1,0 +1,228 @@
+"""Assessment layer: input hash, rubric request, red flags, recompute_fit and the 0-100 migration (synthetic data)."""
+
+import json
+import sqlite3
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from strelitzia.database import get_jobs_by_stage, init_db
+from strelitzia.scoring import scorer
+from strelitzia.scoring.assessment import (
+    ASSESS_VERSION,
+    RED_FLAGS,
+    assess_messages,
+    assessment_components,
+    assessment_input_hash,
+    assessment_key,
+    candidate_block,
+    parse_assessment,
+    recompute_fit,
+)
+from strelitzia.scoring.preferences import Preferences, save_preferences
+from fit_helpers import POSTING, add_extracted_job, reply
+
+RESUME = "Synthetic resume: Python, SQL, five years building pipelines."
+
+
+def test_hash_is_stable_across_dict_orderings():
+    a = Preferences.from_dict({"skills_want": ["Python", "SQL"], "industries_avoid": ["Gambling"],
+                               "target_roles": ["Data Engineer"]})
+    b = Preferences.from_dict({"target_roles": ["Data Engineer"], "industries_avoid": ["Gambling"],
+                               "skills_want": ["SQL", "Python"]})
+    assert assessment_input_hash(a, RESUME) == assessment_input_hash(b, RESUME)
+    assert candidate_block(a, RESUME) == candidate_block(b, RESUME)
+
+
+def test_preference_only_changes_leave_the_hash_alone():
+    base = Preferences(skills_want=["Python"])
+    changed = Preferences.from_dict({**base.to_dict(),
+                                     "salary": {"importance": "dealbreaker", "value": {"min": 150000}},
+                                     "work_mode": {"importance": "important", "value": ["remote"]},
+                                     "skills_match": {"importance": "nice"}})
+    assert assessment_input_hash(changed, RESUME) == assessment_input_hash(base, RESUME)
+    assert assessment_input_hash(Preferences(skills_want=["Python", "Go"]), RESUME) != \
+        assessment_input_hash(base, RESUME)
+    assert assessment_input_hash(base, RESUME + " Go.") != assessment_input_hash(base, RESUME)
+
+
+def test_key_carries_the_rubric_version():
+    assert assessment_key(Preferences(), RESUME).startswith(f"{ASSESS_VERSION}:")
+
+
+def test_request_layout():
+    job = {"url": "u", "title": "Data Engineer II", "site": "acme", "details_json": json.dumps(POSTING),
+           "full_description": "x" * 9000, "strategy": "ats_greenhouse", "detail_error": "noise"}
+    rubric, candidate, user = assess_messages(Preferences(skills_want=["Python"]), RESUME, job)
+    assert rubric["role"] == candidate["role"] == "system"
+    assert "mostly_sales" in rubric["content"] and RESUME not in rubric["content"]
+    assert RESUME in candidate["content"] and '"skills_want": [\n  "Python"\n ]' in candidate["content"]
+    posting = json.loads(user["content"].split("\n", 1)[1].split("\n\nDESCRIPTION:\n")[0])
+    assert posting["skills_required"] == ["SQL", "Python"] and posting["listing_title"] == "Data Engineer II"
+    assert "strategy" not in posting and "noise" not in user["content"]
+    assert user["content"].endswith("x" * 8000) and "x" * 8001 not in user["content"]
+
+
+def test_red_flags_component():
+    a = parse_assessment(reply(flags=("mostly_sales", "commission_heavy")))
+    comps = {c.key: c for c in assessment_components(Preferences(), a)}
+    assert comps["red_flags"].score == pytest.approx(0.32)
+    assert comps["red_flags"].note.startswith("mostly sales: ")
+    assert comps["skills_match"].score == 0.75
+    none = {c.key: c for c in assessment_components(Preferences(), parse_assessment(reply()))}
+    assert none["red_flags"].score == 1.0
+    many = parse_assessment(reply(flags=RED_FLAGS[:4]))
+    assert {c.key: c for c in assessment_components(Preferences(), many)}["red_flags"].score == 0.0
+
+
+def test_red_flags_as_dealbreaker():
+    prefs = Preferences.from_dict({"red_flags": {"importance": "dealbreaker"}})
+    comps = {c.key: c for c in assessment_components(prefs, parse_assessment(reply(flags=("vague_posting",))))}
+    assert comps["red_flags"].dealbreaker_hit
+    clean = {c.key: c for c in assessment_components(prefs, parse_assessment(reply()))}
+    assert not clean["red_flags"].dealbreaker_hit
+
+
+def test_unknown_red_flag_code_becomes_other():
+    data = json.loads(reply(flags=("mostly_sales",)))
+    data["red_flags"][0]["code"] = "aliens"
+    assert parse_assessment(json.dumps(data))["red_flags"][0]["code"] == "other"
+
+
+# ── recompute_fit ─────────────────────────────────────────────────────────
+
+@pytest.fixture
+def conn(tmp_path):
+    return init_db(tmp_path / "fit.db")
+
+
+def _assess(conn, url, text, key="1:h"):
+    conn.execute("UPDATE jobs SET fit_assessment = ?, assessment_hash = ? WHERE url = ?",
+                 (json.dumps(parse_assessment(text)), key, url))
+    conn.commit()
+
+
+def _fit(conn, url):
+    row = conn.execute("SELECT fit_score, fit_breakdown, fit_flags FROM jobs WHERE url = ?", (url,)).fetchone()
+    return row[0], json.loads(row[1]) if row[1] else None, json.loads(row[2]) if row[2] else []
+
+
+def test_recompute_combines_both_layers(conn):
+    add_extracted_job(conn, "https://e.com/1")
+    _assess(conn, "https://e.com/1", reply(skills=4))
+    save_preferences(conn, Preferences.from_dict({
+        "salary": {"importance": "important", "value": {"min": 100000}},
+        "work_mode": {"importance": "important", "value": ["remote"]},
+    }))
+    assert recompute_fit(conn) == 1
+    score, breakdown, flags = _fit(conn, "https://e.com/1")
+    # salary 1.0 x2, work_mode 0.0 x2, skills 0.75 x4 -> 5/8
+    assert score == round(100 * 5 / 8) and flags == []
+    keys = [c["key"] for c in breakdown]
+    assert keys == ["salary", "locations", "work_mode", "role_category", "skills_match"]  # the non-dont_care ones
+
+
+def test_salary_dealbreaker_flags_without_any_llm_call(conn):
+    add_extracted_job(conn, "https://e.com/1")
+    _assess(conn, "https://e.com/1", reply(skills=5))
+    save_preferences(conn, Preferences.from_dict({"salary": {"importance": "dealbreaker", "value": {"min": 200000}}}))
+    recompute_fit(conn)
+    score, breakdown, flags = _fit(conn, "https://e.com/1")
+    assert flags == ["salary"]
+    salary = next(c for c in breakdown if c["key"] == "salary")
+    assert "salary below minimum" in salary["note"]
+    assert score == 50  # salary 0 x4, skills 1.0 x4
+    assert get_jobs_by_stage(conn, "pending_tailor", min_score=0) == []  # flagged jobs aren't tailored
+
+
+def test_unassessed_jobs_keep_their_score_but_get_flags(conn):
+    add_extracted_job(conn, "https://e.com/old", fit_score=80)
+    save_preferences(conn, Preferences.from_dict({"salary": {"importance": "dealbreaker", "value": {"min": 200000}}}))
+    recompute_fit(conn)
+    score, _, flags = _fit(conn, "https://e.com/old")
+    assert (score, flags) == (80, ["salary"])
+
+
+def test_recompute_only_the_given_urls(conn):
+    add_extracted_job(conn, "https://e.com/1")
+    add_extracted_job(conn, "https://e.com/2")
+    _assess(conn, "https://e.com/1", reply(skills=5))
+    _assess(conn, "https://e.com/2", reply(skills=5))
+    assert recompute_fit(conn, ["https://e.com/2"]) == 1
+    assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == 100
+    assert recompute_fit(conn, []) == 0
+
+
+def test_migration_scales_old_scores(tmp_path):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, fit_score INTEGER, score_reasoning TEXT)")
+    old.executemany("INSERT INTO jobs VALUES (?, 't', ?, ?)", [
+        ("https://e.com/a", 7, "sql\nGood."), ("https://e.com/b", None, None),
+        ("https://e.com/c", 1, "prefilter: title not relevant"),
+    ])
+    old.commit()
+    old.close()
+    conn = init_db(path)
+    rows = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT url, fit_score, fit_flags FROM jobs").fetchall()}
+    assert rows == {"https://e.com/a": (70, None), "https://e.com/b": (None, None),
+                    "https://e.com/c": (0, '["prefilter"]')}
+    init_db(path)  # runs once: the columns exist now
+    assert conn.execute("SELECT fit_score FROM jobs WHERE url = 'https://e.com/a'").fetchone()[0] == 70
+
+
+# ── run_scoring: what gets assessed ───────────────────────────────────────
+
+def _run(conn, tmp_path, replies, **kwargs):
+    resume = tmp_path / "resume.txt"
+    resume.write_text(RESUME)
+    client = MagicMock()
+    client.chat.side_effect = replies
+    with patch.object(scorer, "get_connection", return_value=conn), \
+            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "get_client", return_value=client), \
+            patch.object(scorer, "resume_open_batches", return_value={"still_open": 0}):
+        stats = scorer.run_scoring(prefilter=False, mode="sync", **kwargs)
+    return stats, client
+
+
+def test_stale_jobs_need_a_confirmed_reassess(conn, tmp_path):
+    for i in range(3):
+        add_extracted_job(conn, f"https://e.com/{i}")
+    add_extracted_job(conn, "https://e.com/unextracted", details_json=None)
+    stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=4))
+    assert stats["scored"] == 3 and client.chat.call_count == 3  # never the unextracted job
+    assert get_jobs_by_stage(conn, "pending_score") == []
+
+    save_preferences(conn, Preferences(skills_want=["Rust"]))  # every assessment is stale now
+    stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2))
+    assert client.chat.call_count == 0  # a pipeline run doesn't pay for re-assessment on its own
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {75}
+
+    stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
+    assert client.chat.call_count == 3 and {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {25}
+    assert "Rust" in client.chat.call_args.args[0][1]["content"]
+
+
+def test_rescore_one_job_by_url(conn, tmp_path):
+    add_extracted_job(conn, "https://e.com/1", title="Registered Nurse")
+    add_extracted_job(conn, "https://e.com/2")
+    _run(conn, tmp_path, lambda *a, **k: reply(skills=3))
+    stats, client = _run(conn, tmp_path, [reply(skills=5)], urls=["https://e.com/1"])
+    assert client.chat.call_count == 1 and stats["scored"] == 1
+    assert _fit(conn, "https://e.com/1")[0] == 100 and _fit(conn, "https://e.com/2")[0] == 50
+
+
+def test_breakdown_after_a_run(conn, tmp_path):
+    add_extracted_job(conn, "https://e.com/1")
+    save_preferences(conn, Preferences.from_dict({"red_flags": {"importance": "nice"},
+                                                  "domain_interest": {"importance": "important"}}))
+    _run(conn, tmp_path, [reply(skills=4, domain=5, flags=("vague_posting",))])
+    score, breakdown, flags = _fit(conn, "https://e.com/1")
+    comps = {c["key"]: c for c in breakdown}
+    assert {"skills_match", "domain_interest", "red_flags"} <= set(comps)
+    assert comps["skills_match"]["note"] == "Has SQL and Python."
+    assert 0 <= score <= 100 and flags == []
+    row = conn.execute("SELECT fit_assessment, assessment_hash, assessed_at FROM jobs").fetchone()
+    assert json.loads(row[0])["red_flags"][0]["code"] == "vague_posting"
+    assert row[1] == assessment_key(Preferences.from_dict({}), RESUME) and row[2]
