@@ -1,4 +1,4 @@
-"""Title pre-filter skips clearly irrelevant jobs before the LLM (gemini-free-tier-llm Task 4)."""
+"""Title pre-filter skips clearly irrelevant jobs before the LLM."""
 
 from unittest.mock import MagicMock, patch
 
@@ -101,3 +101,24 @@ def test_limit_reaches_scoring():
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=True, limit=2)
     rs.assert_called_once_with(prefilter=True, limit=2)
+
+
+def test_sync_flag_reaches_score_and_extract():
+    from typer.testing import CliRunner
+
+    from strelitzia import pipeline
+    from strelitzia.cli import app
+
+    with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
+        pipeline._run_score(prefilter=True, sync=True)
+    rs.assert_called_once_with(prefilter=True, mode="sync")
+    with patch("strelitzia.enrichment.classify.run_classify"), \
+            patch("strelitzia.enrichment.extract.run_extraction", return_value={}) as rx:
+        pipeline._run_extract(limit=3, sync=True)
+    rx.assert_called_once_with(limit=3, mode="sync")
+
+    with patch("strelitzia.config.check_tier"), patch("strelitzia.cli._bootstrap"), \
+            patch("strelitzia.pipeline.run_pipeline", return_value={}) as rp:
+        result = CliRunner().invoke(app, ["run", "extract", "--limit", "3", "--sync"])
+    assert result.exit_code == 0, result.output
+    assert rp.call_args.kwargs["sync"] is True and rp.call_args.kwargs["limit"] == 3

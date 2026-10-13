@@ -127,6 +127,12 @@ def run(
         help="Max jobs sent to the LLM by the score and extract stages (default: all) and by the tailor "
              "and cover stages (default 20 each).",
     ),
+    sync: bool = typer.Option(
+        False,
+        "--sync",
+        help="Score and extract with one request per job (full price, results right away) instead of a "
+             "Message Batch (half price, usually done within an hour). Runs of 5 jobs or fewer are always sync.",
+    ),
     reset_errors: bool = typer.Option(
         False,
         "--reset-errors",
@@ -205,6 +211,7 @@ def run(
         no_cache=no_cache,
         prefilter=not no_prefilter,
         limit=limit,
+        sync=sync,
     )
 
     if result.get("errors"):
@@ -616,6 +623,40 @@ def _doctor_database_row(ok_mark: str) -> tuple[str, str, str]:
     return ("Database", ok_mark, f"{where}, {jobs} jobs")
 
 
+def _doctor_spend_rows(ok_mark: str, warn_mark: str) -> list[tuple[str, str, str]]:
+    """Month-to-date LLM spend against LLM_MONTHLY_BUDGET_USD, and Message Batches not yet collected."""
+    from strelitzia.config import DB_PATH, database_url
+    from strelitzia.llm import month_spend, monthly_budget
+
+    budget = monthly_budget()
+    spent, batches = 0.0, []
+    if database_url() or DB_PATH.exists():
+        try:
+            from strelitzia.database import get_connection, table_columns
+            from strelitzia.llm_batch import open_batches
+
+            conn = get_connection()
+            if table_columns(conn, "llm_usage"):
+                spent = month_spend(conn)
+            if table_columns(conn, "llm_batches"):
+                batches = open_batches()
+        except Exception as exc:  # noqa: BLE001 - the Database row above reports connection problems
+            return [("LLM spend", warn_mark, f"unavailable: {exc}")]
+    if budget is None:
+        rows = [("LLM spend", warn_mark, f"${spent:.2f} this month, no budget (set LLM_MONTHLY_BUDGET_USD)")]
+    else:
+        over = spent >= budget
+        rows = [("LLM spend", warn_mark if over else ok_mark,
+                 f"${spent:.2f} of ${budget:.2f} this month" + (" (budget reached: LLM stages stop)" if over else ""))]
+    if batches:
+        detail = ", ".join(f"{b['purpose']} {b['id']} ({b['request_count']} requests, {b['submitted_at']})"
+                           for b in batches)
+        rows.append(("Open batches", warn_mark, f"{detail}; the next batch run of that stage collects them"))
+    else:
+        rows.append(("Open batches", ok_mark, "none"))
+    return rows
+
+
 def _has_jobs_table(conn) -> bool:
     from strelitzia.database import table_columns
 
@@ -711,6 +752,7 @@ def doctor() -> None:
     for purpose in PURPOSES:
         model, effort = resolve_model(purpose)
         results.append((f"{purpose.title()} model", ok_mark, f"{model} (effort {effort})"))
+    results.extend(_doctor_spend_rows(ok_mark, warn_mark))
 
     # --- Render results ---
     console.print()

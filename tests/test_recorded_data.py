@@ -102,10 +102,10 @@ def test_workday_page_parses():
     assert jobs and all(j["title"] and j["external_path"] for j in jobs)
 
 
-def test_gemini_score_response_parses():
+def test_claude_score_response_parses():
     from strelitzia.scoring.scorer import _parse_score_response
 
-    sample = _load("gemini_score_response.json")
+    sample = _load("claude_score_response.json")
     parsed = _parse_score_response(sample["response"])
     assert 1 <= parsed["score"] <= 10
     assert parsed["reasoning"]

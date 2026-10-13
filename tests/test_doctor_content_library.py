@@ -160,13 +160,15 @@ class TestDoctorClaude:
 
         from strelitzia.cli import app
 
-        for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", *(f"LLM_{p}_{k}" for p in
+        for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "LLM_MONTHLY_BUDGET_USD", *(f"LLM_{p}_{k}" for p in
                     ("DISCOVERY", "EXTRACT", "SCORING", "TAILOR", "COVER") for k in ("MODEL", "EFFORT"))):
             monkeypatch.delenv(key, raising=False)
         for key, val in env.items():
             monkeypatch.setenv(key, val)
+        db = tmp_path / "doctor.db"
         runner = CliRunner()
         with patch("strelitzia.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"), \
+                patch("strelitzia.config.DB_PATH", db), patch("strelitzia.database.DB_PATH", db), \
                 patch("strelitzia.config.load_env", lambda: None):
             return runner.invoke(app, ["doctor"])
 
@@ -182,8 +184,30 @@ class TestDoctorClaude:
                          "Scoring": "claude-haiku-5-5 (effort medium)", "Tailor": "claude-sonnet-5-5 (effort medium)",
                          "Cover": "claude-sonnet-5-5 (effort medium)"}
 
-    def test_missing_key_and_no_gemini_lines(self, tmp_path, monkeypatch) -> None:
+    def test_missing_key_and_no_old_provider_lines(self, tmp_path, monkeypatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "g", "LLM_TAILOR_MODEL": "gemini-3.6-flash"})
         assert result.exit_code == 0
         assert "Set ANTHROPIC_API_KEY" in result.output
         assert "gemini" not in result.output.lower()
+
+    def test_spend_against_budget_and_open_batches(self, tmp_path, monkeypatch) -> None:
+        from strelitzia.database import close_connection, init_db
+        from strelitzia.llm import record_usage
+
+        db = tmp_path / "doctor.db"
+        conn = init_db(db)
+        record_usage("tailor", "claude-sonnet-5-5", {"input_tokens": 1_000_000}, conn=conn)  # $2.00
+        conn.execute("INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count) "
+                     "VALUES ('msgbatch_1', 'extract', '2026-10-13T01:00:00+00:00', 'submitted', 40)")
+        conn.commit()
+        close_connection(db)
+        result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k", "LLM_MONTHLY_BUDGET_USD": "20"})
+        assert result.exit_code == 0, result.output
+        assert "$2.00 of $20.00 this month" in result.output
+        assert "extract msgbatch_1 (40 requests" in result.output
+
+    def test_no_database_yet(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k"})
+        assert result.exit_code == 0, result.output
+        assert "$0.00 this month, no budget" in result.output
+        assert "Open batches" in result.output

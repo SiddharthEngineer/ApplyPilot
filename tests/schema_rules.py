@@ -1,4 +1,4 @@
-"""Shared check: a schema is valid for Claude structured outputs (strict JSON Schema, no Gemini dialect)."""
+"""Shared check: a schema is valid for Claude structured outputs (strict JSON Schema: lowercase types, no extras)."""
 
 _UNSUPPORTED = {"nullable", "propertyOrdering", "minimum", "maximum", "minLength", "maxLength", "pattern",
                 "minItems", "maxItems", "multipleOf"}

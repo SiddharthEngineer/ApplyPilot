@@ -41,7 +41,7 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 |-----------|-------------|---------|
 | Python 3.11+ | Everything | Core runtime |
 | Chromium (Playwright) | Discovery, enrichment, PDFs | `playwright install chromium` |
-| Gemini API key | Scoring, tailoring, cover letters | Free tier (per-model limits, see [Cost and rate limits](#cost-and-rate-limits)). Get one at [aistudio.google.com](https://aistudio.google.com) |
+| Claude API key | Scoring, tailoring, cover letters, extraction | Pay as you go, capped by a monthly budget (see [Cost and budget](#cost-and-budget)). Create one at [console.anthropic.com](https://console.anthropic.com) |
 | Node.js 22 | Only to change the dashboard UI | The built UI ships in the package |
 
 ---
@@ -59,11 +59,11 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 
 **Extract** (`strelitzia run extract`) parses each enriched posting into structured fields: role category, seniority,
 employment type, work mode, locations, salary range, posted date and deadline, responsibilities, required and preferred
-qualifications, skills, education, years of experience, visa sponsorship and more. It sends 5 postings per LLM request
-and saves each batch as it returns. The full record is stored in `details_json`, and the filter fields get their own
-columns. Until a job has been extracted, `strelitzia classify` fills its role category, work mode and location from
-keyword rules (no LLM). In a full `strelitzia run`, extract runs after the cover stage, so scoring gets the shared
-quota first.
+qualifications, skills, education, years of experience, visa sponsorship and more. It sends one posting per request,
+all in one Message Batch (half price), and saves each result as it arrives. The full record is stored in `details_json`,
+and the filter fields get their own columns. Until a job has been extracted, `strelitzia classify` fills its role
+category, work mode and location from keyword rules (no LLM). In a full `strelitzia run`, extract runs after the cover
+stage, so scoring gets the monthly budget first.
 
 Each stage is independent. Run them all or pick what you need.
 
@@ -72,15 +72,14 @@ Each stage is independent. Run them all or pick what you need.
 ## Configuration
 
 Everything lives in the data directory, `~/.strelitzia` (created by `strelitzia init`; set `STRELITZIA_DIR` to move it).
-`.env` holds only secrets and per-host settings (API keys, model choice, database URL); anything that isn't secret, like
-the per-model rate limits, lives in a YAML file:
+`.env` holds only secrets and per-host settings (API key, monthly budget, model overrides, database URL); anything
+that isn't secret lives in a YAML file:
 
 | File | Purpose |
 |------|---------|
 | `profile.json` | Contact info, work authorization, compensation, experience, skills, resume facts |
 | `searches.yaml` | Job search queries, target titles, locations, boards |
-| `.env` | Secrets and per-host settings: `GEMINI_API_KEY`, `LLM_MODEL`, `STRELITZIA_DATABASE_URL` |
-| `llm_limits.yaml` | Optional: per-model rate limits that differ from the packaged `config/llm_limits.yaml` |
+| `.env` | Secrets and per-host settings: `ANTHROPIC_API_KEY`, `LLM_MONTHLY_BUDGET_USD`, `STRELITZIA_DATABASE_URL` |
 | `config/employers.yaml` | Workday employer registry (48 preconfigured) |
 | `config/ats_boards.yaml` | Greenhouse / Lever / Ashby company boards (23 preconfigured) |
 | `config/sites.yaml` | Direct career sites (30+), blocked sites, base URLs |
@@ -98,37 +97,49 @@ With a `content_library.md`, each tailored resume keeps your own resume's look a
 
 When tailoring, the LLM picks bullets per role (between your base resume's bullet count and two fewer, so the shape stays the same), and each bullet cites the library projects it draws on. Every number in a bullet must appear in those projects' facts. Output per job: `<job>.pdf` (always one page; bullets above a role's minimum are dropped if it overflows), `<job>.json` (bullets with their `project_ids`), and `<job>.txt`. On Linux, install `fonts-liberation` so Chromium has a Times New Roman–compatible font.
 
-### Cost and rate limits
+### Cost and budget
 
-Strelitzia is built to run on Gemini's **free tier**. Free-tier limits are per model and per Google Cloud project, with a per-minute (RPM) and a per-day (RPD) cap, and Google changes them often. See your project's current limits on the [AI Studio rate-limit page](https://aistudio.google.com/rate-limit) (background: [Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)).
+Every LLM call goes to the Claude API with your own `ANTHROPIC_API_KEY`, through the official `anthropic` SDK. Each
+stage has its own model and effort ([`config/llm_models.yaml`](src/strelitzia/config/llm_models.yaml), which also
+holds the prices used for spend tracking):
 
-Pick a model per stage in `~/.strelitzia/.env`. Each falls back to `LLM_MODEL`, then the provider default:
-
-| Variable | Stage | Suggested on the free tier |
+| Stage | Default | Override |
 |---|---|---|
-| `LLM_DISCOVERY_MODEL` | SmartExtract strategy + API judge | a **lite** model, e.g. `gemini-3.1-flash-lite` (default) |
-| `LLM_SCORING_MODEL` | Scoring (highest volume) | a **lite** model, e.g. `gemini-3.1-flash-lite` |
-| `LLM_EXTRACT_MODEL` | Posting extraction (`EXTRACT_BATCH_SIZE` jobs per request, default 5) | a **lite** model, e.g. `gemini-3.1-flash-lite` (default) |
-| `LLM_TAILOR_MODEL` | Resume tailoring | the best **flash** model your key lists, e.g. `gemini-3.6-flash` |
-| `LLM_COVER_MODEL` | Cover letters | same as tailoring |
+| SmartExtract strategy + API judge, enrichment fallback | `claude-haiku-5-5`, effort `low` | `LLM_DISCOVERY_MODEL`, `LLM_DISCOVERY_EFFORT` |
+| Posting extraction | `claude-haiku-5-5`, effort `low` | `LLM_EXTRACT_MODEL`, `LLM_EXTRACT_EFFORT` |
+| Scoring | `claude-haiku-5-5`, effort `low` | `LLM_SCORING_MODEL`, `LLM_SCORING_EFFORT` |
+| Resume tailoring | `claude-sonnet-5-5`, effort `medium` | `LLM_TAILOR_MODEL`, `LLM_TAILOR_EFFORT` |
+| Cover letters | `claude-sonnet-5-5`, effort `medium` | `LLM_COVER_MODEL`, `LLM_COVER_EFFORT` |
 
-`strelitzia doctor` prints the model each stage will use. Other ways to save quota:
+An override that isn't a `claude-*` model id (say, a leftover Gemini setting) is ignored with a warning, and
+`strelitzia init` removes old-provider settings from `.env`.
 
-- **Per-model limits**: the free-tier defaults ship in `src/strelitzia/config/llm_limits.yaml`. If AI Studio shows different numbers for your project, put only the models that differ in `~/.strelitzia/llm_limits.yaml`:
-  ```yaml
-  rpm: {gemini-3.6-flash: 10}
-  rpd: {gemini-3.6-flash: 250}
-  ```
-  A limit of `0` means no limit (for example on a paid-tier key). The old `LLM_RPM_LIMITS` / `LLM_RPD_LIMITS` JSON vars in `.env` still work (and win over both files), but are deprecated and log a warning. The requests-per-minute limiter is shared by every stage on the same model. Requests per day are counted per model in `~/.strelitzia/llm_usage.json`, across runs, and reset at midnight Pacific. `LLM_RPM_LIMIT` / `LLM_RPD_LIMIT` apply to models not listed. `strelitzia doctor` shows each stage's limits, today's count, and where the limits came from.
-- **Daily quota**: when a model reaches its `rpd` limit, or Google returns a per-day 429, the stage stops before spending more requests (`Gemini daily quota exhausted for <model>`). The remaining jobs are left as they are, and the next run picks them up.
-- **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1 without an LLM call. Use `--no-prefilter` to score them anyway.
-- **Structured output**: scoring and tailoring ask Gemini for schema-constrained JSON, so malformed replies don't cost retries.
-- **`--validation lenient`** skips the LLM judge, saving one call per attempt. It's the default for content-library tailoring, whose bullets are already checked mechanically (project ids, numbers, bullet ranges). Pass `--validation normal` to bring the judge back.
-- **503 failover**: when a Gemini model answers 503 ("overloaded"), the request goes straight to `LLM_FALLBACK_MODEL` (default `gemini-3.1-flash-lite`), and that model is used for the next 5 minutes (`LLM_FALLBACK_COOLDOWN`). Google counts 503s against the daily quota. Set `LLM_FALLBACK_MODEL=none` to retry with backoff instead.
-- **Overload stop**: the fallback model itself (or any model without one) retries a 503 with backoff (10, 20, 40, 60 s). If all 5 tries fail, the stage stops (`stopped: model overloaded`) without charging the job an attempt, and the next run picks the rest up.
-- **OpenCode free models**: set `OPENCODE_API_KEY` to route through `opencode/*` free models at no cost.
+- **Batches**: `run score` and `run extract` send their jobs as one Message Batch at 50% off, and print the estimated
+  cost first. Most batches finish within an hour (24 hours at most). The batch id is stored in the database, so if a
+  run is killed while waiting, the next batch run of that stage collects the results instead of paying again. Runs of
+  5 jobs or fewer, and runs with `--sync`, send one request at a time at full price.
+- **Prompt caching**: the system prompt (the extraction rules; the scoring rubric plus your resume) is cached, so each
+  request after the first pays about a tenth for it.
+- **Monthly budget**: `LLM_MONTHLY_BUDGET_USD` (default 20 in `.env.example`) stops a run before month-to-date spend
+  would pass it: a batch whose estimate doesn't fit isn't submitted, and sync requests stop at the limit. The stage
+  ends with `stopped: monthly LLM budget`, charges no job an attempt, and leaves the rest for later. Unset means no
+  limit.
+- **Spend tracking**: every response is recorded in the `llm_usage` table with its tokens and dollar cost.
+  `strelitzia doctor` shows month-to-date spend against the budget and any batches still open.
+- **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1
+  without an LLM call. Use `--no-prefilter` to score them anyway.
+- **Structured output**: scoring, extraction and tailoring ask for schema-constrained JSON, so malformed replies don't
+  cost retries.
+- **`--validation lenient`** skips the LLM judge, saving one call per attempt. It's the default for content-library
+  tailoring, whose bullets are already checked mechanically (project ids, numbers, bullet ranges). Pass
+  `--validation normal` to bring the judge back.
+- **Errors**: the SDK retries rate limits and server errors with backoff. A bad key or an API that stays overloaded
+  stops the stage (`stopped: Claude API key missing or rejected` / `stopped: Claude API overloaded`) without charging
+  the job an attempt.
 
-**Privacy:** on the free tier, Google may use what you submit (your resume, profile facts and job descriptions) to improve its products, per the [Gemini API terms](https://ai.google.dev/gemini-api/terms). Enabling billing on the project (the paid tier) opts you out of that.
+**Running Strelitzia next to Claude Code:** keep `ANTHROPIC_API_KEY` in `~/.strelitzia/.env` only, never in your
+shell profile or in the environment of an unattended `claude -p` runner (such as `scripts/agent/run.sh`). In `-p`
+mode Claude Code prefers `ANTHROPIC_API_KEY` over its subscription login, so the runner would bill the API instead.
 
 ### Job sources
 
@@ -237,7 +248,7 @@ The theme tokens are at the top of `dashboard/src/styles.css` (light, and indigo
 
 **Docker:** the `Dockerfile` builds the dashboard image (Playwright's Python image + Chromium, fonts-liberation,
 `.[web,postgres,drive]`). It contains no secrets or user data. At runtime, mount the data dir at the same path as on
-the host, run as the user that owns it, and mount the `.env` with the Gemini key at `/app/.env`:
+the host, run as the user that owns it, and mount the `.env` with the Claude API key at `/app/.env`:
 
 ```bash
 docker build -t strelitzia-dashboard .
@@ -260,8 +271,10 @@ strelitzia run --dry-run                 # Preview without executing
 strelitzia run --source content-library  # Tailor from content_library.md (default when it exists)
 strelitzia run --source resume           # Tailor by rewriting resume.txt
 strelitzia run tailor --limit 3          # Cap the tailor/cover stages at N jobs
-strelitzia run score --limit 20          # Send at most N jobs to the LLM for scoring (each score is saved as it returns)
-strelitzia run extract --limit 100       # Parse N postings into structured fields (5 per request; stops at the daily quota)
+strelitzia run score --limit 20          # Score at most N jobs (a Message Batch; each score is saved as it arrives)
+strelitzia run score --sync              # One request per job: full price, no batch wait
+strelitzia run extract --limit 100       # Parse N postings into structured fields (a Message Batch; stops at the budget)
+strelitzia run extract --limit 3 --sync  # Parse a few postings right away
 strelitzia classify                      # Keyword role category / work mode / location for jobs not yet extracted (no LLM)
 strelitzia template init                 # Create resume_fixed.yaml + resume_template.html from resume.txt
 strelitzia template preview              # Render your base resume through the template (template_preview.pdf)
@@ -330,7 +343,7 @@ Strelitzia/
 scripts/validate.sh                                         # ruff + hermetic pytest
 scripts/validate.sh --full                                  # + dashboard tests/build + docker build
 pytest -m live --run-live -v                                # Live network tests
-pytest -m llm --run-llm -v                                  # LLM tests (requires GEMINI_API_KEY)
+pytest -m llm --run-llm -v                                  # Real Claude API calls (requires ANTHROPIC_API_KEY, ~$0.05)
 STRELITZIA_TEST_DATABASE_URL=postgresql://…/strelitzia_test pytest -m pg -q  # Postgres backend (throwaway DB)
 python scripts/qc.py <plan-slug>                            # QC for a plan's PR: all tiers + its success criteria
 ```
@@ -338,8 +351,8 @@ python scripts/qc.py <plan-slug>                            # QC for a plan's PR
 Unit tests are hermetic: `tests/conftest.py` points `STRELITZIA_DIR` at a temp dir, and any test not marked
 `live` or `llm` that opens a non-localhost connection fails with `NetworkAccessBlocked`. Mock the call or mark the test.
 
-Recorded responses in `tests/data/` are committed, scrubbed JSON samples (JobSpy rows, a Workday page, a Gemini
-scoring reply) that unit tests replay without network. Refresh them (needs network + `GEMINI_API_KEY`), then check
+Recorded responses in `tests/data/` are committed, scrubbed JSON samples (JobSpy rows, a Workday page, a Claude
+scoring reply) that unit tests replay without network. Refresh them (needs network + `ANTHROPIC_API_KEY`), then check
 for personal data before committing:
 ```bash
 python scripts/capture_fixtures.py --out tests/data --scrub --sites indeed,linkedin
