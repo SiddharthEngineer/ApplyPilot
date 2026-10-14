@@ -13,7 +13,8 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | 🟡 Tasks 1-6 done, PR open; you: Task 7 live run (M19) | M18 |
 | R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | 🟡 Tasks 0-4 done, PR open; you: Task 5 eval (M20) | R20 |
 | R22 | Workspace intake: Add job by link (scrape, paste fallback), shared contacts, interviews, discovery off by default | [workspace-intake](plans/workspace-intake.md) | review | ⏳ | R20 |
-| R23 | Resume SEO/GEO phase 1: eval harness, parse-safe PDF/DOCX, qualification targeting, Opus writer + judge | [resume-seo-geo](plans/resume-seo-geo.md) | review | ⏳ | R20, R22 |
+| R23 | Claude workbench: tailor resume + cover in Claude Pro via Drive packets and paste-back; ATS-safe PDF/DOCX; API writer removed | [claude-workbench](plans/claude-workbench.md) | review | ⏳ | R22, M8 (for Drive docs) |
+| R24 | Resume panel: blind A/B grading in Claude Pro with a rubric, your picks, "panel due" reminders | [resume-panel](plans/resume-panel.md) | review | ⏳ | R23 |
 
 ## Manual steps (you)
 
@@ -35,6 +36,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M20 | After R21 merges: R21 Task 5 eval (skipped by the runner). Label ~30 jobs with `scripts/eval_fit.py sample`, run `scripts/eval_fit.py run`, and pick the scoring model. | ☐ |
 
 ## Decisions (current)
+- 2026-10-14 (user): Resume, cover-letter, judge and panel work moves off the API into the user's Claude Pro chats (copy-paste packets, Google Docs in a Claude Project, JSON pasted back and checked by the app). The API keeps only Haiku for scraping, extraction and scoring. The API tailor/cover/judge paths are deleted (R23). Supersedes the writing-model parts of 2026-10-13.
 - 2026-10-13 (user): LLM calls move from the Gemini free tier to the Claude API with an API key (never the Pro subscription; Anthropic's docs point products to API keys). Gemini/OpenAI/OpenCode/local providers are deleted. Haiku 5.5 + Batch for bulk stages, Sonnet 5.5 for writing. One owner key with per-user spend tracking; per-user caps when other users exist. Supersedes 2026-10-01 and 2026-10-02 LLM decisions.
 - 2026-10-12 (user): Every active plan runs unattended. Work only a human can do (Google setup, VPS `.env`, prod deploys) lives in Manual steps, not in plan tasks.
   R0 uses synthetic samples instead of a live capture. The runner's session-usage gate defaults to 70%.
