@@ -46,6 +46,15 @@ Code:
 - R22 (`workspace-intake`) lands first; this plan's job-page work goes below R22's Notes / Contacts / Interviews sections.
 
 ## Tasks
+### Task 0: Precondition (R22 merged)
+**Runs:** unattended
+**Files:** none
+**What:** Check first: `git fetch -q origin && git cat-file -e origin/trunk:src/strelitzia/intake.py`.
+If that fails, plan `workspace-intake` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
+"waiting for workspace-intake to merge; requeue with buildqueue.py add claude-workbench".
+**Validate:** the command exits 0.
+**Status:** ❌
+
 ### Task 1: Output contract and packet builder
 **Runs:** unattended
 **Files:** `src/strelitzia/scoring/workbench.py` (new), `src/strelitzia/scoring/targets.py` (new), `tests/test_workbench_packet.py` (new), `tests/test_targets.py` (new)
@@ -161,13 +170,7 @@ API cost is now Haiku only. Delete the tests that only covered the removed API p
 **Validate:** `grep -rn 'get_client("tailor")\|get_client("cover")' src` → nothing; `strelitzia run --dry-run` lists no tailor or cover stages; `scripts/validate.sh --full` green.
 **Status:** ❌
 
-### Task 8: End-to-end with a real Claude Project
-**Runs:** interactive (needs your Drive OAuth (M8), your Claude Pro account and your library)
-**Files:** none (results in the PR body)
-**What:** Open `/claude-setup`, create the project, and attach the Docs. On three jobs: Open in Claude, iterate at least once in the chat, paste the result,
-deliberately paste one bad result to see the fix message, then check the PDF, DOCX and cover PDF in Drive.
-**Validate:** 3 accepted drafts; the fix message round trip worked; the PDF text copied into an editor reads in order.
-**Status:** ❌
+The end-to-end run with a real Claude Project (Drive OAuth, Claude Pro, your library) is ROADMAP manual step M22, after merge.
 
 ## Validation
 - `scripts/validate.sh --full` passes.

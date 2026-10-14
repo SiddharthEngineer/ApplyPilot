@@ -145,13 +145,7 @@ still runs it explicitly. `enrich` keeps working on any rows without a descripti
 explicit `discover` still runs; `scripts/validate.sh` green.
 **Status:** ❌
 
-### Task 6: Live check on real postings
-**Runs:** interactive (needs real job sites, Chromium and the Claude API key)
-**Files:** none (results go in the PR body)
-**What:** With `strelitzia serve` locally, add one link each from Greenhouse, Lever, Ashby, a Workday portal, a company careers
-page, LinkedIn and Indeed. Record per link: `intake_status`, how many seconds until the row was scored, and whether the paste fallback appeared.
-**Validate:** At least the Greenhouse/Lever/Ashby links reach `ok` with a fit score; LinkedIn/Indeed either reach `ok` or show the paste panel (never a stuck spinner).
-**Status:** ❌
+The live check on real postings (Greenhouse, Lever, Ashby, Workday, LinkedIn, Indeed) is ROADMAP manual step M21, after merge.
 
 ## Validation
 - `scripts/validate.sh --full` passes.

@@ -131,6 +131,18 @@ def test_review_result_waits_for_preprod(q):
     assert q("get", "plan-a", "pr").stdout.strip() == "12"
 
 
+
+def test_after_waits_until_the_dependency_merged(q):
+    q("add", "first")
+    q("add", "second", "--after", "first")
+    assert q("next").stdout.strip() == "first"
+    q("start", "first")
+    q("finish", "first", q.result({"status": "review", "pr": 1}))
+    assert q("next").returncode == 1  # an open PR isn't enough: the dependency must be merged
+    q("set", "first", "status=done")
+    assert q("next").stdout.strip() == "second"
+
+
 @pytest.fixture
 def repo(tmp_path):
     def git(*args: str) -> None:
