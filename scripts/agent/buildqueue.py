@@ -6,7 +6,8 @@ State lives in $STRELITZIA_AGENT_STATE (default ~/.local/state/strelitzia-agent)
   runs.jsonl   one line per started run (drives the optional daily cap)
 
 Usage:
-  buildqueue.py add <slug> [--at 2026-10-12T02:00 | --in 3h] [--note TEXT]
+  buildqueue.py add <slug> [--at 2026-10-12T02:00 | --in 3h] [--after <slug>] [--note TEXT]
+                                     --after: not runnable until that item is `done` (merged)
   buildqueue.py list
   buildqueue.py cancel <slug>
   buildqueue.py next                 print the next runnable slug, or exit 1 (cron pre-check; no Claude cost)
@@ -112,11 +113,13 @@ def cmd_add(args: argparse.Namespace) -> int:
         "not_before": parse_when(args.at, args.delay),
         "attempts": 0,
         "notes": [args.note] if args.note else [],
+        **({"after": args.after} if args.after else {}),
         "added": iso(now()),
         "updated": iso(now()),
     }
     save(data)
-    print(f"queued {args.slug} (not before {data['items'][args.slug]['not_before']})")
+    after = f", after {args.after}" if args.after else ""
+    print(f"queued {args.slug} (not before {data['items'][args.slug]['not_before']}{after})")
     return 0
 
 
@@ -126,7 +129,7 @@ def cmd_list(_: argparse.Namespace) -> int:
         print(f"paused until {data['paused_until']}")
     print(f"runs in last 24h: {runs_last_day()}" + (f"/{MAX_RUNS_PER_DAY}" if MAX_RUNS_PER_DAY else " (no daily cap)"))
     for slug, it in sorted(data["items"].items(), key=lambda kv: kv[1]["not_before"]):
-        extra = " ".join(f"{k}={it[k]}" for k in ("pr", "issue") if it.get(k))
+        extra = " ".join(f"{k}={it[k]}" for k in ("after", "pr", "issue") if it.get(k))
         print(f"{it['status']:<17} {slug:<40} attempts={it['attempts']}/{MAX_ATTEMPTS} not_before={it['not_before']} {extra}")
     return 0
 
@@ -141,6 +144,7 @@ def cmd_next(_: argparse.Namespace) -> int:
         (it["not_before"], slug)
         for slug, it in data["items"].items()
         if it["status"] == "queued" and it["attempts"] < MAX_ATTEMPTS and datetime.fromisoformat(it["not_before"]) <= now()
+        and (not it.get("after") or data["items"].get(it["after"], {}).get("status") == "done")
     ]
     if not due:
         return 1
@@ -248,6 +252,7 @@ def main() -> int:
     when = p.add_mutually_exclusive_group()
     when.add_argument("--at")
     when.add_argument("--in", dest="delay")
+    p.add_argument("--after", help="slug that must be done (merged) first")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_add)
     sub.add_parser("list").set_defaults(fn=cmd_list)

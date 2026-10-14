@@ -23,6 +23,15 @@ Every so often (after the rules, template or library change, or monthly) you che
 - Pattern for reports and labels: CSV-free here, everything in the DB; cost is $0 (Pro chats).
 
 ## Tasks
+### Task 0: Precondition (R23 merged)
+**Runs:** unattended
+**Files:** none
+**What:** Check first: `git fetch -q origin && git cat-file -e origin/trunk:src/strelitzia/scoring/workbench.py`.
+If that fails, plan `claude-workbench` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
+"waiting for claude-workbench to merge; requeue with buildqueue.py add resume-panel".
+**Validate:** the command exits 0.
+**Status:** ❌
+
 ### Task 1: Drafts history and panel tables
 **Runs:** unattended
 **Files:** `src/strelitzia/database.py`, `src/strelitzia/scoring/workbench.py`, `src/strelitzia/scoring/panel.py` (new), `tests/test_panel.py` (new)
@@ -73,17 +82,11 @@ The jobs list header shows "Panel due: <reason>" with a link.
 **Validate:** `pytest tests/web -q`; `cd dashboard && npm test -- --run`; `scripts/validate.sh --full` green.
 **Status:** ❌
 
-### Task 5: First real panel
-**Runs:** interactive (your Claude Pro chats and your judgment)
-**Files:** none (results in the PR body and a ROADMAP decision line)
-**What:** After a handful of R23 drafts, create the "Strelitzia Panel" project with the rubric Doc, run one panel of 5 items on Sonnet and Opus, and make your picks.
-**Validate:** The report shows win rates for Sonnet, Opus and you, both agreements and a verdict.
-**Status:** ❌
+The first real panel (your Claude Pro chats and your picks) is ROADMAP manual step M23, after merge.
 
 ## Validation
 - `scripts/validate.sh --full` passes.
 - `pytest tests/test_panel.py tests/web/test_panel_api.py -q` passes.
-- Task 5's report renders with all three graders.
 
 ## Human test steps (preprod)
 1. Open `/app/panel`: with fewer than 5 comparable jobs it says how many more drafts are needed; otherwise click **Create run**.

@@ -46,7 +46,8 @@ Paths: the runner uses `~/.config/strelitzia-agent` and `~/.local/state/strelitz
 4. Install the cron line (`crontab -e`): `*/5 * * * * /home/dev/src/Strelitzia/scripts/agent/run.sh`
 
 ## Day to day
-- Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00]`). `/schedule-build list` shows the queue and the preprod holder.
+- Plan with Claude (`/plan`), then queue it (`/schedule-build <slug> [at 02:00] [after <slug>]`). `/schedule-build list` shows the queue and the preprod holder.
+  `after <slug>` (`buildqueue.py add <slug> --after <other>`) keeps an item waiting until the other one is `done` (merged), for plans that build on each other.
 - Logs: `~/.local/state/strelitzia-agent/runs.log` (one line per event) and `logs/<time>-<slug>.log` (full JSON output).
 - When an agent asks a question, reply on the inbox issue. The next tick (within 5 minutes) re-queues the item with your answer.
   That run resumes the agent's own session (`claude --resume`), or starts fresh if Claude can't find it.

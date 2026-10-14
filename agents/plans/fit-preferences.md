@@ -1,5 +1,5 @@
 # Plan: Preferences page and two-layer fit score (code-scored preferences + LLM rubric)
-**Status:** 🟡 Tasks 0-4 done; Task 5 (interactive eval) left for the user
+**Status:** 🟡 Tasks 0-4 done (#40); Task 5 (eval script) queued; labelling and the paid eval run are M20
 **Risk:** review (new DB tables, web API and dashboard page; changes what `fit_score` means)
 **Depends on:** [claude-llm-provider](claude-llm-provider.md) (Claude client, batch runner, `estimate_cost`, `llm_usage`)
 
@@ -160,10 +160,12 @@ dashboard/src/components/Filters.tsx (modify), dashboard/src/components/JobsTabl
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → pass; `scripts/validate.sh --full` → green.
 **Status:** ✅ 2026-10-13 (this commit). Advanced (collapsed) groups: Role, Eligibility, Companies to skip. A stale score shows `*` in the table.
 
-### Task 5: Haiku vs Sonnet eval for the assessment
-**Runs:** interactive (the user labels jobs; spends ~$1 of API)
-**Files:** scripts/eval_fit.py (new), agents/plans/fit-preferences.md (record result)
-**What:**
+### Task 5: Eval script for the assessment model (Haiku vs Sonnet)
+**Runs:** unattended (writes and tests the script; labelling jobs and the paid run are ROADMAP manual step M20)
+**Files:** scripts/eval_fit.py (new), tests/test_eval_fit.py (new)
+**What:** Write the script below. The test is hermetic: a temp SQLite DB with synthetic jobs, a fake assessment call and fake
+`llm_usage` rows, no network. Don't run it against real data or the API, and don't change `llm_models.yaml`.
+
 - `python scripts/eval_fit.py sample --n 30 > ~/.strelitzia/eval/fit_labels.csv` picks 30 extracted jobs spread
   across role categories and current scores. The CSV has columns `job_key,title,company,label`. It lives outside the
   repo and is never committed.
@@ -175,7 +177,8 @@ dashboard/src/components/Filters.tsx (modify), dashboard/src/components/JobsTabl
   - cost per 1,000 jobs from `llm_usage`
 - Pick the cheapest combination within 0.05 correlation of the best, set it in `llm_models.yaml` (`scoring`), and
   record the numbers in this plan's Decisions.
-**Validate:** the script prints a table with one row per model/effort; the chosen default is committed.
+**Validate:** `pytest tests/test_eval_fit.py -q` → `sample` writes the CSV header and N rows spread across categories, `run` on a
+labelled fixture prints one row per model/effort with Spearman, good-in-top-10 and cost per 1,000; `scripts/validate.sh` green.
 **Status:** ❌
 
 ## Validation
