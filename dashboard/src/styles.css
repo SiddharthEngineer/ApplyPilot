@@ -346,3 +346,13 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .coverage h3, .coverage h4 { margin: 0 0 6px; }
 .setup-steps { display: flex; flex-direction: column; gap: 14px; }
 .setup-steps li { line-height: 1.5; }
+
+/* Resume panel */
+.panel-page .card { display: flex; flex-direction: column; gap: 8px; }
+.panel-page textarea { width: 100%; font-family: var(--mono); font-size: 12px; }
+.panel-item { border-top: 1px solid var(--border); padding-top: 8px; }
+.panel-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 6px; }
+.panel-resume { max-height: 420px; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); font-size: 12px; }
+.panel-table { min-width: 640px; }
+.nav-dot { display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.panel-due { margin: 0 0 10px; }

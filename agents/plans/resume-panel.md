@@ -80,7 +80,7 @@ Page steps: 1. Create run. 2. **Copy packet for model 1** (with a "use Sonnet, n
 (swapped packet, Opus). 4. **Your picks**: each item shows First/Second side by side as text, and you click First, Second or Tie. 5. The report.
 The jobs list header shows "Panel due: <reason>" with a link.
 **Validate:** `pytest tests/web -q`; `cd dashboard && npm test -- --run`; `scripts/validate.sh --full` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit; your picks post `{grader: "you", item, winner}`; the report is only sent after your last pick, so the page stays blind)
 
 The first real panel (your Claude Pro chats and your picks) is ROADMAP manual step M23, after merge.
 
