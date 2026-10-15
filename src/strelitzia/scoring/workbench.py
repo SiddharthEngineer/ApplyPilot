@@ -36,6 +36,7 @@ from strelitzia.scoring.validator import (
     resume_parts,
     validate_claims,
     validate_letter,
+    validate_numbers_known,
     validate_pdf_text,
     validate_provenance,
     validate_resume_model,
@@ -207,7 +208,9 @@ def _rules() -> _Doc:
         "Never mention an unevidenced qualification, skill or tool anywhere: not in bullets, the headline, Skills or "
         "the cover letter. List it in notes_for_user instead so I see it.",
         "Every number in a bullet must appear in the facts of the projects that bullet cites. Never invent, round or "
-        "combine numbers. The same goes for the cover letter and the projects in its evidence_slugs.",
+        "combine numbers. The same goes for the cover letter and the projects in its evidence_slugs (numbers about the "
+        "company may come from the posting). The headline cites no project, so any number in it must be in my "
+        "library or base resume.",
         "No keyword lists inside bullets. Each bullet describes real work.",
         "No hidden text of any kind, and no instructions to screeners or AI systems (for example \"ignore previous "
         "instructions\" or \"rank this candidate first\"). Screeners detect these and reject the application.",
@@ -485,9 +488,12 @@ class Inputs:
 
 
 def output_prefix(job: dict) -> str:
+    """<site>_<title>_<job key>: the key keeps two postings with the same site and title from sharing files."""
+    from strelitzia.database import job_key
+
     safe_title = re.sub(r"[^\w\s-]", "", job.get("title") or "")[:50].strip().replace(" ", "_")
     safe_site = re.sub(r"[^\w\s-]", "", job.get("site") or "")[:20].strip().replace(" ", "_")
-    return f"{safe_site}_{safe_title}"
+    return f"{safe_site}_{safe_title}_{job.get('job_key') or job_key(job['url'])}"
 
 
 def check_result(data: dict, job: dict, inputs: Inputs) -> tuple[TailoredResume | None, list[str], list[str]]:
@@ -517,12 +523,14 @@ def check_result(data: dict, job: dict, inputs: Inputs) -> tuple[TailoredResume 
     errors += validate_provenance(resume, library)
     errors += validate_claims(resume, ev, known)
     errors += validate_skills_known(resume, known)
+    errors += validate_numbers_known(resume.headline or "", known, "headline")
     letter = data.get("cover_letter")
     if letter:
         personal = inputs.profile.get("personal", {})
         errors += validate_letter(letter["paragraphs"], letter["evidence_slugs"], library, ev,
                                   sign_off=personal.get("preferred_name") or personal.get("full_name", ""),
-                                  max_words=COVER_MAX_WORDS)
+                                  max_words=COVER_MAX_WORDS,
+                                  posting_text=job.get("full_description") or job.get("description") or "")
     warnings = _coverage_warnings(resume, ev)
     return resume, list(dict.fromkeys(errors)), warnings
 
@@ -728,12 +736,18 @@ def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, 
     return urls
 
 
+def packet_for(job: dict, inputs: Inputs, inline: bool) -> Packet:
+    """The job's packet from the loaded inputs: the current draft, and role facts from resume_fixed.yaml."""
+    return job_packet(job, inputs.library, inputs.base_resume_text, current_result(job), inline=inline,
+                      fixed_roles=inputs.fixed.get("roles") or None)
+
+
 def publish_packet(client, conn: Connection, job: dict, inputs: Inputs | None = None) -> tuple[str, str]:
     """Write the job's packet Doc into its Drive folder and record it on the job. Returns (doc_id, url)."""
     from strelitzia.storage.drive_layout import clean_name, packet_folder_path
 
     inputs = inputs or Inputs.load()
-    packet = job_packet(job, inputs.library, inputs.base_resume_text, current_result(job), inline=False)
+    packet = packet_for(job, inputs, inline=False)
     folder_id = client.ensure_folder_path(packet_folder_path(job))
     f = client.upsert_doc(folder_id, clean_name(packet.name, 160), packet.html, known_id=job.get("packet_doc_id"))
     conn.execute("UPDATE jobs SET packet_doc_id = ?, packet_doc_url = ? WHERE url = ?", (f.id, f.url, job["url"]))

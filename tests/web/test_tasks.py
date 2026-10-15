@@ -198,3 +198,23 @@ def test_runner_stops_cleanly(db_path):
     runner.start()
     runner.stop()
     assert not runner._thread.is_alive()
+
+
+@pytest.mark.parametrize("kind", ["resume", "cover", "both", "bogus"])
+def test_leftover_generation_tasks_fail_without_running_anything(monkeypatch, kind):
+    """Rows queued by an older version must not fall through to a (paid) re-assessment of every job."""
+    monkeypatch.setattr(tasks, "assess_task", lambda url, kind: pytest.fail("assess_task ran"))
+    with pytest.raises(tasks.GenerationFailed):
+        tasks.generate_for_job(URLS[0], kind)
+
+
+def test_a_leftover_generation_task_errors_in_the_queue(db_path):
+    init_db(db_path)
+    conn = get_connection(db_path)
+    add_job(conn, URLS[0], job_key=job_key(URLS[0]))
+    conn.execute("INSERT INTO dashboard_tasks (id, url, kind, state, created_at) "
+                 "VALUES ('old', ?, 'both', 'queued', '2026-10-05T00:00:00')", (URLS[0],))
+    conn.commit()
+    with TestClient(create_app(db=db_path, generate=tasks.generate_for_job), headers=HEADERS) as c:
+        task = wait_for(c, "old")
+    assert task["state"] == "error" and "Open in Claude" in task["error"]

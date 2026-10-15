@@ -216,6 +216,17 @@ describe('JobPage Claude workbench', () => {
     expect(screen.getByRole('list', { name: 'Draft history' })).toHaveTextContent('v1 · 2026-10-15 · rules r1234567');
   });
 
+  it('links the newer local PDF when the Drive upload failed', async () => {
+    vi.mocked(api.getJob).mockResolvedValue(jobDetail({
+      ...saved,
+      links: { ...jobDetail().links, resume: 'https://drive.google.com/file/d/OLD/view',
+        resume_pdf: '/app/api/jobs/abc123/files/resume_pdf' },
+    }));
+    renderJob();
+    const files = await screen.findByRole('navigation', { name: 'Files' });
+    expect(within(files).getByRole('link', { name: /Resume PDF/ })).toHaveAttribute('href', '/app/api/jobs/abc123/files/resume_pdf');
+  });
+
   it('a job without a draft shows no coverage', async () => {
     renderJob();
     await screen.findByRole('button', { name: 'Open in Claude' });

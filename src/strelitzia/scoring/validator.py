@@ -475,6 +475,15 @@ def validate_cover_letter(text: str, mode: str = "normal") -> dict:
 DASHES = ("—", "–")
 
 
+def validate_numbers_known(text: str, known_text: str, where: str) -> list[str]:
+    """Every number in `text` (e.g. the headline, which cites no projects) must appear in the candidate's material."""
+    facts = known_text.replace(",", "")
+    missing = [n for n in dict.fromkeys(_numbers(text)) if not _number_in(n, facts)]
+    if missing:
+        return [f"Number(s) {', '.join(missing)} in the {where} are not in your content library or base resume"]
+    return []
+
+
 def resume_parts(resume: "TailoredResume") -> list[tuple[str, str]]:
     """(where, text) for every piece of a resume that a model wrote: headline, bullets, skills."""
     parts = [("headline", resume.headline)] if resume.headline else []
@@ -519,9 +528,22 @@ def validate_skills_known(resume: "TailoredResume", known_text: str) -> list[str
     errors = []
     for cat, items in resume.skills.items():
         for item in split_items(items):
-            if not matches(item, known_text):
+            if not all(matches(part, known_text) for part in _skill_parts(item)):
                 errors.append(f"Skill '{item}' ({cat}) is not in your content library or base resume; remove it")
     return errors
+
+
+def _skill_parts(item: str) -> list[str]:
+    """What a Skills item claims: 'AWS (EC2, S3)' -> [AWS, EC2, S3]. 'Machine Learning (ML)' stays whole, because
+    the parentheses only spell out the acronym (matches() accepts either form)."""
+    m = re.fullmatch(r"(.+?)\s*\(([^()]+)\)", item.strip())
+    if not m:
+        return [item]
+    outer, inner = m.group(1).strip(), m.group(2).strip()
+    initials = "".join(w[0] for w in re.findall(r"[A-Za-z][\w-]*", outer)).lower()
+    if "," not in inner and inner.replace(".", "").lower() in (initials, outer.lower()):
+        return [item]
+    return [outer, *split_items(inner)]
 
 
 def split_items(value: str) -> list[str]:
@@ -557,9 +579,11 @@ def validate_wording(resume: "TailoredResume", bullet_max: int = 230) -> list[st
 
 
 def validate_letter(paragraphs: list[str], evidence_slugs: list[str], library: "ContentLibrary",
-                    evidence: "EvidenceMap | None" = None, sign_off: str = "", max_words: int = 250) -> list[str]:
+                    evidence: "EvidenceMap | None" = None, sign_off: str = "", max_words: int = 250,
+                    posting_text: str = "") -> list[str]:
     """Cover-letter checks on a pasted letter: 3 paragraphs, the usual letter rules (strict), numbers
-    backed by the facts of its evidence_slugs, and no unevidenced posting targets."""
+    backed by the facts of its evidence_slugs (or by the posting, for what it says about the company), and no
+    unevidenced posting targets."""
     from strelitzia.scoring.targets import matches
 
     errors: list[str] = []
@@ -574,11 +598,12 @@ def validate_letter(paragraphs: list[str], evidence_slugs: list[str], library: "
     errors += [f"Cover letter: {e}" for e in validate_cover_letter(letter, mode="strict")["errors"]
                if not e.startswith("Too long")]
     projects = [library.project_by_slug(s) for s in evidence_slugs]
-    facts = " ".join(p.facts() for p in projects if p).replace(",", "")
+    facts = " ".join([*(p.facts() for p in projects if p), posting_text]).replace(",", "")
     missing = [n for n in dict.fromkeys(_numbers(body)) if not _number_in(n, facts)]
     if missing:
         cited = ", ".join(evidence_slugs) or "no projects"
-        errors.append(f"Cover letter number(s) {', '.join(missing)} are not in the facts of its evidence_slugs ({cited})")
+        errors.append(f"Cover letter number(s) {', '.join(missing)} are not in the facts of its evidence_slugs ({cited}) "
+                      "or the posting")
     if evidence is not None:
         for e in evidence.unevidenced():
             if e.target.is_term and matches(e.target, body, evidence.pairs):
@@ -589,10 +614,16 @@ def validate_letter(paragraphs: list[str], evidence_slugs: list[str], library: "
 
 # ── Hidden text and injection (rendered HTML and PDF) ─────────────────────
 
-# Instructions aimed at an AI screener. Screeners flag these and reject the application.
-INJECTION_PHRASES: tuple[str, ...] = (
-    "ignore previous", "ignore all previous", "ignore the above", "ai screener", "rank this candidate",
-    "system prompt", "hire this candidate", "as an ai language model",
+# Instructions aimed at an AI screener. Screeners flag these and reject the application. Patterns, not bare words, so
+# honest bullets about AI work ("designed system prompts", "built an AI screener") still pass.
+INJECTION_PATTERNS: tuple[str, ...] = (
+    r"\b(ignore|disregard|forget|override) (all |any )?(the )?(previous|prior|above|earlier|your)\b",
+    r"\b(note|message|instructions?) (to|for) (the |any |an )?(ai|llm|bot|screener|recruiter|reviewer)\b",
+    r"\b(dear|attention|hey|hello)[,:]? (the )?(ai|llm|bot|screener)\b",
+    r"\brank (this|the|me|my) (candidate|resume|application)\b",
+    r"\b(hire|shortlist|advance|select) this candidate\b",
+    r"\b(reveal|print|ignore|follow|repeat) (your |the )?system prompt\b",
+    r"\bas an ai language model\b",
 )
 MIN_FONT_PT = 6.0
 MIN_OPACITY = 0.5
@@ -694,11 +725,27 @@ def _page_background(rules) -> tuple[int, int, int]:
     return (255, 255, 255)
 
 
+def _rule_background(selector: str, rules, page: tuple[int, int, int]) -> tuple[int, int, int]:
+    """The background behind a rule's text: for '.header .name', the background a '.header' rule sets, else the page's."""
+    parts = selector.split(",")[0].replace(">", " ").split()
+    backgrounds = {}
+    for sel, decls in rules:
+        value = decls.get("background-color") or decls.get("background", "").split(" ")[0]
+        color = _parse_color(value) if value else None
+        if color:
+            for s in sel.split(","):
+                backgrounds[s.strip()] = color
+    for ancestor in reversed(parts[:-1]):
+        if ancestor in backgrounds:
+            return backgrounds[ancestor]
+    return page
+
+
 def _hidden_selectors(rules, background) -> tuple[set[str], set[str], set[str]]:
     """(tags, classes, ids) whose CSS rule hides text, from the last simple selector of each rule."""
     tags, classes, ids = set(), set(), set()
     for selector, decls in rules:
-        if not _hiding_reason(decls, background):
+        if not _hiding_reason(decls, _rule_background(selector, rules, background)):
             continue
         for sel in selector.split(","):
             last = sel.strip().split()[-1] if sel.strip() else ""
@@ -764,14 +811,17 @@ def validate_visible(html: str) -> list[str]:
     for selector, decls in rules:
         if selector.lower().startswith("@"):
             continue
-        reason = _hiding_reason(decls, background)
+        reason = _hiding_reason(decls, _rule_background(selector, rules, background))
         if reason:
             errors.append(f"CSS rule '{selector}': {reason}")
     text, inline = _visible_and_inline(html)
     errors += inline
     all_text = re.sub(r"<[^>]+>", " ", re.sub(r"<style[^>]*>.*?</style>", " ", html, flags=re.S | re.I))
     lowered = " ".join(html_mod.unescape(all_text).lower().split())
-    errors += [f"Instruction aimed at screeners: '{p}'" for p in INJECTION_PHRASES if p in lowered]
+    for pattern in INJECTION_PATTERNS:
+        m = re.search(pattern, lowered)
+        if m:
+            errors.append(f"Instruction aimed at screeners: '{m.group(0)}'")
     return errors
 
 

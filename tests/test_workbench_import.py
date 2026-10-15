@@ -107,6 +107,44 @@ def test_cover_letter_checks(conn, tmp_path):
     assert "Banned words: i am excited" in joined
 
 
+def test_number_in_the_headline_must_be_known(conn, tmp_path):
+    out = _import(conn, tmp_path, good_result(headline="Data engineer with 10 years leading a team of 37"))
+    assert any("Number(s) 10, 37 in the headline" in e for e in out.errors), out.errors
+    assert _import(conn, tmp_path, good_result(headline="Data engineer moving 40 million rows a day")).ok
+
+
+def test_unknown_tool_in_parentheses_in_skills_is_an_error(conn, tmp_path):
+    data = good_result()
+    data["resume"]["skills"][0]["items"] = "Python (PyTorch), SQL"
+    out = _import(conn, tmp_path, data)
+    assert any("Skill 'Python (PyTorch)'" in e for e in out.errors)
+    data["resume"]["skills"][0]["items"] = "Python (scikit-learn), SQL"
+    assert _import(conn, tmp_path, data).ok
+
+
+def test_cover_letter_may_use_numbers_from_the_posting(conn, tmp_path):
+    data = good_result()
+    data["cover_letter"]["paragraphs"][2] = ("Your platform serves 20 million riders, and I have built on a customer "
+                                             "data platform before. Happy to walk through any of this.")
+    assert not _import(conn, tmp_path, data).ok
+    conn.execute("UPDATE jobs SET full_description = full_description || ' Our platform serves 20 million riders.'")
+    conn.commit()
+    out = _import(conn, tmp_path, data)
+    assert out.ok, out.errors
+
+
+def test_jobs_with_the_same_site_and_title_keep_separate_files(conn, tmp_path):
+    a = _import(conn, tmp_path, good_result())
+    b_job = add_job_row(conn, url="https://example.com/jobs/43", job_key="fed987cba654")
+    b = wb.import_result(conn, b_job, reply(good_result(headline="Data engineer for Airflow pipelines")),
+                         inputs=inputs(), out_dir=tmp_path / "out")
+    assert a.ok and b.ok
+    assert a.files["resume"] != b.files["resume"] and a.files["resume_docx"] != b.files["resume_docx"]
+    rows = {r["url"]: dict(r) for r in conn.execute("SELECT * FROM jobs").fetchall()}
+    first = wb.current_result(rows["https://example.com/jobs/42"])
+    assert first["resume"]["headline"] == "Data engineer building Airflow and Spark pipelines"
+
+
 def test_slug_role_count_wording_checks(conn, tmp_path):
     data = good_result()
     data["resume"]["roles"][0]["bullets"].append(
