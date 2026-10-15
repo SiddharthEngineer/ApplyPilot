@@ -114,7 +114,9 @@ def set_status(conn, url: str, status: str | None, *, submitted_at: str | None =
     sets = ["user_status = ?", "status_updated_at = ?"]
     params: list = [status, now]
     if status == "submitted":
-        sets += ["submitted_at = ?", "responded_at = NULL"]
+        # Which draft and rules version went out, so callback rates can be compared over time.
+        sets += ["submitted_at = ?", "responded_at = NULL", "submitted_draft_version = draft_version",
+                 "submitted_rules_version = draft_rules_version"]
         params.append(_normalize_date(submitted_at) if submitted_at else now)
     elif status in RESPONSE_STATUSES:
         sets.append("responded_at = ?")

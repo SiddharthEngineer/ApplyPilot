@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from strelitzia.scoring.content_library import ContentLibrary
     from strelitzia.scoring.resume_model import TailoredResume
+    from strelitzia.scoring.targets import EvidenceMap
 
 log = logging.getLogger(__name__)
 
@@ -465,3 +466,120 @@ def validate_cover_letter(text: str, mode: str = "normal") -> dict:
         errors.append("Must start with 'Dear Hiring Manager,'")
 
     return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+# ── Claude workbench: checks on a pasted result ──────────────────────────
+
+DASHES = ("—", "–")
+
+
+def resume_parts(resume: "TailoredResume") -> list[tuple[str, str]]:
+    """(where, text) for every piece of a resume that a model wrote: headline, bullets, skills."""
+    parts = [("headline", resume.headline)] if resume.headline else []
+    for role in resume.roles:
+        for i, b in enumerate(role.bullets, 1):
+            parts.append((f"{role.role_key} bullet {i}", b.text))
+    parts += [(f"Skills ({cat})", items) for cat, items in resume.skills.items()]
+    return parts
+
+
+def validate_claims(resume: "TailoredResume", evidence: "EvidenceMap", known_text: str = "") -> list[str]:
+    """Every posting target the resume states (bullets, headline, Skills) must be evidenced.
+
+    Also extends the fabrication watchlist from the Skills section to bullets and the headline: a watchlist
+    term the candidate's material (known_text: library facts and base resume) doesn't mention is an error.
+    """
+    from strelitzia.scoring.targets import matches
+
+    errors: list[str] = []
+    parts = resume_parts(resume)
+    for e in evidence.unevidenced():
+        if not e.target.is_term:
+            continue
+        where = [w for w, text in parts if matches(e.target, text, evidence.pairs)]
+        if where:
+            errors.append(f"'{e.target.text}' is not backed by your content library or base resume "
+                          f"(found in {', '.join(where[:3])}); remove it")
+    known = known_text.lower()
+    for fake in sorted(FABRICATION_WATCHLIST):
+        if len(fake) <= 2 or fake in known:
+            continue
+        where = [w for w, text in parts if re.search(r"\b" + re.escape(fake) + r"\b", text.lower())]
+        if where:
+            errors.append(f"'{fake}' is not in your content library or base resume (found in {', '.join(where[:3])})")
+    return errors
+
+
+def validate_skills_known(resume: "TailoredResume", known_text: str) -> list[str]:
+    """Every item in the Skills section must appear in the library facts or the base resume."""
+    from strelitzia.scoring.targets import matches
+
+    errors = []
+    for cat, items in resume.skills.items():
+        for item in split_items(items):
+            if not matches(item, known_text):
+                errors.append(f"Skill '{item}' ({cat}) is not in your content library or base resume; remove it")
+    return errors
+
+
+def split_items(value: str) -> list[str]:
+    """'Airflow, CI/CD (GitHub Actions), AWS (EC2, S3)' -> ['Airflow', 'CI/CD (GitHub Actions)', 'AWS (EC2, S3)']."""
+    items, depth, cur = [], 0, ""
+    for ch in value:
+        depth += (ch == "(") - (ch == ")")
+        if ch in ",;" and depth == 0:
+            items.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    items.append(cur.strip())
+    return [i for i in items if i]
+
+
+def validate_wording(resume: "TailoredResume", bullet_max: int = 230) -> list[str]:
+    """Dashes, banned words, LLM self-talk and over-long bullets in what the model wrote."""
+    errors = []
+    for where, text in resume_parts(resume):
+        short = text if len(text) <= 60 else text[:57] + "..."
+        if any(d in text for d in DASHES):
+            errors.append(f"Em or en dash in {where}: '{short}'; use a comma, period or hyphen")
+        found = [w for w in BANNED_WORDS if re.search(r"\b" + re.escape(w) + r"\b", text.lower())]
+        if found:
+            errors.append(f"Banned words in {where}: {', '.join(found[:5])}")
+        leaks = [p for p in LLM_LEAK_PHRASES if p in text.lower()]
+        if leaks:
+            errors.append(f"Commentary in {where}: '{leaks[0]}'")
+        if where.startswith(tuple(r.role_key for r in resume.roles)) and len(text) > bullet_max:
+            errors.append(f"{where} is {len(text)} characters; at most {bullet_max}: '{short}'")
+    return errors
+
+
+def validate_letter(paragraphs: list[str], evidence_slugs: list[str], library: "ContentLibrary",
+                    evidence: "EvidenceMap | None" = None, sign_off: str = "", max_words: int = 250) -> list[str]:
+    """Cover-letter checks on a pasted letter: 3 paragraphs, the usual letter rules (strict), numbers
+    backed by the facts of its evidence_slugs, and no unevidenced posting targets."""
+    from strelitzia.scoring.targets import matches
+
+    errors: list[str] = []
+    paras = [p.strip() for p in paragraphs if p.strip()]
+    if len(paras) != 3:
+        errors.append(f"The cover letter has {len(paras)} paragraphs; it needs exactly 3")
+    body = "\n\n".join(paras)
+    words = len(body.split())
+    if words > max_words:
+        errors.append(f"The cover letter is {words} words; at most {max_words}")
+    letter = f"Dear Hiring Manager,\n\n{body}\n\n{sign_off}".strip()
+    errors += [f"Cover letter: {e}" for e in validate_cover_letter(letter, mode="strict")["errors"]
+               if not e.startswith("Too long")]
+    projects = [library.project_by_slug(s) for s in evidence_slugs]
+    facts = " ".join(p.facts() for p in projects if p).replace(",", "")
+    missing = [n for n in dict.fromkeys(_numbers(body)) if not _number_in(n, facts)]
+    if missing:
+        cited = ", ".join(evidence_slugs) or "no projects"
+        errors.append(f"Cover letter number(s) {', '.join(missing)} are not in the facts of its evidence_slugs ({cited})")
+    if evidence is not None:
+        for e in evidence.unevidenced():
+            if e.target.is_term and matches(e.target, body, evidence.pairs):
+                errors.append(f"Cover letter mentions '{e.target.text}', which your content library and base "
+                              "resume don't back; remove it")
+    return errors

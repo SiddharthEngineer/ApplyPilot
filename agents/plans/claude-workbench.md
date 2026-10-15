@@ -100,7 +100,7 @@ If that fails, plan `workspace-intake` hasn't merged yet. Change nothing, and fi
   The existing `tailored_resume_path`, `tailored_at`, `cover_letter_path` and `cover_letter_at` keep their meaning.
 **Validate:** `pytest tests/test_workbench_import.py -q` covers prose around the JSON, invalid JSON, an unevidenced skill in a bullet → error + fix
 prompt, a number not in the facts → error, a valid result → files written, `draft_version` 1 then 2. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 3: Parse-safe PDF, round-trip test, no hidden text
 **Runs:** unattended

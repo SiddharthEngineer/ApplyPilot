@@ -13,13 +13,30 @@ from __future__ import annotations
 import hashlib
 import html as html_mod
 import json
-from dataclasses import dataclass, field
+import logging
+import re
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 
-from strelitzia.database import job_company
-from strelitzia.scoring.content_library import ContentLibrary
-from strelitzia.scoring.targets import EvidenceMap, evidence_map
-from strelitzia.scoring.template import fixed_roles_from_resume, parse_base_resume
-from strelitzia.scoring.validator import BANNED_WORDS
+from strelitzia import config
+from strelitzia.database import Connection, job_company
+from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
+from strelitzia.scoring.resume_model import TailoredResume
+from strelitzia.scoring.targets import EvidenceMap, coverage, evidence_map, matches
+from strelitzia.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
+from strelitzia.scoring.validator import (
+    BANNED_WORDS,
+    resume_parts,
+    validate_claims,
+    validate_letter,
+    validate_provenance,
+    validate_resume_model,
+    validate_skills_known,
+    validate_wording,
+)
+
+log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 HEADLINE_MAX = 110
@@ -375,3 +392,210 @@ def job_packet(job: dict, library: ContentLibrary, base_resume_text: str, curren
                   + ("Start from the current draft in the packet. " if current else "")
                   + "End your reply with the JSON block.")
     return Packet(name=name, html=d.html(), text=text, prompt=prompt, evidence=ev)
+
+
+# ── Paste-back import ─────────────────────────────────────────────────────
+
+_FENCE = re.compile(r"```[ \t]*([A-Za-z]*)[ \t]*\n(.*?)```", re.S)
+
+
+def extract_result(text: str) -> dict:
+    """The result object from a pasted reply: the last ```json block, or the whole text if it is JSON.
+
+    Raises:
+        ValueError: no JSON block, invalid JSON, or JSON that doesn't match RESULT_SCHEMA.
+    """
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Nothing was pasted. Copy Claude's whole reply, including the ```json block at the end.")
+    blocks = [body for lang, body in _FENCE.findall(text) if lang.lower() in ("json", "")]
+    if blocks:
+        source, where = blocks[-1], "The last ```json block"
+    elif text.startswith("{"):
+        source, where = text, "The pasted text"
+    else:
+        raise ValueError("No ```json block found. Ask Claude to end its reply with the JSON block, then paste the "
+                         "whole reply.")
+    try:
+        data = json.loads(source)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{where} isn't valid JSON ({e.msg} at line {e.lineno}, column {e.colno}).") from e
+    errors = schema_errors(data, RESULT_SCHEMA)
+    if errors:
+        raise ValueError(f"{where} doesn't match the Strelitzia format: " + "; ".join(errors[:8]))
+    return data
+
+
+@dataclass
+class ImportOutcome:
+    ok: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    fix_prompt: str | None = None
+    draft_version: int | None = None
+    coverage: dict | None = None
+    unmet: list[str] = field(default_factory=list)
+    files: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def fix_prompt(errors: list[str]) -> str:
+    lines = ["These problems were found:"] + [f"{i}. {e}" for i, e in enumerate(errors, 1)]
+    lines.append("Keep everything else the same and reply with the corrected JSON.")
+    return "\n".join(lines)
+
+
+@dataclass
+class Inputs:
+    """What a paste is checked and rendered against (loaded from ~/.strelitzia by default)."""
+    library: ContentLibrary
+    base_resume_text: str
+    profile: dict
+    fixed: dict
+
+    @classmethod
+    def load(cls) -> Inputs:
+        if not config.CONTENT_LIBRARY_PATH.exists():
+            raise FileNotFoundError(f"No content library at {config.CONTENT_LIBRARY_PATH}")
+        base = config.RESUME_PATH.read_text(encoding="utf-8") if config.RESUME_PATH.exists() else ""
+        return cls(parse_content_library(config.CONTENT_LIBRARY_PATH), base, config.load_profile(), load_fixed())
+
+    def known_text(self) -> str:
+        """The candidate's real material: library facts and the base resume."""
+        facts = " ".join(p.facts() for r in self.library.roles for p in r.projects)
+        return f"{facts} {self.base_resume_text}"
+
+
+def output_prefix(job: dict) -> str:
+    safe_title = re.sub(r"[^\w\s-]", "", job.get("title") or "")[:50].strip().replace(" ", "_")
+    safe_site = re.sub(r"[^\w\s-]", "", job.get("site") or "")[:20].strip().replace(" ", "_")
+    return f"{safe_site}_{safe_title}"
+
+
+def check_result(data: dict, job: dict, inputs: Inputs) -> tuple[TailoredResume | None, list[str], list[str]]:
+    """All deterministic checks on a parsed result. Returns (resume, errors, warnings)."""
+    from strelitzia.scoring.tailor import _role_slots
+
+    library = inputs.library.ensure_keys()
+    errors = schema_errors(data, result_schema(library))
+    if errors:
+        return None, errors, []
+    base = parse_base_resume(inputs.base_resume_text, library) if inputs.base_resume_text.strip() else None
+    fixed_roles = {**(fixed_roles_from_resume(base) if base else {}), **(inputs.fixed.get("roles") or {})}
+    try:
+        resume = TailoredResume.from_llm_json(data["resume"], library, fixed_roles=fixed_roles)
+    except ValueError as e:
+        return None, [str(e)], []
+    order = {r.key: i for i, r in enumerate(library.roles)}
+    resume.roles.sort(key=lambda r: order.get(r.role_key, len(order)))
+
+    ev = job_evidence(job, library, inputs.base_resume_text)
+    known = inputs.known_text()
+    # The skills boundary doesn't make a skill claimable, so the watchlist check sees only real material.
+    model = validate_resume_model(resume, {**inputs.profile, "skills_boundary": {}}, mode="strict",
+                                  slots=_role_slots(library, base), known_text=known)
+    errors = [e for e in model["errors"] if not e.startswith(("Banned words", "LLM self-talk"))]
+    errors += validate_wording(resume, BULLET_MAX)
+    errors += validate_provenance(resume, library)
+    errors += validate_claims(resume, ev, known)
+    errors += validate_skills_known(resume, known)
+    letter = data.get("cover_letter")
+    if letter:
+        personal = inputs.profile.get("personal", {})
+        errors += validate_letter(letter["paragraphs"], letter["evidence_slugs"], library, ev,
+                                  sign_off=personal.get("preferred_name") or personal.get("full_name", ""),
+                                  max_words=COVER_MAX_WORDS)
+    warnings = _coverage_warnings(resume, ev)
+    return resume, list(dict.fromkeys(errors)), warnings
+
+
+def _coverage_warnings(resume: TailoredResume, ev: EvidenceMap) -> list[str]:
+    text = " ".join(t for _, t in resume_parts(resume))
+    return [f"Evidenced required qualification not on the resume: {e.target.text}"
+            for e in ev.evidenced() if e.target.kind == "required" and not matches(e.target, text, ev.pairs)]
+
+
+def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None = None,
+                  out_dir: Path | None = None) -> ImportOutcome:
+    """Check a pasted reply; on success render the files and record a new draft version.
+
+    On any error nothing is saved, and the outcome carries a `fix_prompt` to paste back into the chat.
+    """
+    try:
+        data = extract_result(text)
+    except ValueError as e:
+        return ImportOutcome(ok=False, errors=[str(e)], fix_prompt=fix_prompt([str(e)]))
+    inputs = inputs or Inputs.load()
+    resume, errors, warnings = check_result(data, job, inputs)
+    if errors:
+        return ImportOutcome(ok=False, errors=errors, warnings=warnings, fix_prompt=fix_prompt(errors))
+
+    out_dir = Path(out_dir) if out_dir else config.TAILORED_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = output_prefix(job)
+    try:
+        files, render_warnings = render_outputs(resume, data, job, inputs, out_dir, prefix)
+    except OverflowError as e:
+        msg = str(e)
+        return ImportOutcome(ok=False, errors=[msg], warnings=warnings, fix_prompt=fix_prompt([msg]))
+    warnings += render_warnings
+
+    ev = job_evidence(job, inputs.library, inputs.base_resume_text)
+    cov = coverage(resume_to_text(resume, inputs.profile, inputs.fixed), ev.targets(), ev.pairs)
+    unmet = [e.target.text for e in ev.unevidenced()]
+    row = conn.execute("SELECT draft_version FROM jobs WHERE url = ?", (job["url"],)).fetchone()
+    version = ((row[0] if row else None) or 0) + 1
+    now = datetime.now(UTC).isoformat()
+    report = {"draft_version": version, "rules_version": RULES_VERSION, "at": now, "coverage": cov.to_dict(),
+              "unmet": unmet, "warnings": warnings, "notes_for_user": data.get("notes_for_user") or ""}
+
+    (out_dir / f"{prefix}.json").write_text(
+        resume.to_json(job_url=job["url"], draft_version=version, rules_version=RULES_VERSION), encoding="utf-8")
+    (out_dir / f"{prefix}_RESULT.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    (out_dir / f"{prefix}_REPORT.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out_dir / f"{prefix}.txt").write_text(resume_to_text(resume, inputs.profile, inputs.fixed), encoding="utf-8")
+
+    cover_path = files.get("cover_letter")
+    conn.execute(
+        "UPDATE jobs SET tailored_resume_path = ?, tailored_at = ?, draft_version = ?, draft_rules_version = ?, "
+        "tailor_report = ?, resume_docx_path = ?, cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
+        (files["resume"], now, version, RULES_VERSION, json.dumps(report), files.get("resume_docx"),
+         cover_path, now if cover_path else None, job["url"]),
+    )
+    conn.commit()
+    return ImportOutcome(ok=True, warnings=warnings, draft_version=version, coverage=cov.to_dict(), unmet=unmet,
+                         files=files)
+
+
+def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs, out_dir: Path,
+                   prefix: str) -> tuple[dict[str, str], list[str]]:
+    """Render the resume PDF (fit to one page). Returns ({kind: path}, warnings).
+
+    Raises:
+        OverflowError: the resume is still longer than one page after trimming to the bullet minimums.
+    """
+    from strelitzia.scoring.tailor import _role_slots, fit_to_one_page
+
+    base = parse_base_resume(inputs.base_resume_text, inputs.library) if inputs.base_resume_text.strip() else None
+    pdf = out_dir / f"{prefix}.pdf"
+    info, dropped = fit_to_one_page(resume, inputs.profile, inputs.fixed, _role_slots(inputs.library, base), pdf)
+    if info["overflow"]:
+        raise OverflowError("The resume is longer than one page even with the fewest bullets allowed. "
+                            "Shorten the bullets (aim for one printed line each) and the Skills lines.")
+    warnings = [f"Dropped to fit one page: '{t}'" for t in dropped]
+    return {"resume": str(pdf)}, warnings
+
+
+def current_result(job: dict) -> dict | None:
+    """The last accepted result for this job (the packet's current draft), if there is one."""
+    path = job.get("tailored_resume_path")
+    if not path:
+        return None
+    p = Path(path)
+    sidecar = p.with_name(p.stem + "_RESULT.json")
+    try:
+        return json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
