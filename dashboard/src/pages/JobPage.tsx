@@ -9,6 +9,7 @@ import FitBreakdown from '../components/FitBreakdown';
 import Flower from '../components/Flower';
 import StatusBadge from '../components/StatusBadge';
 import TaskProgress from '../components/TaskProgress';
+import WorkbenchPanel from '../components/WorkbenchPanel';
 import { day, humanize, roleLabel, STATUS_LABELS, WORK_MODE_LABELS } from '../labels';
 import type { JobDetail, JobDetails, Task, UserStatus } from '../types';
 
@@ -130,7 +131,6 @@ export default function JobPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [task, setTask] = useState<Task | null>(null); // the latest generation task for this job
   const [rescoreTask, setRescoreTask] = useState<Task | null>(null); // a rescore still queued or running
   const [intakeTask, setIntakeTask] = useState<Task | null>(null); // Add job: reading the posting
   const [notes, setNotes] = useState('');
@@ -140,7 +140,6 @@ export default function JobPage() {
     const [detail, tasks] = await Promise.all([api.getJob(key, signal), api.listJobTasks(key, signal)]);
     setJob(detail);
     setNotes(detail.notes ?? '');
-    setTask(tasks.find((t) => t.kind !== 'rescore' && t.kind !== 'intake') ?? null);
     setIntakeTask(tasks.find((t) => t.kind === 'intake') ?? null);
     const rescoring = tasks.find((t) => t.kind === 'rescore');
     setRescoreTask(rescoring && (rescoring.state === 'queued' || rescoring.state === 'running') ? rescoring : null);
@@ -169,12 +168,6 @@ export default function JobPage() {
     }
   }
 
-  const onGenerate = (what: { resume: boolean; cover: boolean }) =>
-    act(async () => {
-      const t = await api.generate(key, what);
-      setTask(t);
-      return api.getJob(key); // the job is now In progress
-    });
   const onStatus = (status: UserStatus | null, submittedAt?: string) => act(() => api.setStatus(key, status, submittedAt));
   const onRescore = () =>
     act(async () => {
@@ -183,10 +176,6 @@ export default function JobPage() {
   const onRescoreFinish = useCallback((t: Task) => {
     setRescoreTask(t);
     api.getJob(key).then((d) => setJob(d)).catch(() => {}); // the new breakdown
-  }, [key]);
-  const onTaskFinish = useCallback((t: Task) => {
-    setTask(t);
-    api.getJob(key).then((d) => setJob(d)).catch(() => {}); // new Drive links
   }, [key]);
   const onIntakeFinish = useCallback((t: Task) => {
     setIntakeTask(t);
@@ -209,7 +198,6 @@ export default function JobPage() {
     );
   }
 
-  const generating = task?.state === 'queued' || task?.state === 'running';
   const d = job.details;
   const reading = intakeTask?.state === 'queued' || intakeTask?.state === 'running'
     || job.intake_status === 'queued' || job.intake_status === 'scraping';
@@ -249,8 +237,7 @@ export default function JobPage() {
       {rescoreTask && <TaskProgress task={rescoreTask} onFinish={onRescoreFinish} />}
       <LinkRow job={job} />
 
-      <ActionBar job={job} generating={generating} busy={busy} onGenerate={onGenerate} onStatus={onStatus} />
-      {task && <TaskProgress task={task} onFinish={onTaskFinish} />}
+      <ActionBar job={job} busy={busy} onStatus={onStatus} />
       {actionError && <p className="error" role="alert">{actionError}</p>}
 
       {job.submitted_date && (
@@ -284,6 +271,7 @@ export default function JobPage() {
 
       <ContactsPanel job={job} onChange={setJob} />
       <InterviewsPanel job={job} onChange={setJob} />
+      <WorkbenchPanel job={job} onSaved={setJob} />
 
       <div className="sections">
         {d ? (

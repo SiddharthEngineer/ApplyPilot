@@ -565,8 +565,10 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
     row = conn.execute("SELECT draft_version FROM jobs WHERE url = ?", (job["url"],)).fetchone()
     version = ((row[0] if row else None) or 0) + 1
     now = datetime.now(UTC).isoformat()
+    history = draft_history(job) + [{"version": version, "at": now, "rules_version": RULES_VERSION}]
     report = {"draft_version": version, "rules_version": RULES_VERSION, "at": now, "coverage": cov.to_dict(),
-              "unmet": unmet, "warnings": warnings, "notes_for_user": data.get("notes_for_user") or ""}
+              "unmet": unmet, "warnings": warnings, "notes_for_user": data.get("notes_for_user") or "",
+              "history": history}
 
     (out_dir / f"{prefix}.json").write_text(
         resume.to_json(job_url=job["url"], draft_version=version, rules_version=RULES_VERSION), encoding="utf-8")
@@ -639,6 +641,20 @@ def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs
     return files, [f"Dropped to fit one page: '{t}'" for t in dropped]
 
 
+def tailor_report(job: dict) -> dict:
+    """The job's last accepted draft report (coverage, unmet, warnings, history), or {}."""
+    try:
+        report = json.loads(job.get("tailor_report") or "{}")
+    except ValueError:
+        return {}
+    return report if isinstance(report, dict) else {}
+
+
+def draft_history(job: dict) -> list[dict]:
+    """[{"version", "at", "rules_version"}] for every accepted paste, oldest first."""
+    return list(tailor_report(job).get("history") or [])
+
+
 def current_result(job: dict) -> dict | None:
     """The last accepted result for this job (the packet's current draft), if there is one."""
     path = job.get("tailored_resume_path")
@@ -653,6 +669,14 @@ def current_result(job: dict) -> dict | None:
 
 
 # ── Drive Docs (Claude Project inputs and job packets) ─────────────────────
+
+PROJECT_INSTRUCTIONS = (
+    "You tailor my resume and cover letter for one job per chat. The \"Strelitzia rules\" document is binding: "
+    "follow every rule in it. Use only facts from the \"Strelitzia content library\" document and the job's "
+    "Claude packet; never claim a qualification the packet marks unevidenced, and never invent numbers. "
+    "When I ask for changes, keep everything else the same. End every reply with exactly one ```json block "
+    "that matches the schema in the rules document, even when I only ask a question."
+)
 
 STATIC_DOCS = {"rules": "Strelitzia rules", "library": "Strelitzia content library"}
 _STATE_KEY = "claude_doc:{}"

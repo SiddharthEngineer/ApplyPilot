@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes } from 'react-router-dom';
 import AddJobDialog from './components/AddJobDialog';
 import Flower from './components/Flower';
 import Footer from './components/Footer';
+import ClaudeSetupPage from './pages/ClaudeSetupPage';
 import ContactsPage from './pages/ContactsPage';
 import JobPage from './pages/JobPage';
 import JobsPage from './pages/JobsPage';
@@ -21,6 +22,7 @@ export default function App() {
           <NavLink to="/" end>Jobs</NavLink>
           <NavLink to="/contacts">Contacts</NavLink>
           <NavLink to="/preferences">Preferences</NavLink>
+          <NavLink to="/claude-setup">Claude setup</NavLink>
         </nav>
         <button type="button" className="primary add-job-button" onClick={() => setAdding(true)}>Add job</button>
       </header>
@@ -31,6 +33,7 @@ export default function App() {
           <Route path="/jobs/:key" element={<JobPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/preferences" element={<PreferencesPage />} />
+          <Route path="/claude-setup" element={<ClaudeSetupPage />} />
           <Route path="*" element={<p className="notice">Page not found. <Link to="/">Back to jobs</Link></p>} />
         </Routes>
       </main>

@@ -1,7 +1,7 @@
 // Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
 import type {
-  AddJobInput, AddJobResult, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets, Interview,
-  InterviewFields, JobDetail, JobList, JobQuery, Preferences, PreferencesResponse, ReassessPreview, Relation,
+  AddJobInput, AddJobResult, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets, Interview,
+  ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview, Relation,
   SavePreferencesResult, Task, UserStatus,
 } from './types';
 
@@ -77,8 +77,52 @@ export function patchJob(key: string, patch: { submitted_at?: string; notes?: st
   return request<JobDetail>(`/jobs/${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
-export function generate(key: string, what: { resume: boolean; cover: boolean }): Promise<Task> {
-  return request<Task>(`/jobs/${encodeURIComponent(key)}/generate`, { method: 'POST', body: JSON.stringify(what) });
+/** Write the job's Claude packet (a Google Doc when Drive is set up) and get the prompt to paste in Claude. */
+export function openPacket(key: string): Promise<PacketResult> {
+  return request<PacketResult>(`/jobs/${encodeURIComponent(key)}/packet`, { method: 'POST' });
+}
+
+/** Check and save a pasted Claude reply: ok with the saved draft, or not ok with the errors and a fix message. */
+export async function pasteResult(key: string, text: string): Promise<PasteOutcome> {
+  const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(key)}/result`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Strelitzia': '1' },
+    body: JSON.stringify({ text }),
+  });
+  if (res.status === 422) {
+    const body = await res.clone().json().catch(() => null);
+    if (body && Array.isArray(body.errors)) {
+      return { ok: false, errors: body.errors, warnings: body.warnings ?? [], fix_prompt: body.fix_prompt ?? '' };
+    }
+  }
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  return { ok: true, ...((await res.json()) as ImportResult) };
+}
+
+export function getClaudeSetup(signal?: AbortSignal): Promise<ClaudeSetup> {
+  return request<ClaudeSetup>('/claude/setup', { signal });
+}
+
+/** Write (or refresh) the rules and content-library Docs in Drive. */
+export function publishClaudeDocs(): Promise<ClaudeSetup> {
+  return request<ClaudeSetup>('/claude/docs', { method: 'POST' });
+}
+
+/** Copy text to the clipboard (with a fallback for browsers without the async clipboard API). */
+export async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  document.body.appendChild(area);
+  area.select();
+  try {
+    if (!document.execCommand('copy')) throw new Error('Copy failed; select the text and copy it by hand.');
+  } finally {
+    area.remove();
+  }
 }
 
 export function getTask(id: string, signal?: AbortSignal): Promise<Task> {

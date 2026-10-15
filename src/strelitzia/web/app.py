@@ -10,6 +10,7 @@ basic-auth credentials on cross-site form posts, but a cross-site form can't set
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend
 from strelitzia.scoring import preferences as prefs_mod
+from strelitzia.scoring import workbench
 from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
 from strelitzia.web import queries, tasks
 
@@ -33,6 +35,7 @@ LEGACY_CSRF_HEADER = "X-ApplyPilot"  # sent by dashboard bundles from before the
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 api = APIRouter(prefix=f"{PREFIX}/api")
+log = logging.getLogger(__name__)
 
 
 def db_conn(request: Request) -> Connection:
@@ -132,9 +135,46 @@ def job_detail(conn: Connection, job: dict) -> dict:
             "drive_folder": job.get("drive_folder_url"),
             "resume": job.get("resume_drive_url"),
             "cover_letter": job.get("cover_letter_drive_url"),
+            "packet": job.get("packet_doc_url"),
+            **_file_links(job),
         },
+        **_draft_fields(job),
     )
     return out
+
+
+# Local draft files served by GET /jobs/{key}/files/{kind}: kind -> jobs column.
+_FILE_COLUMNS = {"resume_pdf": "tailored_resume_path", "resume_docx": "resume_docx_path",
+                 "cover_letter_pdf": "cover_letter_path"}
+_FILE_SUFFIX = {"resume_pdf": ".pdf", "resume_docx": ".docx", "cover_letter_pdf": ".pdf"}
+
+
+def _local_file(job: dict, kind: str) -> Path | None:
+    path = job.get(_FILE_COLUMNS[kind])
+    if not path:
+        return None
+    p = Path(path).with_suffix(_FILE_SUFFIX[kind])
+    return p if p.is_file() else None
+
+
+def _file_links(job: dict) -> dict:
+    """{kind: API URL} for each draft file still on disk (PDFs moved to Drive are linked as resume/cover_letter)."""
+    return {kind: f"{PREFIX}/api/jobs/{job['job_key']}/files/{kind}"
+            for kind in _FILE_COLUMNS if _local_file(job, kind)}
+
+
+def _draft_fields(job: dict) -> dict:
+    report = workbench.tailor_report(job)
+    return {
+        "draft_version": job.get("draft_version"),
+        "draft_rules_version": job.get("draft_rules_version"),
+        "coverage": report.get("coverage"),
+        "unmet": report.get("unmet") or [],
+        "warnings": report.get("warnings") or [],
+        "notes_for_user": report.get("notes_for_user") or "",
+        "draft_history": workbench.draft_history(job),
+        "packet_doc_url": job.get("packet_doc_url"),
+    }
 
 
 @api.get("/jobs/{key}")
@@ -175,6 +215,114 @@ def patch_job(key: str, body: JobPatch, request: Request) -> dict:
         conn.execute("UPDATE jobs SET notes = ? WHERE url = ?", (body.notes, job["url"]))
         conn.commit()
     return job_detail(conn, job_by_key(conn, key))
+
+
+@api.get("/jobs/{key}/files/{kind}")
+def get_job_file(key: str, kind: Literal["resume_pdf", "resume_docx", "cover_letter_pdf"], request: Request):
+    job = job_by_key(db_conn(request), key)
+    path = _local_file(job, kind)
+    if path is None:
+        raise HTTPException(status_code=404, detail="No such file on this server")
+    return FileResponse(path, filename=path.name)
+
+
+def _workbench_inputs() -> workbench.Inputs:
+    try:
+        return workbench.Inputs.load()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=409, detail=f"{e}. Add your content library first (strelitzia init).") from e
+
+
+def _drive_client():
+    """A Drive client when Drive is authorized, else None (the workbench falls back to the clipboard)."""
+    from strelitzia.storage.drive import DriveClient, drive_status
+
+    if drive_status()[0] != "authorized":
+        return None
+    return DriveClient.from_credentials()
+
+
+@api.post("/jobs/{key}/packet")
+def post_packet(key: str, request: Request) -> dict:
+    """Write the job's Claude packet (a Drive Doc when Drive is set up) and return the prompt to paste in Claude."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    inputs = _workbench_inputs()
+    current = workbench.current_result(job)
+    drive_error = None
+    try:
+        client = _drive_client()
+        if client is not None:
+            workbench.publish_static_docs(client, conn, inputs)
+            _, url = workbench.publish_packet(client, conn, job, inputs)
+            packet = workbench.job_packet(job, inputs.library, inputs.base_resume_text, current, inline=False)
+            return {"prompt": packet.prompt, "doc_url": url, "inline": False, "rules_version": workbench.RULES_VERSION}
+    except Exception as e:  # noqa: BLE001 -- Drive trouble shouldn't block the clipboard flow
+        log.warning("Drive packet failed for %s: %s", key, e)
+        drive_error = f"Couldn't write the packet to Drive ({e}); the full packet was copied instead."
+    packet = workbench.job_packet(job, inputs.library, inputs.base_resume_text, current, inline=True)
+    return {"prompt": packet.prompt, "doc_url": None, "inline": True, "rules_version": workbench.RULES_VERSION,
+            "drive_error": drive_error}
+
+
+class PastedResult(BaseModel):
+    text: str = Field(max_length=200_000)
+
+
+@api.post("/jobs/{key}/result")
+def post_result(key: str, body: PastedResult, request: Request):
+    """Check a pasted Claude reply. 422 with errors and a fix message, or 200 with the saved draft and the job."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    outcome = workbench.import_result(conn, job, body.text, _workbench_inputs())
+    if not outcome.ok:
+        return JSONResponse({"detail": outcome.errors[0] if outcome.errors else "The result didn't pass the checks",
+                             "errors": outcome.errors, "warnings": outcome.warnings,
+                             "fix_prompt": outcome.fix_prompt}, status_code=422)
+    warnings = list(outcome.warnings)
+    try:
+        client = _drive_client()
+        if client is not None:
+            from strelitzia.storage.sync import sync_job
+
+            sync_job(conn, client, job_by_key(conn, key))
+    except Exception as e:  # noqa: BLE001 -- the files are saved locally
+        log.warning("Drive upload failed for %s: %s", key, e)
+        warnings.append(f"Saved, but the Drive upload failed: {e}")
+    return {"outcome": {"draft_version": outcome.draft_version, "warnings": warnings,
+                        "coverage": outcome.coverage, "unmet": outcome.unmet},
+            "job": job_detail(conn, job_by_key(conn, key))}
+
+
+@api.get("/claude/setup")
+def claude_setup(request: Request) -> dict:
+    """What the Claude setup page shows: the Project Docs, the rules version, Drive status, the instructions."""
+    from strelitzia.storage.drive import drive_status
+
+    state, detail = drive_status()
+    docs = workbench.published_static_docs(db_conn(request))
+    return {
+        "drive": state == "authorized", "drive_detail": detail,
+        "rules_version": workbench.RULES_VERSION,
+        "docs": [{"kind": kind, "name": name, "url": (docs.get(kind) or {}).get("url"),
+                  "changed_at": (docs.get(kind) or {}).get("changed_at")}
+                 for kind, name in workbench.STATIC_DOCS.items()],
+        "project_name": "Strelitzia Resumes",
+        "project_instructions": workbench.PROJECT_INSTRUCTIONS,
+    }
+
+
+@api.post("/claude/docs")
+def publish_claude_docs(request: Request) -> dict:
+    """Write (or refresh) the rules and content-library Docs in Drive."""
+    try:
+        client = _drive_client()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if client is None:
+        raise HTTPException(status_code=409, detail="Google Drive isn't set up. Run `strelitzia drive auth`.")
+    workbench.publish_static_docs(client, db_conn(request), _workbench_inputs(), force=True)
+    return claude_setup(request)
 
 
 class GenerateRequest(BaseModel):

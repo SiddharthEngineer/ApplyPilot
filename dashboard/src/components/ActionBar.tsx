@@ -4,32 +4,16 @@ import type { JobDetail, UserStatus } from '../types';
 
 interface Props {
   job: JobDetail;
-  generating: boolean; // a task for this job is queued or running
   busy: boolean; // a request from this page is in flight
-  onGenerate: (what: { resume: boolean; cover: boolean }) => void;
   onStatus: (status: UserStatus | null, submittedAt?: string) => void;
 }
 
-export default function ActionBar({ job, generating, busy, onGenerate, onStatus }: Props) {
+export default function ActionBar({ job, busy, onStatus }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [date, setDate] = useState(todayIso);
-  const disabled = generating || busy;
 
   return (
     <div className="action-bar">
-      <div className="action-group" role="group" aria-label="Generate">
-        <button type="button" disabled={disabled} onClick={() => onGenerate({ resume: true, cover: false })}>
-          Generate resume
-        </button>
-        <button type="button" disabled={disabled} onClick={() => onGenerate({ resume: false, cover: true })}
-          title="Tailors the resume first if it hasn't been">
-          Generate cover letter
-        </button>
-        <button type="button" className="primary" disabled={disabled} onClick={() => onGenerate({ resume: true, cover: true })}>
-          Generate both
-        </button>
-      </div>
-
       <div className="action-group" role="group" aria-label="Status">
         {submitting ? (
           <form

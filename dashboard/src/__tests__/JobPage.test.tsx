@@ -30,9 +30,6 @@ function renderJob() {
   );
 }
 
-const generateButtons = () => ['Generate resume', 'Generate cover letter', 'Generate both']
-  .map((name) => screen.getByRole('button', { name }));
-
 beforeEach(() => {
   vi.mocked(api.getJob).mockResolvedValue(jobDetail());
   vi.mocked(api.listJobTasks).mockResolvedValue([]);
@@ -129,50 +126,101 @@ describe('JobPage status actions', () => {
   });
 });
 
-describe('JobPage generation', () => {
-  it('disables the generate buttons while a task runs', async () => {
-    vi.mocked(api.listJobTasks).mockResolvedValue([task('running')]);
-    vi.mocked(api.getTask).mockResolvedValue(task('running'));
-    renderJob();
-    await screen.findByRole('heading', { name: 'Data Scientist' });
-    generateButtons().forEach((b) => expect(b).toBeDisabled());
-    expect(screen.getByRole('status')).toHaveTextContent('Generating resume and cover letter');
-  });
+const saved = {
+  draft_version: 1, draft_rules_version: 'r1234567',
+  coverage: { covered: ['Python', 'SQL'], missing: ['PhD in statistics'], pct_required: 100, pct_preferred: 0 },
+  unmet: ['PhD in statistics'],
+  draft_history: [{ version: 1, at: '2026-10-15T10:00:00+00:00', rules_version: 'r1234567' }],
+};
 
-  it('Generate both polls until done, then shows the Drive links', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const drive = {
-      posting: 'https://example.com/job/1', apply: null, drive_folder: 'https://drive.google.com/drive/folders/F',
-      resume: 'https://drive.google.com/file/d/R/view', cover_letter: 'https://drive.google.com/file/d/C/view',
-    };
-    vi.mocked(api.generate).mockResolvedValue(task('queued'));
-    vi.mocked(api.getTask).mockResolvedValueOnce(task('running')).mockResolvedValueOnce(task('done'));
-    renderJob();
-    await user.click(await screen.findByRole('button', { name: 'Generate both' }));
-    expect(api.generate).toHaveBeenCalledWith('abc123', { resume: true, cover: true });
-    expect(await screen.findByRole('status')).toHaveTextContent('Queued');
-    generateButtons().forEach((b) => expect(b).toBeDisabled());
-
-    vi.mocked(api.getJob).mockResolvedValue(jobDetail({ status: 'in_progress', status_color: 'yellow', links: drive }));
-    await act(() => vi.advanceTimersByTimeAsync(3000));
-    expect(screen.getByRole('status')).toHaveTextContent('Generating');
-    await act(() => vi.advanceTimersByTimeAsync(3000));
-    expect(screen.getByRole('status')).toHaveTextContent('Generated resume and cover letter in 29s');
-    expect(await screen.findByRole('link', { name: /Drive folder/ })).toHaveAttribute('href', drive.drive_folder);
-    expect(screen.getByRole('link', { name: /Resume/ })).toHaveAttribute('href', drive.resume);
-    expect(screen.getByRole('link', { name: /Cover letter/ })).toHaveAttribute('href', drive.cover_letter);
-    generateButtons().forEach((b) => expect(b).toBeEnabled());
-  });
-
-  it('shows a failed task and the API error for a rejected request', async () => {
+describe('JobPage Claude workbench', () => {
+  it('Open in Claude copies the short prompt and links the packet Doc', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.listJobTasks).mockResolvedValue([task('error')]);
-    vi.mocked(api.generate).mockRejectedValue(new Error('Choose a resume, a cover letter, or both')) // ApiError is auto-mocked;
+    vi.mocked(api.openPacket).mockResolvedValue({
+      prompt: "In this project, tailor my resume and cover letter for the job in the Google Doc 'Acme'.",
+      doc_url: 'https://docs.google.com/document/d/P/edit', inline: false, rules_version: 'r1234567',
+    });
     renderJob();
-    expect(await screen.findByRole('status')).toHaveTextContent('Claude API is overloaded');
-    await user.click(screen.getByRole('button', { name: 'Generate resume' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a resume');
+    await user.click(await screen.findByRole('button', { name: 'Open in Claude' }));
+    expect(api.openPacket).toHaveBeenCalledWith('abc123');
+    expect(api.copyText).toHaveBeenCalledWith(expect.stringContaining('In this project'));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Copied the prompt');
+    expect(status).toHaveTextContent('rules r1234567');
+    expect(within(status).getByRole('link', { name: /Packet Doc/ })).toHaveAttribute('href', 'https://docs.google.com/document/d/P/edit');
+    expect(within(status).getByRole('link', { name: /claude.ai/ })).toBeInTheDocument();
+  });
+
+  it('without Drive the full packet is copied', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.openPacket).mockResolvedValue({ prompt: 'FULL PACKET', doc_url: null, inline: true, rules_version: 'r1' });
+    renderJob();
+    await user.click(await screen.findByRole('button', { name: 'Open in Claude' }));
+    expect(api.copyText).toHaveBeenCalledWith('FULL PACKET');
+    expect(await screen.findByRole('status')).toHaveTextContent("Copied the full packet (Drive isn't set up)");
+    expect(screen.queryByRole('link', { name: /Packet Doc/ })).toBeNull();
+  });
+
+  it('a failed copy shows the prompt to copy by hand', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.openPacket).mockResolvedValue({ prompt: 'FULL PACKET', doc_url: null, inline: true, rules_version: 'r1' });
+    vi.mocked(api.copyText).mockRejectedValueOnce(new Error('denied'));
+    renderJob();
+    await user.click(await screen.findByRole('button', { name: 'Open in Claude' }));
+    expect(await screen.findByRole('status')).toHaveTextContent("Couldn't copy: select the prompt below");
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('FULL PACKET');
+    expect(screen.queryByRole('link', { name: /Packet Doc/ })).toBeNull();
+  });
+
+  it('a failed paste lists the errors and copies the fix message', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.pasteResult).mockResolvedValue({
+      ok: false, errors: ['Kubernetes is not backed by your library'], warnings: [],
+      fix_prompt: 'These problems were found:\n1. Kubernetes is not backed by your library',
+    });
+    renderJob();
+    const save = await screen.findByRole('button', { name: 'Check & save' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Paste result' }), { target: { value: '```json\n{}\n```' } });
+    await user.click(save);
+    expect(api.pasteResult).toHaveBeenCalledWith('abc123', '```json\n{}\n```');
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('list', { name: 'Problems' })).toHaveTextContent('Kubernetes is not backed');
+    await user.click(within(alert).getByRole('button', { name: 'Copy fix message' }));
+    expect(api.copyText).toHaveBeenCalledWith(expect.stringContaining('These problems were found'));
+    expect(within(alert).getByRole('button', { name: 'Copied fix message' })).toBeInTheDocument();
+  });
+
+  it('a saved paste shows the files, coverage and draft history', async () => {
+    const user = userEvent.setup();
+    const links = {
+      ...jobDetail().links, resume: 'https://drive.google.com/file/d/R/view',
+      resume_docx: '/app/api/jobs/abc123/files/resume_docx', cover_letter: 'https://drive.google.com/file/d/C/view',
+    };
+    vi.mocked(api.pasteResult).mockResolvedValue({
+      ok: true, outcome: { draft_version: 1, warnings: ["Dropped to fit one page: 'x'"], coverage: saved.coverage, unmet: saved.unmet },
+      job: jobDetail({ ...saved, links }),
+    });
+    renderJob();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Paste result' }), { target: { value: 'reply' } });
+    await user.click(screen.getByRole('button', { name: 'Check & save' }));
+    expect(await screen.findByText('Saved draft v1.')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Warnings' })).toHaveTextContent('Dropped to fit one page');
+    const files = screen.getByRole('navigation', { name: 'Files' });
+    expect(within(files).getByRole('link', { name: /Resume PDF/ })).toHaveAttribute('href', links.resume);
+    expect(within(files).getByRole('link', { name: /Resume DOCX/ })).toHaveAttribute('href', links.resume_docx);
+    expect(within(files).getByRole('link', { name: /Cover letter PDF/ })).toHaveAttribute('href', links.cover_letter);
+    const targeting = screen.getByRole('region', { name: 'Resume targeting' });
+    expect(targeting).toHaveTextContent('100% of the required qualifications');
+    expect(within(targeting).getByRole('list', { name: 'Not on your resume' })).toHaveTextContent('PhD in statistics');
+    expect(screen.getByRole('list', { name: 'Draft history' })).toHaveTextContent('v1 · 2026-10-15 · rules r1234567');
+  });
+
+  it('a job without a draft shows no coverage', async () => {
+    renderJob();
+    await screen.findByRole('button', { name: 'Open in Claude' });
+    expect(screen.queryByRole('region', { name: 'Resume targeting' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Generate/ })).toBeNull();
   });
 });
 
@@ -210,7 +258,6 @@ describe('JobPage fit breakdown', () => {
     expect(api.rescore).toHaveBeenCalledWith('abc123');
     expect(await screen.findByRole('status')).toHaveTextContent('Queued: assessment');
     expect(screen.getByRole('button', { name: 'Rescore' })).toBeDisabled();
-    generateButtons().forEach((b) => expect(b).toBeEnabled()); // generation isn't blocked by a rescore
 
     vi.mocked(api.getJob).mockResolvedValue(jobDetail({ fit_score: 95 }));
     await act(() => vi.advanceTimersByTimeAsync(3000));
