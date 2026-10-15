@@ -136,7 +136,7 @@ written as `<prefix>.docx` next to the PDF. `cover_letter.render_pdf(paragraphs,
 changed (hashes kept in a small `app_state` key/value table or file), and returns their URLs. `workbench.publish_packet(client, conn, job) -> (doc_id, url)`
 writes "<Company> – <Role> – Claude packet" into the job's folder (`drive_layout.folder_path`), saving `packet_doc_id` / `packet_doc_url`. No Drive configured → callers fall back to the clipboard text.
 **Validate:** `pytest tests/test_drive_docs.py -q` with a fake Drive service: creates a Doc with the conversion mimeType, the second call updates instead of creating, static docs skip unchanged hashes. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 6: API routes and job page workbench
 **Runs:** unattended

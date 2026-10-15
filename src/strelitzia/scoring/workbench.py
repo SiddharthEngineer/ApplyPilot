@@ -650,3 +650,65 @@ def current_result(job: dict) -> dict | None:
         return json.loads(sidecar.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+# ── Drive Docs (Claude Project inputs and job packets) ─────────────────────
+
+STATIC_DOCS = {"rules": "Strelitzia rules", "library": "Strelitzia content library"}
+_STATE_KEY = "claude_doc:{}"
+
+
+def static_doc_html(kind: str, inputs: Inputs) -> str:
+    return rules_doc() if kind == "rules" else library_doc(inputs.library, inputs.base_resume_text)
+
+
+def published_static_docs(conn: Connection) -> dict[str, dict]:
+    """{kind: {"id", "url", "hash", "changed_at"}} for each static Doc published so far."""
+    from strelitzia.database import get_state
+
+    out = {}
+    for kind in STATIC_DOCS:
+        raw = get_state(conn, _STATE_KEY.format(kind))
+        if raw:
+            out[kind] = json.loads(raw)
+    return out
+
+
+def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, force: bool = False) -> dict[str, str]:
+    """Write the rules and content-library Docs into Strelitzia/_Claude/ when their content changed.
+
+    Returns {kind: doc URL}. `force` rewrites them even when the stored hash matches (e.g. a Doc was deleted).
+    """
+    from strelitzia.database import set_state
+    from strelitzia.storage.drive_layout import claude_folder_path
+
+    inputs = inputs or Inputs.load()
+    known = published_static_docs(conn)
+    urls, folder_id = {}, None
+    for kind, name in STATIC_DOCS.items():
+        html = static_doc_html(kind, inputs)
+        digest = hashlib.sha256(html.encode("utf-8")).hexdigest()[:16]
+        prev = known.get(kind) or {}
+        if not force and prev.get("hash") == digest and prev.get("id"):
+            urls[kind] = prev.get("url", "")
+            continue
+        folder_id = folder_id or client.ensure_folder_path(claude_folder_path())
+        f = client.upsert_doc(folder_id, name, html, known_id=prev.get("id"))
+        state = {"id": f.id, "url": f.url, "hash": digest, "changed_at": datetime.now(UTC).isoformat()}
+        set_state(conn, _STATE_KEY.format(kind), json.dumps(state))
+        conn.commit()
+        urls[kind] = f.url
+    return urls
+
+
+def publish_packet(client, conn: Connection, job: dict, inputs: Inputs | None = None) -> tuple[str, str]:
+    """Write the job's packet Doc into its Drive folder and record it on the job. Returns (doc_id, url)."""
+    from strelitzia.storage.drive_layout import clean_name, packet_folder_path
+
+    inputs = inputs or Inputs.load()
+    packet = job_packet(job, inputs.library, inputs.base_resume_text, current_result(job), inline=False)
+    folder_id = client.ensure_folder_path(packet_folder_path(job))
+    f = client.upsert_doc(folder_id, clean_name(packet.name, 160), packet.html, known_id=job.get("packet_doc_id"))
+    conn.execute("UPDATE jobs SET packet_doc_id = ?, packet_doc_url = ? WHERE url = ?", (f.id, f.url, job["url"]))
+    conn.commit()
+    return f.id, f.url

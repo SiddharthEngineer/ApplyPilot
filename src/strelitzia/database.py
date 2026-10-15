@@ -247,7 +247,24 @@ def _ensure_tables(conn: Connection) -> None:
         "prep_notes TEXT, debrief_notes TEXT, outcome TEXT, created_at TEXT, updated_at TEXT)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_interviews_job ON interviews (job_url, scheduled_at)")
+    # Small app-wide key/value state, e.g. the hashes of the Claude Project Docs (strelitzia.scoring.workbench).
+    conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
     conn.commit()
+
+
+def get_state(conn: Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_state(conn: Connection, key: str, value: str) -> None:
+    """Upsert app_state[key] (the caller commits)."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        (key, value, now),
+    )
 
 
 def job_key(url: str) -> str:
