@@ -1,5 +1,5 @@
 // Readable labels for the API's enum values.
-import type { Importance, Status, StatusFilter } from './types';
+import type { Importance, Outcome, Relation, Status, StatusFilter } from './types';
 
 export const STATUS_LABELS: Record<Status | 'no_response', string> = {
   active: 'Active',
@@ -68,4 +68,33 @@ export function todayIso(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+export const RELATION_LABELS: Record<Relation, string> = {
+  recruiter: 'Recruiter',
+  hiring_manager: 'Hiring manager',
+  referral: 'Referral',
+  interviewer: 'Interviewer',
+  other: 'Other',
+};
+
+export const OUTCOME_LABELS: Record<Outcome, string> = {
+  pending: 'Pending',
+  passed: 'Passed',
+  rejected: 'Rejected',
+  withdrew: 'Withdrew',
+};
+
+/** An ISO timestamp as the browser's local date and time ("Oct 18, 2026, 2:00 PM"). */
+export function localDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** An ISO timestamp as the browser's local date ("Oct 18, 2026"). */
+export function localDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { dateStyle: 'medium' });
 }

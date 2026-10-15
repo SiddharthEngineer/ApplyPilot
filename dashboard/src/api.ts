@@ -1,7 +1,8 @@
 // Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
 import type {
-  Facets, JobDetail, JobList, JobQuery, Preferences, PreferencesResponse, ReassessPreview, SavePreferencesResult, Task,
-  UserStatus,
+  AddJobInput, AddJobResult, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets, Interview,
+  InterviewFields, JobDetail, JobList, JobQuery, Preferences, PreferencesResponse, ReassessPreview, Relation,
+  SavePreferencesResult, Task, UserStatus,
 } from './types';
 
 export const API_BASE = '/app/api';
@@ -108,4 +109,61 @@ export function savePreferences(prefs: Preferences, confirmReassess = false): Pr
     method: 'PUT',
     body: JSON.stringify({ prefs, confirm_reassess: confirmReassess }),
   });
+}
+
+const job = (key: string) => `/jobs/${encodeURIComponent(key)}`;
+
+/** Add a job by link (or by pasted description). An existing link returns created: false and the same key. */
+export function addJob(input: AddJobInput): Promise<AddJobResult> {
+  return request<AddJobResult>('/jobs', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Save a pasted description for a posting that couldn't be read; queues extraction and scoring. */
+export function putDescription(
+  key: string, fields: { title?: string; company?: string; location?: string; description: string },
+): Promise<{ task: Task; key: string }> {
+  return request(`${job(key)}/description`, { method: 'PUT', body: JSON.stringify(fields) });
+}
+
+export function listContacts(q?: string, signal?: AbortSignal): Promise<ContactListItem[]> {
+  return request<ContactListItem[]>(`/contacts${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal });
+}
+
+export function getContact(id: string, signal?: AbortSignal): Promise<ContactWithJobs> {
+  return request<ContactWithJobs>(`/contacts/${encodeURIComponent(id)}`, { signal });
+}
+
+export function createContact(fields: ContactFields & { name: string }): Promise<Contact> {
+  return request<Contact>('/contacts', { method: 'POST', body: JSON.stringify(fields) });
+}
+
+export function updateContact(id: string, fields: ContactFields): Promise<ContactWithJobs> {
+  return request<ContactWithJobs>(`/contacts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(fields) });
+}
+
+export function deleteContact(id: string): Promise<{ ok: boolean }> {
+  return request(`/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Link an existing contact (`contact_id`) or a new one (`contact`) to a job. Returns the updated job. */
+export function linkContact(
+  key: string, link: { contact_id: string } | { contact: ContactFields & { name: string } }, relation: Relation,
+): Promise<JobDetail> {
+  return request<JobDetail>(`${job(key)}/contacts`, { method: 'POST', body: JSON.stringify({ ...link, relation }) });
+}
+
+export function unlinkContact(key: string, contactId: string): Promise<JobDetail> {
+  return request<JobDetail>(`${job(key)}/contacts/${encodeURIComponent(contactId)}`, { method: 'DELETE' });
+}
+
+export function createInterview(key: string, fields: InterviewFields): Promise<Interview> {
+  return request<Interview>(`${job(key)}/interviews`, { method: 'POST', body: JSON.stringify(fields) });
+}
+
+export function updateInterview(id: string, fields: InterviewFields): Promise<Interview> {
+  return request<Interview>(`/interviews/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(fields) });
+}
+
+export function deleteInterview(id: string): Promise<{ ok: boolean }> {
+  return request(`/interviews/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

@@ -4,9 +4,11 @@ export type Status = 'active' | 'inactive' | 'in_progress' | 'submitted' | 'reje
 export type StatusFilter = Status | 'no_response' | 'all';
 export type UserStatus = 'in_progress' | 'submitted' | 'rejected' | 'heard_back';
 export type StatusColor = 'grey' | 'orange' | 'yellow' | 'blue' | 'red' | 'green';
-export type SortKey = 'discovered_at' | 'deadline' | 'fit_score';
+export type SortKey = 'discovered_at' | 'deadline' | 'fit_score' | 'next_interview';
 export type Sort = SortKey | `-${SortKey}`;
 export type WorkMode = 'remote' | 'hybrid' | 'onsite' | 'unknown';
+export type Source = 'manual' | 'discovered';
+export type IntakeStatus = 'queued' | 'scraping' | 'ok' | 'needs_paste' | 'error';
 
 export interface JobListItem {
   key: string;
@@ -21,6 +23,10 @@ export interface JobListItem {
   status: Status;
   status_color: StatusColor;
   days_since_submitted: number | null;
+  source: Source;
+  added_at: string | null;
+  intake_status: IntakeStatus | null;
+  next_interview: string | null;
   fit_breakdown: FitComponent[];
   fit_flags: string[];
   flag_reasons: string[];
@@ -75,6 +81,7 @@ export interface JobQuery {
   score_max?: number;
   q?: string;
   hide_flagged?: boolean;
+  source?: Source[];
   sort?: Sort;
   page?: number;
   page_size?: number;
@@ -92,6 +99,7 @@ export interface Facets {
   work_mode: FacetCount[];
   location: FacetCount[];
   flagged?: number;
+  source?: (FacetCount & { value: Source })[];
 }
 
 export interface PostingLocation {
@@ -172,6 +180,12 @@ export interface JobDetail {
   submitted_date: string | null;
   events: StatusEvent[];
   links: JobLinks;
+  source: Source;
+  added_at: string | null;
+  intake_status: IntakeStatus | null;
+  intake_error: string | null;
+  contacts: JobContact[];
+  interviews: Interview[];
   fit_breakdown: FitComponent[];
   fit_flags: string[];
   flag_reasons: string[];
@@ -227,7 +241,7 @@ export interface SavePreferencesResult {
   task: Task | null;
 }
 
-export type TaskKind = 'resume' | 'cover' | 'both' | 'rescore' | 'reassess_all';
+export type TaskKind = 'resume' | 'cover' | 'both' | 'rescore' | 'reassess_all' | 'intake';
 export type TaskState = 'queued' | 'running' | 'done' | 'error';
 
 export interface Task {
@@ -240,4 +254,74 @@ export interface Task {
   finished_at: string | null;
   error: string | null;
   key: string | null;
+}
+
+export type Relation = 'recruiter' | 'hiring_manager' | 'referral' | 'interviewer' | 'other';
+
+// A contact (workspace.py), shared across jobs.
+export interface Contact {
+  id: string;
+  name: string;
+  company: string | null;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+  linkedin_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ContactFields = Partial<Omit<Contact, 'id' | 'created_at' | 'updated_at'>>;
+
+export interface JobContact extends Contact {
+  relation: Relation;
+}
+
+export interface ContactListItem extends Contact {
+  job_count: number;
+}
+
+export interface ContactJob {
+  key: string;
+  title: string | null;
+  company: string | null;
+  relation: Relation;
+}
+
+export interface ContactWithJobs extends Contact {
+  jobs: ContactJob[];
+}
+
+export type Outcome = 'pending' | 'passed' | 'rejected' | 'withdrew';
+
+export interface Interview {
+  id: string;
+  job_url: string;
+  scheduled_at: string | null; // ISO UTC
+  stage: string | null;
+  format: string | null;
+  interviewers: string | null;
+  prep_notes: string | null;
+  debrief_notes: string | null;
+  outcome: Outcome | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type InterviewFields = Partial<Pick<Interview,
+  'scheduled_at' | 'stage' | 'format' | 'interviewers' | 'prep_notes' | 'debrief_notes' | 'outcome'>>;
+
+export interface AddJobInput {
+  url?: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  description?: string;
+}
+
+export interface AddJobResult {
+  key: string;
+  created: boolean;
+  task: Task | null;
 }

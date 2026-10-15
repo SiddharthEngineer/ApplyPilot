@@ -2,12 +2,13 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { STATUS_FILTERS } from './labels';
-import type { JobQuery, Sort, StatusFilter } from './types';
+import type { JobQuery, Sort, Source, StatusFilter } from './types';
 
 export const DEFAULT_SORT: Sort = '-discovered_at';
 export const PAGE_SIZE = 50;
 
-const SORT_RE = /^-?(discovered_at|deadline|fit_score)$/;
+const SORT_RE = /^-?(discovered_at|deadline|fit_score|next_interview)$/;
+const SOURCES: Source[] = ['manual', 'discovered'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_KEYS = ['found_from', 'found_to', 'due_from', 'due_to'] as const;
 
@@ -37,6 +38,10 @@ export function parseQuery(params: URLSearchParams): JobQuery {
   const scoreMax = intParam(params.get('score_max'), 0, 100);
   if (scoreMax !== undefined) q.score_max = scoreMax;
   if (params.get('hide_flagged') === 'false') q.hide_flagged = false; // flagged jobs are hidden by default
+  // No source param: the jobs page picks a default. source=all (an empty list here) means every source.
+  const source = params.getAll('source');
+  if (source.includes('all')) q.source = [];
+  else if (source.some((s) => SOURCES.includes(s as Source))) q.source = source.filter((s): s is Source => SOURCES.includes(s as Source));
   const text = params.get('q');
   if (text) q.q = text;
   const sort = params.get('sort');
@@ -55,6 +60,10 @@ export function toSearchParams(q: JobQuery): URLSearchParams {
     if (name === 'page' && value === 1) continue;
     if (name === 'page_size') continue;
     if (name === 'hide_flagged' && value !== false) continue;
+    if (name === 'source' && Array.isArray(value) && value.length === 0) {
+      params.set('source', 'all');
+      continue;
+    }
     if (Array.isArray(value)) value.forEach((v) => params.append(name, String(v)));
     else params.set(name, String(value));
   }

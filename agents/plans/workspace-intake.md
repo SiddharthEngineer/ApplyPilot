@@ -133,7 +133,7 @@ tests under `dashboard/src/__tests__/` (new + `fixtures.ts`), rebuilt `src/strel
   panel with the linked jobs as links; Delete with confirm.
 **Validate:** `cd dashboard && npm test -- --run` → new tests: AddJobDialog submit + duplicate navigation, PastePanel shown on `needs_paste`,
 contact picker create-and-link, interview add/edit, Source filter and next-interview sort query strings. `scripts/validate.sh --full` green (bundle rebuilt and committed).
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (Task 4 commit)
 
 ### Task 5: Discovery off by default
 **Runs:** unattended
