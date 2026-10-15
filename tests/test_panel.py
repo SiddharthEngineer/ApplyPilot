@@ -2,6 +2,7 @@
 
 import json
 import random
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -231,3 +232,130 @@ def test_picks_and_completion(conn, run_id):
         panel.record_pick(conn, run_id, 1, "A")
     with pytest.raises(KeyError):
         panel.record_pick(conn, run_id, 6, "first")
+
+
+# ── Task 3: report and "panel due" ──
+
+def picks_in_packet1(conn, run_id, newer_wins: list[str]) -> list[str]:
+    """Packet-1 winners (first/second/tie) that make the newer draft (b) win, lose or tie per item."""
+    out = []
+    for item, want in zip(panel.run_items(conn, run_id), newer_wins, strict=True):
+        if want == "tie":
+            out.append("tie")
+        else:
+            newer_first = item["shown_first"] == "b"
+            out.append("first" if (want == "newer") == newer_first else "second")
+    return out
+
+
+def packet2(winners: list[str]) -> list[str]:
+    return [{"first": "second", "second": "first"}.get(w, w) for w in winners]
+
+
+def test_report_math(conn, run_id):
+    you = picks_in_packet1(conn, run_id, ["newer", "newer", "newer", "older", "tie"])
+    sonnet = picks_in_packet1(conn, run_id, ["newer", "newer", "older", "older", "newer"])
+    for no, w in enumerate(you, 1):
+        panel.record_pick(conn, run_id, no, w)
+    # Sonnet grades packet 1: both sides get the same grade except the flags, so per-side stats come from detail.
+    good = version_grade("A", 5, quals=[
+        {"text": "Airflow", "kind": "required", "status": "met", "evidence": "Airflow"},
+        {"text": "dbt", "kind": "preferred", "status": "met", "evidence": "dbt"}])
+    weak = version_grade("C", 2, flags=["vague"], quals=[
+        {"text": "Airflow", "kind": "required", "status": "partial", "evidence": "pipelines"},
+        {"text": "dbt", "kind": "preferred", "status": "not_met", "evidence": ""}])
+    items = panel.run_items(conn, run_id)
+    data = {"panel": 1, "items": []}
+    for item, w in zip(items, sonnet, strict=True):
+        newer_first = item["shown_first"] == "b"
+        data["items"].append({"item": item["item_no"], "first": good if newer_first else weak,
+                              "second": weak if newer_first else good, "winner": w, "why": "x"})
+    assert panel.import_grades(conn, run_id, "sonnet", json.dumps(data)).ok
+    # Opus (packet 2) agrees with you on every item.
+    assert panel.import_grades(conn, run_id, "opus", model_reply(packet2(you))).ok
+
+    r = panel.panel_report(conn, run_id)
+    assert r["status"] == "complete" and r["items_total"] == 5
+    assert r["graders"]["you"]["newer_win_rate"] == 0.7  # (3 + 0.5) / 5
+    assert r["graders"]["sonnet"]["newer_win_rate"] == 0.6
+    assert r["graders"]["opus"]["newer_win_rate"] == 0.7
+    s = r["graders"]["sonnet"]
+    assert s["b"]["mean_overall"] == 4.0 and s["a"]["mean_overall"] == 2.0
+    assert s["b"]["mean_clarity"] == 5.0 and s["a"]["mean_clarity"] == 2.0
+    assert s["b"]["met_rate"] == {"required": 1.0, "preferred": 1.0}
+    assert s["a"]["met_rate"] == {"required": 0.0, "preferred": 0.0}  # partial isn't met
+    assert (s["a"]["red_flags"], s["b"]["red_flags"]) == (5, 0)
+    assert {"item": 1, "text": "Airflow", "kind": "required", "a": "partial", "b": "met"} in s["qualifications"]
+    assert r["agreement"] == {"sonnet_vs_opus": 0.6, "sonnet_vs_you": 0.6, "opus_vs_you": 1.0}
+    assert r["verdict"] == "newer is better"
+    first = r["items"][0]
+    assert first["winners"] == {"sonnet": "newer", "opus": "newer", "you": "newer"}
+    assert (first["older_version"], first["newer_version"]) == (1, 2)
+
+
+def test_verdict_needs_your_picks_and_no_extra_red_flags(conn, run_id):
+    assert panel.panel_report(conn, run_id)["verdict"] is None
+    for no, w in enumerate(picks_in_packet1(conn, run_id, ["newer"] * 5), 1):
+        panel.record_pick(conn, run_id, no, w)
+    assert panel.panel_report(conn, run_id)["verdict"] == "newer is better"
+    # Opus flags the newer version (b) more often: no longer a clear gain.
+    data = {"panel": 1, "items": []}
+    for item in panel.run_items(conn, run_id):
+        newer_first_in_p2 = item["shown_first"] == "a"
+        flagged, clean = version_grade(flags=["stuffed"]), version_grade()
+        data["items"].append({"item": item["item_no"], "first": flagged if newer_first_in_p2 else clean,
+                              "second": clean if newer_first_in_p2 else flagged, "winner": "tie", "why": "x"})
+    assert panel.import_grades(conn, run_id, "opus", json.dumps(data)).ok
+    report = panel.panel_report(conn, run_id)
+    assert report["graders"]["opus"]["b"]["red_flags"] == 5 and report["verdict"] == "no clear gain"
+
+
+def test_verdict_worse(conn, run_id):
+    for no, w in enumerate(picks_in_packet1(conn, run_id, ["older"] * 4 + ["newer"]), 1):
+        panel.record_pick(conn, run_id, no, w)
+    assert panel.panel_report(conn, run_id)["verdict"] == "worse"
+
+
+def test_heard_back_by_rules_version(conn):
+    for no in range(1, 13):
+        add_job(conn, no)
+        rules = "r1" if no <= 10 else "r2"
+        status = "heard_back" if no in (1, 2, 11) else "submitted"
+        conn.execute("UPDATE jobs SET submitted_rules_version = ?, user_status = ?, submitted_at = ? WHERE url = ?",
+                     (rules, status, f"2026-01-{no:02d}", f"https://example.com/jobs/{no:02d}"))
+    conn.commit()
+    rows = panel.heard_back_by_rules(conn)
+    assert rows[0] == {"rules_version": "r1", "submitted": 10, "heard_back": 2, "rate": 0.2, "note": None}
+    assert rows[1] == {"rules_version": "r2", "submitted": 2, "heard_back": 1, "rate": None,
+                       "note": "too few to compare"}
+
+
+def _complete(conn, run_id):
+    for no in range(1, 6):
+        panel.record_pick(conn, run_id, no, "tie")
+    panel.import_grades(conn, run_id, "sonnet", model_reply(["tie"] * 5))
+    assert panel.get_run(conn, run_id)["status"] == "complete"
+
+
+def test_panel_due_reasons(conn):
+    seed_jobs(conn, 4)
+    assert panel.panel_due(conn, rules_version="r2") is None  # 4 comparable jobs
+    seed_jobs_from(conn, 5)
+    assert panel.panel_due(conn, rules_version="r2") == "no panel has been run yet"
+    run_id = panel.create_run(conn, rng=random.Random(1))
+    assert panel.panel_due(conn, rules_version="r2") == "no panel has been run yet"  # not complete yet
+    _complete(conn, run_id)
+    assert panel.panel_due(conn, rules_version="r2") is None
+    created = datetime.fromisoformat(panel.get_run(conn, run_id)["created_at"])
+    assert panel.panel_due(conn, rules_version="r2", now=created + timedelta(days=31)) == "31 days since the last panel"
+    # New rules, but no drafts under them yet: not due.
+    assert panel.panel_due(conn, rules_version="r3") is None
+    for no in range(1, 6):
+        add_draft(conn, f"https://example.com/jobs/{no:02d}", 3, rules="r3", at=f"2026-09-01T00:00:0{no}+00:00")
+    assert panel.panel_due(conn, rules_version="r3") == "the resume rules changed since the last panel"
+
+
+def seed_jobs_from(conn, no: int):
+    job = add_job(conn, no)
+    add_draft(conn, job["url"], 1, rules="r1")
+    add_draft(conn, job["url"], 2, rules="r2")

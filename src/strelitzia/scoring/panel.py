@@ -50,12 +50,12 @@ def _drafts_by_job(conn: Connection) -> dict[str, list[dict]]:
     return out
 
 
-def _rules_pair(drafts: list[dict]) -> tuple[str | None, str | None]:
-    """(older, newer) rules versions: the newest draft's rules and the newest other rules before it."""
+def _rules_pair(drafts: list[dict], newer: str | None = None) -> tuple[str | None, str | None]:
+    """(older, newer) rules versions: by default the newest draft's rules, and the newest other rules before it."""
     ordered = sorted(drafts, key=lambda d: d["created_at"] or "")
     if not ordered:
-        return None, None
-    newer = ordered[-1]["rules_version"]
+        return None, newer
+    newer = newer or ordered[-1]["rules_version"]
     older = next((d["rules_version"] for d in reversed(ordered) if d["rules_version"] != newer), None)
     return older, newer
 
@@ -66,15 +66,15 @@ def select_items(conn: Connection, n: int = DEFAULT_ITEMS, mode: str = "latest_v
 
     latest_vs_previous: the job's previous draft (a) vs its latest (b).
     rules_a_vs_b: the job's latest draft under rules_a vs its latest under rules_b. By default rules_b is the
-    rules version of the newest draft overall and rules_a the newest other rules version before it.
+    rules version of the newest draft overall, and rules_a the rules version of the newest draft under other rules.
     Drafts with identical resumes aren't comparable and are skipped.
     """
     if mode not in MODES:
         raise ValueError(f"Unknown panel mode {mode!r} (use one of: {', '.join(MODES)})")
     by_job = _drafts_by_job(conn)
     if mode == "rules_a_vs_b" and (rules_a is None or rules_b is None):
-        default_a, default_b = _rules_pair([d for ds in by_job.values() for d in ds])
-        rules_a, rules_b = rules_a or default_a, rules_b or default_b
+        default_a, rules_b = _rules_pair([d for ds in by_job.values() for d in ds], rules_b)
+        rules_a = rules_a or default_a
         if rules_a is None or rules_b is None or rules_a == rules_b:
             return []
     pairs = []
@@ -431,3 +431,138 @@ def _update_status(conn: Connection, run_id: str) -> None:
     done = {g: len(items) == total for g, items in grades(conn, run_id).items()}
     complete = done.get("you", False) and any(done.get(m, False) for m in MODELS)
     conn.execute("UPDATE panel_runs SET status = ? WHERE id = ?", ("complete" if complete else "open", run_id))
+
+
+# ── Report ────────────────────────────────────────────────────────────────
+
+GRADE_POINTS = {"A": 4, "B": 3, "C": 2, "D": 1}
+NEWER_IS_BETTER = 0.6  # your picks must favor the newer version at least this often
+MIN_COMPARE = 10  # submissions per rules version before heard-back rates are compared
+DUE_ITEMS = DEFAULT_ITEMS
+DUE_DAYS = 30
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 2) if values else None
+
+
+def _model_summary(graded: dict[int, dict]) -> dict:
+    """Mean overall grade (A=4 … D=1), clarity, met rate per qualification kind, per-qualification met rates and
+    red flags, per side ("a" older, "b" newer)."""
+    out: dict = {}
+    for side in ("a", "b"):
+        versions = [g["detail"].get(side) or {} for g in graded.values()]
+        quals = [q for v in versions for q in v.get("qualifications") or [] if isinstance(q, dict)]
+        met = {kind: _mean([1.0 if q.get("status") == "met" else 0.0 for q in quals if q.get("kind") == kind])
+               for kind in ("required", "preferred")}
+        out[side] = {
+            "mean_overall": _mean([GRADE_POINTS[v["overall"]] for v in versions if v.get("overall") in GRADE_POINTS]),
+            "mean_clarity": _mean([v["clarity"] for v in versions if isinstance(v.get("clarity"), int)]),
+            "met_rate": met,
+            "red_flags": sum(len(v.get("red_flags") or []) for v in versions),
+        }
+    per_qual: dict[tuple[int, str], dict] = {}
+    for no, g in sorted(graded.items()):
+        for side in ("a", "b"):
+            for q in (g["detail"].get(side) or {}).get("qualifications") or []:
+                if isinstance(q, dict) and q.get("text"):
+                    row = per_qual.setdefault((no, q["text"]), {"item": no, "text": q["text"],
+                                                                "kind": q.get("kind"), "a": None, "b": None})
+                    row[side] = q.get("status")
+    out["qualifications"] = list(per_qual.values())
+    return out
+
+
+def panel_report(conn: Connection, run_id: str) -> dict:
+    """The un-blinded run: per grader the newer version's win rate (ties count half) and, for the models, grades,
+    met rates and red flags per version; agreement between graders; and the verdict, which rests on your picks.
+
+    Raises:
+        KeyError: no such run.
+    """
+    run = get_run(conn, run_id)
+    items = run_items(conn, run_id)
+    all_grades = grades(conn, run_id)
+    sides = {g: {no: _side_of(x["winner"], next(i for i in items if i["item_no"] == no)) for no, x in graded.items()}
+             for g, graded in all_grades.items()}
+    graders: dict[str, dict] = {}
+    for grader in GRADERS:
+        picked = sides.get(grader) or {}
+        points = [1.0 if s == "b" else 0.5 if s == "tie" else 0.0 for s in picked.values()]
+        entry = {"graded": len(picked), "newer_win_rate": _mean(points)}
+        if grader in MODELS and picked:
+            entry.update(_model_summary(all_grades[grader]))
+        graders[grader] = entry
+
+    def agreement(x: str, y: str) -> float | None:
+        common = set(sides.get(x) or {}) & set(sides.get(y) or {})
+        return _mean([1.0 if sides[x][no] == sides[y][no] else 0.0 for no in common]) if common else None
+
+    total = len(items)
+    yours = graders["you"]
+    if yours["graded"] < total:
+        verdict = None
+    else:
+        more_flags = any(graders[m].get("b", {}).get("red_flags", 0) > graders[m].get("a", {}).get("red_flags", 0)
+                         for m in MODELS)
+        rate = yours["newer_win_rate"] or 0.0
+        if rate >= NEWER_IS_BETTER and not more_flags:
+            verdict = "newer is better"
+        elif rate <= 1 - NEWER_IS_BETTER:
+            verdict = "worse"
+        else:
+            verdict = "no clear gain"
+    return {
+        "run_id": run_id, "status": run["status"], "mode": run["mode"], "items_total": total,
+        "rules_version_a": run["rules_version_a"], "rules_version_b": run["rules_version_b"],
+        "items": [{"item": i["item_no"], "title": i["job"].get("title"), "company": job_company(i["job"]),
+                   "older_version": i["draft_a"].get("version"), "newer_version": i["draft_b"].get("version"),
+                   "newer_shown": "first" if i["shown_first"] == "b" else "second",
+                   "winners": {g: _side_label((sides.get(g) or {}).get(i["item_no"])) for g in GRADERS}}
+                  for i in items],
+        "graders": graders,
+        "agreement": {"sonnet_vs_opus": agreement("sonnet", "opus"), "sonnet_vs_you": agreement("sonnet", "you"),
+                      "opus_vs_you": agreement("opus", "you")},
+        "verdict": verdict,
+        "heard_back": heard_back_by_rules(conn),
+    }
+
+
+def _side_label(side: str | None) -> str | None:
+    return {"a": "older", "b": "newer", "tie": "tie"}.get(side) if side else None
+
+
+def heard_back_by_rules(conn: Connection) -> list[dict]:
+    """Across runs: per submitted_rules_version, how many submissions heard back (rate None under MIN_COMPARE)."""
+    rows = _rows(conn, "SELECT submitted_rules_version AS rules, COUNT(*) AS submitted, "
+                       "SUM(CASE WHEN user_status = 'heard_back' THEN 1 ELSE 0 END) AS heard_back FROM jobs "
+                       "WHERE submitted_rules_version IS NOT NULL GROUP BY submitted_rules_version "
+                       "ORDER BY MIN(submitted_at)")
+    out = []
+    for r in rows:
+        enough = r["submitted"] >= MIN_COMPARE
+        out.append({"rules_version": r["rules"], "submitted": r["submitted"], "heard_back": r["heard_back"] or 0,
+                    "rate": round((r["heard_back"] or 0) / r["submitted"], 2) if enough else None,
+                    "note": None if enough else "too few to compare"})
+    return out
+
+
+def panel_due(conn: Connection, rules_version: str | None = None, now: datetime | None = None) -> str | None:
+    """Why a panel is due, or None: the rules changed since the last completed panel (and 5 jobs have a draft
+    under the new rules and one under older rules), or there has been no panel or 30+ days since the last one
+    (and 5 jobs have two comparable drafts)."""
+    from strelitzia.scoring.workbench import RULES_VERSION
+
+    rules_version = rules_version or RULES_VERSION
+    now = now or datetime.now(UTC)
+    last = conn.execute("SELECT created_at, rules_version_b FROM panel_runs WHERE status = 'complete' "
+                        "ORDER BY created_at DESC LIMIT 1").fetchone()
+    if last is not None and last[1] != rules_version and \
+            len(select_items(conn, DUE_ITEMS, "rules_a_vs_b", rules_b=rules_version)) >= DUE_ITEMS:
+        return "the resume rules changed since the last panel"
+    if len(select_items(conn, DUE_ITEMS)) < DUE_ITEMS:
+        return None
+    if last is None:
+        return "no panel has been run yet"
+    days = (now - datetime.fromisoformat(last[0])).days
+    return f"{days} days since the last panel" if days >= DUE_DAYS else None
