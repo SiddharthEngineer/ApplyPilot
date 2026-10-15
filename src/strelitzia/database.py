@@ -229,6 +229,24 @@ def _ensure_tables(conn: Connection) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS user_preferences (user_id TEXT NULL UNIQUE, prefs_json TEXT, updated_at TEXT)"
     )
+    # Workspace (strelitzia.workspace): contacts shared across jobs, and interviews per job.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS contacts ("
+        "id TEXT PRIMARY KEY, name TEXT NOT NULL, company TEXT, role TEXT, email TEXT, phone TEXT, "
+        "linkedin_url TEXT, notes TEXT, created_at TEXT, updated_at TEXT)"
+    )
+    # relation: recruiter | hiring_manager | referral | interviewer | other
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS job_contacts ("
+        "job_url TEXT, contact_id TEXT, relation TEXT, PRIMARY KEY (job_url, contact_id))"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_contacts_contact ON job_contacts (contact_id)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS interviews ("
+        "id TEXT PRIMARY KEY, job_url TEXT, scheduled_at TEXT, stage TEXT, format TEXT, interviewers TEXT, "
+        "prep_notes TEXT, debrief_notes TEXT, outcome TEXT, created_at TEXT, updated_at TEXT)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_interviews_job ON interviews (job_url, scheduled_at)")
     conn.commit()
 
 
@@ -354,6 +372,11 @@ _ALL_COLUMNS: dict[str, str] = {
     "submitted_at": "TEXT",
     "responded_at": "TEXT",
     "notes": "TEXT",
+    # Workspace intake (strelitzia.intake): jobs the user added by link or paste
+    "source": "TEXT",  # 'manual' | 'discovered'; NULL = discovered (rows from before the column)
+    "added_at": "TEXT",
+    "intake_status": "TEXT",  # queued | scraping | ok | needs_paste | error
+    "intake_error": "TEXT",
 }
 
 
