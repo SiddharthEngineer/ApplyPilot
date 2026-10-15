@@ -30,7 +30,7 @@ Every so often (after the rules, template or library change, or monthly) you che
 If that fails, plan `claude-workbench` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
 "waiting for claude-workbench to merge; requeue with buildqueue.py add resume-panel".
 **Validate:** the command exits 0.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (claude-workbench is on trunk)
 
 ### Task 1: Drafts history and panel tables
 **Runs:** unattended
@@ -40,7 +40,7 @@ If that fails, plan `claude-workbench` hasn't merged yet. Change nothing, and fi
 `panel_grades (run_id, item_no, grader: "sonnet"|"opus"|"you", winner: "first"|"second"|"tie", detail_json, created_at)`.
 `panel.select_items(conn, n=5, mode: "latest_vs_previous" | "rules_a_vs_b") -> list[Item]`: jobs with two comparable drafts, newest first.
 **Validate:** `pytest tests/test_panel.py -q` (selection rules, random but stored order). `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit; drafts also keep `resume_text`, runs keep `mode` and `packet_text_swapped`)
 
 ### Task 2: Rubric, packet and import
 **Runs:** unattended

@@ -247,6 +247,32 @@ def _ensure_tables(conn: Connection) -> None:
         "prep_notes TEXT, debrief_notes TEXT, outcome TEXT, created_at TEXT, updated_at TEXT)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_interviews_job ON interviews (job_url, scheduled_at)")
+    # Every accepted Claude workbench paste (strelitzia.scoring.workbench.import_result), addressable by
+    # (job_url, version); the jobs row only keeps the latest. JSON columns: the resume dict, the cover letter, coverage.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS drafts ("
+        "id TEXT PRIMARY KEY, job_url TEXT, version INTEGER, rules_version TEXT, resume_json TEXT, "
+        "resume_text TEXT, cover_json TEXT, coverage_json TEXT, created_at TEXT)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_drafts_job ON drafts (job_url, version)")
+    # Resume panel (strelitzia.scoring.panel): blind A/B grading of two drafts per job. Draft "a" is the older
+    # (or rules_version_a) one, "b" the newer; shown_first is which of them packet 1 shows first (packet 2 swaps).
+    # status open | complete. winner (first | second | tie) is in packet 1's order for every grader.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS panel_runs ("
+        "id TEXT PRIMARY KEY, created_at TEXT, mode TEXT, rules_version_a TEXT, rules_version_b TEXT, "
+        "status TEXT, packet_text TEXT, packet_text_swapped TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS panel_items ("
+        "run_id TEXT, item_no INTEGER, job_url TEXT, draft_a_id TEXT, draft_b_id TEXT, shown_first TEXT, "
+        "PRIMARY KEY (run_id, item_no))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS panel_grades ("
+        "run_id TEXT, item_no INTEGER, grader TEXT, winner TEXT, detail_json TEXT, created_at TEXT, "
+        "PRIMARY KEY (run_id, item_no, grader))"
+    )
     # Small app-wide key/value state, e.g. the hashes of the Claude Project Docs (strelitzia.scoring.workbench).
     conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
     conn.commit()
