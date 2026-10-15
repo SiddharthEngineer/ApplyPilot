@@ -1,5 +1,5 @@
 # Plan: Workspace intake: Add job by link, contacts, interviews
-**Status:** ❌ Not started
+**Status:** ✅ Tasks 1-5 done 2026-10-15 (live check is ROADMAP M21)
 **Risk:** review (new tables, new API routes and dashboard pages; `database.py`, `web/*` and `dashboard/*` are high-risk paths)
 
 ## Goal
@@ -56,7 +56,7 @@ source. Discovery scraping stays in the code but is off by default.
   `job_interviews(conn, job_url) -> list[dict]` (by `scheduled_at`), `next_interview_sql() -> str` (correlated subquery: earliest
   `scheduled_at >= now` for the row). Deleting a contact deletes its links; field names are allow-listed.
 **Validate:** `pytest tests/test_workspace.py -q` → passes on SQLite (and with `-m pg` when a PG URL is set); `scripts/validate.sh` green.
-**Status:** ✅ 2026-10-15 (Task 1 commit)
+**Status:** ✅ 2026-10-15 (02d9be1)
 
 ### Task 2: Intake backend: add a job by link or by paste
 **Runs:** unattended
@@ -86,7 +86,7 @@ source. Discovery scraping stays in the code but is off by default.
 **Validate:** `pytest tests/test_intake.py -q` with a fake `scrape_detail_page` and fake `extract_one`/scoring: covers dedupe,
 tracking-param stripping, LinkedIn id normalization, paste-only synthetic url, login-wall → `needs_paste`, thin text → `needs_paste`,
 paste then re-intake → `ok` without scraping, budget stop keeps the description. `scripts/validate.sh` green.
-**Status:** ✅ 2026-10-15 (Task 2 commit)
+**Status:** ✅ 2026-10-15 (d8200f8)
 
 ### Task 3: API routes for intake, contacts and interviews
 **Runs:** unattended
@@ -105,7 +105,7 @@ paste then re-intake → `ok` without scraping, budget stop keeps the descriptio
   `hide_flagged` (prefilter/dealbreaker flags apply to discovered rows only). `facets` adds source counts.
 **Validate:** `pytest tests/web -q` → new tests cover each route, CSRF header required on writes, 404s, dedupe returning 200 with the same key,
 source filter, `next_interview` sort with NULLs last, manual rows visible with `hide_flagged=true`. `scripts/validate.sh` green.
-**Status:** ✅ 2026-10-15 (Task 3 commit)
+**Status:** ✅ 2026-10-15 (296a641)
 
 ### Task 4: Dashboard: Add job, paste fallback, contacts, interviews, Contacts page
 **Runs:** unattended
@@ -133,7 +133,7 @@ tests under `dashboard/src/__tests__/` (new + `fixtures.ts`), rebuilt `src/strel
   panel with the linked jobs as links; Delete with confirm.
 **Validate:** `cd dashboard && npm test -- --run` → new tests: AddJobDialog submit + duplicate navigation, PastePanel shown on `needs_paste`,
 contact picker create-and-link, interview add/edit, Source filter and next-interview sort query strings. `scripts/validate.sh --full` green (bundle rebuilt and committed).
-**Status:** ✅ 2026-10-15 (Task 4 commit)
+**Status:** ✅ 2026-10-15 (65e25c9)
 
 ### Task 5: Discovery off by default
 **Runs:** unattended
@@ -143,7 +143,7 @@ still runs it explicitly. `enrich` keeps working on any rows without a descripti
 "discovery: off (use --with-discover)". README Quick start leads with `strelitzia serve` + Add job; the Pipeline table marks Discover as optional.
 **Validate:** `pytest -q -k "pipeline or cli"` → new test: `_resolve_stages(["all"])` excludes discover, with the flag includes it,
 explicit `discover` still runs; `scripts/validate.sh` green.
-**Status:** ✅ 2026-10-15 (Task 5 commit)
+**Status:** ✅ 2026-10-15 (621a809)
 
 The live check on real postings (Greenhouse, Lever, Ashby, Workday, LinkedIn, Indeed) is ROADMAP manual step M21, after merge.
 

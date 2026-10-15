@@ -12,7 +12,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | 🟡 merged (#33); live on strelitzia.engineerfamily.net; you: M17 | M14 |
 | R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | 🟡 Tasks 1-6 merged (#39); you: Task 7 live run (M19) | M18 |
 | R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | 🟡 Tasks 0-4 merged (#40); ⏳ Task 5 eval script queued; you: labels + eval run (M20) | R20 |
-| R22 | Workspace intake: Add job by link (scrape, paste fallback), shared contacts, interviews, discovery off by default | [workspace-intake](plans/workspace-intake.md) | review | ⏳ queued; you: live check (M21) | R20 |
+| R22 | Workspace intake: Add job by link (scrape, paste fallback), shared contacts, interviews, discovery off by default | [workspace-intake](plans/workspace-intake.md) | review | 🟡 Tasks 1-5 done (PR open, branch agent/workspace-intake); you: live check (M21) | R20 |
 | R23 | Claude workbench: tailor resume + cover in Claude Pro via Drive packets and paste-back; ATS-safe PDF/DOCX; API writer removed | [claude-workbench](plans/claude-workbench.md) | review | ⏳ queued after R22; you: end-to-end (M22) | R22 (M8 only for real Drive use) |
 | R24 | Resume panel: blind A/B grading in Claude Pro with a rubric, your picks, "panel due" reminders | [resume-panel](plans/resume-panel.md) | review | ⏳ queued after R23; you: first panel (M23) | R23 |
 
