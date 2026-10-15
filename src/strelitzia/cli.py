@@ -83,7 +83,7 @@ def run(
         help=(
             "Pipeline stages to run. "
             f"Valid: {', '.join(VALID_STAGES)}, all. "
-            "Defaults to 'all' if omitted."
+            "Defaults to 'all' if omitted, which leaves out discover (add it with --with-discover)."
         ),
     ),
     min_score: int = typer.Option(70, "--min-score", help="Minimum fit score (0-100) for tailor/cover stages."),
@@ -132,6 +132,11 @@ def run(
         "--sync",
         help="Score and extract with one request per job (full price, results right away) instead of a "
              "Message Batch (half price, usually done within an hour). Runs of 5 jobs or fewer are always sync.",
+    ),
+    with_discover: bool = typer.Option(
+        False,
+        "--with-discover",
+        help="Also run the discover stage (job-board crawling). Off by default: add jobs from the dashboard.",
     ),
     reset_errors: bool = typer.Option(
         False,
@@ -212,6 +217,7 @@ def run(
         prefilter=not no_prefilter,
         limit=limit,
         sync=sync,
+        with_discover=with_discover,
     )
 
     if result.get("errors"):
@@ -728,6 +734,10 @@ def doctor() -> None:
 
     # Job store: SQLite file, or Postgres when STRELITZIA_DATABASE_URL is set
     results.append(_doctor_database_row(ok_mark))
+
+    # Discovery: off unless asked for (strelitzia run --with-discover, or run discover)
+    from strelitzia.pipeline import DISCOVERY_OFF_NOTE
+    results.append(("Discovery", ok_mark, f"{DISCOVERY_OFF_NOTE}; add jobs with the dashboard's Add job"))
 
     # jobspy (discovery dep installed separately)
     try:

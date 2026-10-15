@@ -110,3 +110,48 @@ def test_ats_error_is_isolated(_stub_network_scrapers):
     assert stats["ats"] == "error: ats down"
     assert stats["workday"] == "ok"
     se.assert_called_once()
+
+
+class TestDiscoveryOffByDefault:
+    def test_all_leaves_out_discover(self):
+        from strelitzia.pipeline import _resolve_stages
+
+        assert _resolve_stages(["all"]) == ["enrich", "score", "tailor", "cover", "extract", "pdf"]
+
+    def test_with_discover_adds_it(self):
+        from strelitzia.pipeline import STAGE_ORDER, _resolve_stages
+
+        assert _resolve_stages(["all"], with_discover=True) == list(STAGE_ORDER)
+        assert _resolve_stages(["score"], with_discover=True) == ["discover", "score"]
+
+    def test_explicit_discover_still_runs(self):
+        from strelitzia.pipeline import _resolve_stages
+
+        assert _resolve_stages(["enrich", "discover"]) == ["discover", "enrich"]
+
+    def test_cli_passes_with_discover(self):
+        from typer.testing import CliRunner
+
+        from strelitzia.cli import app
+
+        with mock.patch("strelitzia.cli._bootstrap"), \
+                mock.patch("strelitzia.config.check_tier"), \
+                mock.patch("strelitzia.pipeline.run_pipeline", return_value={"errors": {}}) as rp:
+            assert CliRunner().invoke(app, ["run", "--dry-run"]).exit_code == 0
+            assert rp.call_args.kwargs["with_discover"] is False
+            assert CliRunner().invoke(app, ["run", "--with-discover", "--dry-run"]).exit_code == 0
+            assert rp.call_args.kwargs["with_discover"] is True
+
+    def test_dry_run_header_says_discovery_is_off(self, tmp_path, monkeypatch):
+        from strelitzia import pipeline
+
+        monkeypatch.setattr(pipeline, "init_db", lambda: None)
+        monkeypatch.setattr(pipeline, "get_stats", lambda: {"total": 0, "pending_detail": 0})
+        with pipeline.console.capture() as cap:
+            pipeline.run_pipeline(dry_run=True)
+        out = cap.get()
+        assert "Discovery:  off (use --with-discover)" in out
+        assert "discover " not in out.split("DRY RUN")[1]
+        with pipeline.console.capture() as cap:
+            pipeline.run_pipeline(dry_run=True, with_discover=True)
+        assert "Discovery:  on" in cap.get()
