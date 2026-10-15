@@ -144,6 +144,11 @@ def test_valid_result_writes_files_and_bumps_the_version(conn, tmp_path):
     assert row["draft_version"] == 1 and row["draft_rules_version"] == wb.RULES_VERSION
     assert row["tailored_resume_path"] == out.files["resume"] and row["tailored_at"]
     assert json.loads(row["tailor_report"])["unmet"] == ["Kubernetes", "Terraform"]
+    assert row["resume_docx_path"] == out.files["resume_docx"] == f"{prefix}.docx"
+    assert Path(out.files["resume_docx"]).exists()
+    assert row["cover_letter_path"] == out.files["cover_letter"] and row["cover_letter_at"]
+    assert Path(out.files["cover_letter"]).exists() and Path(out.files["cover_letter"]).with_suffix(".txt").exists()
+    assert not list((tmp_path / "out").glob("*.staging.*"))
     assert wb.current_result(row)["resume"]["headline"] == sidecar["headline"]
 
     second = good_result(headline="Data engineer for Airflow pipelines")

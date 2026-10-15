@@ -125,7 +125,7 @@ prompt, a number not in the facts → error, a valid result → files written, `
 written as `<prefix>.docx` next to the PDF. `cover_letter.render_pdf(paragraphs, profile, job, path) -> Path` through its own HTML template
 (date, greeting, paragraphs, sign-off with the profile name) and the existing Playwright HTML → PDF path, storing the real path string.
 **Validate:** the DOCX test reopens the file with python-docx and finds the headings and all bullets in order; the cover PDF test extracts the text with pypdf and finds the greeting, every paragraph and the sign-off. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 5: Drive docs for the Claude Project and job packets
 **Runs:** unattended

@@ -29,6 +29,7 @@ dependencies = [
     "pandas>=2.0",
     "jinja2>=3.1",
     "pypdf>=4",  # BSD: reads rendered PDFs back (ATS round-trip and hidden-text checks)
+    "python-docx>=1.1",  # MIT: the DOCX resume next to the PDF
     ]
 
 [project.optional-dependencies]
