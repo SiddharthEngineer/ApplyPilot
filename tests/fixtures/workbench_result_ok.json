@@ -1,0 +1,59 @@
+{
+  "strelitzia": 1,
+  "resume": {
+    "headline": "Data engineer building Airflow and Spark pipelines",
+    "roles": [
+      {
+        "role_key": "data-engineer-acme",
+        "bullets": [
+          {
+            "text": "Migrated the nightly orders pipeline from cron to Airflow and Spark, cutting runtime from 6 hours to 45 minutes",
+            "project_ids": [
+              "orders-pipeline"
+            ]
+          },
+          {
+            "text": "Built a Superset data-quality dashboard on the customer data platform (CDP) used by 3 teams",
+            "project_ids": [
+              "quality-dashboard"
+            ]
+          }
+        ]
+      },
+      {
+        "role_key": "data-analyst-intern-globex",
+        "bullets": [
+          {
+            "text": "Trained a machine learning (ML) churn model in Python with scikit-learn, reaching AUC 0.83 on holdout",
+            "project_ids": [
+              "churn-model"
+            ]
+          }
+        ]
+      }
+    ],
+    "skills": [
+      {
+        "category": "Languages",
+        "items": "Python, SQL"
+      },
+      {
+        "category": "Tools",
+        "items": "Airflow, Spark, dbt, Superset"
+      }
+    ],
+    "dropped_roles": []
+  },
+  "cover_letter": {
+    "paragraphs": [
+      "I moved a nightly orders pipeline from cron to Airflow and cut its runtime from 6 hours to 45 minutes, the kind of work your data team describes.",
+      "At Acme the pipeline handles 40 million rows per day across 12 source systems, and failures dropped 80% after the move. I also built a Superset dashboard that caught 2 schema regressions before release.",
+      "Your Customer Data Platform is the center of the role, and I have built on one before. Happy to walk through any of this in more detail."
+    ],
+    "evidence_slugs": [
+      "orders-pipeline",
+      "quality-dashboard"
+    ]
+  },
+  "notes_for_user": "Kubernetes and Terraform are not in your library, so I left them out."
+}
