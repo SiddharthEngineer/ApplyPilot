@@ -7,7 +7,7 @@ Usage (via CLI):
     strelitzia run --with-discover        # discover too (off by default: jobs come from the dashboard's Add job)
     strelitzia run --stream               # all stages, concurrent
     strelitzia run discover enrich        # specific stages
-    strelitzia run score tailor cover     # LLM-only stages
+    strelitzia run score extract          # LLM-only stages
     strelitzia run --dry-run              # preview without executing
 """
 
@@ -24,10 +24,8 @@ from rich.table import Table
 
 from strelitzia.config import load_env, ensure_dirs
 from strelitzia.database import (
-    DEFAULT_MIN_SCORE,
     PENDING_EXTRACT_WHERE,
     PENDING_SCORE_WHERE,
-    UNFLAGGED_WHERE,
     get_connection,
     get_stats,
     init_db,
@@ -43,17 +41,18 @@ console = Console()
 
 # `extract` only needs `enrich`, but runs after the stages the user waits on, so a run that hits the monthly
 # LLM budget has spent it on scoring first.
-STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
+STAGE_ORDER = ("discover", "enrich", "score", "extract", "pdf")
 # Discovery is off by default: jobs come from the dashboard's Add job. `all` leaves it out unless --with-discover.
 OPTIONAL_STAGES = ("discover",)
 DISCOVERY_OFF_NOTE = "off (use --with-discover)"
+# Stages that moved to the Claude workbench: naming one prints this instead of running it.
+REMOVED_STAGES = ("tailor", "cover")
+WORKBENCH_NOTE = "Resumes are written in Claude now: open a job in the dashboard → Open in Claude"
 
 STAGE_META: dict[str, dict] = {
     "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
     "enrich":   {"desc": "Detail enrichment (full descriptions + apply URLs)"},
     "score":    {"desc": "LLM scoring (fit 1-10)"},
-    "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
-    "cover":    {"desc": "Cover letter generation"},
     "extract":  {"desc": "Structured posting extraction (LLM, batched) + heuristic categories"},
     "pdf":      {"desc": "PDF conversion (tailored resumes + cover letters)"},
 }
@@ -64,10 +63,8 @@ _UPSTREAM: dict[str, str | None] = {
     "discover": None,
     "enrich":   "discover",
     "score":    "enrich",
-    "tailor":   "score",
-    "cover":    "tailor",
     "extract":  "enrich",
-    "pdf":      "cover",
+    "pdf":      None,
 }
 
 
@@ -190,61 +187,6 @@ def _run_extract(limit: int | None = None, sync: bool = False) -> dict:
         return {"status": f"error: {e}"}
 
 
-def tailor_validation_mode(validation_mode: str | None, source: str) -> str:
-    """Validation for the tailor stage when --validation isn't given.
-
-    Content-library tailoring defaults to lenient (no LLM judge): its bullets are already
-    checked mechanically (project ids, number provenance, bullet ranges, fabricated skills),
-    and the judge mostly cost a request per attempt plus false rejections.
-    """
-    if validation_mode:
-        return validation_mode
-    return "lenient" if source == "content-library" else "normal"
-
-
-def _drive_sync_after(stage: str) -> None:
-    """Move new PDFs to Google Drive when DRIVE_SYNC is on. Never fails the stage."""
-    from strelitzia.config import drive_sync_enabled
-    if not drive_sync_enabled():
-        return
-    try:
-        from strelitzia.storage.sync import run_drive_sync
-        result = run_drive_sync()
-        log.info("Drive sync after %s: %s", stage, result)
-    except Exception as e:  # noqa: BLE001 -- Drive problems are retried by the next sync
-        log.warning("Drive sync after %s failed (run `strelitzia drive sync` later): %s", stage, e)
-
-
-def _run_tailor(min_score: int = DEFAULT_MIN_SCORE, validation_mode: str | None = "normal",
-                source: str = "resume", limit: int | None = None) -> dict:
-    """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
-    validation_mode = tailor_validation_mode(validation_mode, source)
-    try:
-        from strelitzia.scoring.tailor import run_tailoring
-        extra = {"limit": limit} if limit else {}
-        result = _stage_status(run_tailoring(min_score=min_score, validation_mode=validation_mode, source=source,
-                                             **extra))
-    except Exception as e:
-        log.error("Tailoring failed: %s", e)
-        return {"status": f"error: {e}"}
-    _drive_sync_after("tailor")
-    return result
-
-
-def _run_cover(min_score: int = DEFAULT_MIN_SCORE, validation_mode: str | None = "normal", limit: int | None = None) -> dict:
-    """Stage: Cover letter generation."""
-    validation_mode = validation_mode or "normal"
-    try:
-        from strelitzia.scoring.cover_letter import run_cover_letters
-        extra = {"limit": limit} if limit else {}
-        result = _stage_status(run_cover_letters(min_score=min_score, validation_mode=validation_mode, **extra))
-    except Exception as e:
-        log.error("Cover letter generation failed: %s", e)
-        return {"status": f"error: {e}"}
-    _drive_sync_after("cover")
-    return result
-
-
 def _run_pdf() -> dict:
     """Stage: PDF conversion — convert tailored resumes and cover letters to PDF."""
     try:
@@ -261,8 +203,6 @@ _STAGE_RUNNERS: dict[str, callable] = {
     "discover": _run_discover,
     "enrich":   _run_enrich,
     "score":    _run_score,
-    "tailor":   _run_tailor,
-    "cover":    _run_cover,
     "extract":  _run_extract,
     "pdf":      _run_pdf,
 }
@@ -282,6 +222,9 @@ def _resolve_stages(stage_names: list[str], with_discover: bool = False) -> list
 
     resolved = ["discover"] if with_discover else []
     for name in stage_names:
+        if name in REMOVED_STAGES:
+            console.print(f"[yellow]{name}:[/yellow] {WORKBENCH_NOTE}")
+            continue
         if name not in STAGE_META:
             console.print(
                 f"[red]Unknown stage:[/red] '{name}'. "
@@ -330,17 +273,6 @@ _PENDING_SQL: dict[str, str] = {
     "enrich": "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
     "score":  f"SELECT COUNT(*) FROM jobs WHERE {PENDING_SCORE_WHERE}",
     "extract": f"SELECT COUNT(*) FROM jobs WHERE {PENDING_EXTRACT_WHERE}",
-    "tailor": (
-        f"SELECT COUNT(*) FROM jobs WHERE fit_score >= ? AND {UNFLAGGED_WHERE} "
-        "AND full_description IS NOT NULL "
-        "AND tailored_resume_path IS NULL "
-        "AND COALESCE(tailor_attempts, 0) < 5"
-    ),
-    "cover": (
-        "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL "
-        "AND (cover_letter_path IS NULL OR cover_letter_path = '') "
-        "AND COALESCE(cover_attempts, 0) < 5"
-    ),
     "pdf": (
         "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL "
         "AND tailored_resume_path LIKE '%.txt'"
@@ -351,25 +283,19 @@ _PENDING_SQL: dict[str, str] = {
 _STREAM_POLL_INTERVAL = 10
 
 
-def _count_pending(stage: str, min_score: int = DEFAULT_MIN_SCORE) -> int:
+def _count_pending(stage: str) -> int:
     """Count pending work items for a stage."""
     sql = _PENDING_SQL.get(stage)
     if sql is None:
         return 0
-    conn = get_connection()
-    if "?" in sql:
-        return conn.execute(sql, (min_score,)).fetchone()[0]
-    return conn.execute(sql).fetchone()[0]
+    return get_connection().execute(sql).fetchone()[0]
 
 
 def _run_stage_streaming(
     stage: str,
     tracker: _StageTracker,
     stop_event: threading.Event,
-    min_score: int = DEFAULT_MIN_SCORE,
     workers: int = 1,
-    validation_mode: str = "normal",
-    source: str = "resume",
     no_cache: bool = False,
     prefilter: bool = True,
     limit: int | None = None,
@@ -383,12 +309,6 @@ def _run_stage_streaming(
     """
     runner = _STAGE_RUNNERS[stage]
     kwargs: dict = {}
-    if stage in ("tailor", "cover"):
-        kwargs["min_score"] = min_score
-        kwargs["validation_mode"] = validation_mode
-        kwargs["limit"] = limit
-    if stage == "tailor":
-        kwargs["source"] = source
     if stage in ("discover", "enrich"):
         kwargs["workers"] = workers
     if stage == "discover":
@@ -421,7 +341,7 @@ def _run_stage_streaming(
             # Wait a bit for upstream to produce some work before first run
             tracker.wait(upstream, timeout=_STREAM_POLL_INTERVAL)
 
-        pending = _count_pending(stage, min_score)
+        pending = _count_pending(stage)
 
         if pending > 0:
             try:
@@ -455,9 +375,7 @@ def _run_stage_streaming(
 # Pipeline orchestrators
 # ---------------------------------------------------------------------------
 
-def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
-                    validation_mode: str = "normal",
-                    source: str = "resume",
+def _run_sequential(ordered: list[str], workers: int = 1,
                     no_cache: bool = False,
                     prefilter: bool = True,
                     limit: int | None = None,
@@ -479,12 +397,6 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
 
         try:
             kwargs: dict = {}
-            if name in ("tailor", "cover"):
-                kwargs["min_score"] = min_score
-                kwargs["validation_mode"] = validation_mode
-                kwargs["limit"] = limit
-            if name == "tailor":
-                kwargs["source"] = source
             if name in ("discover", "enrich"):
                 kwargs["workers"] = workers
             if name == "discover":
@@ -526,9 +438,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
     return {"stages": results, "errors": errors, "elapsed": total_elapsed}
 
 
-def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
-                   validation_mode: str = "normal",
-                   source: str = "resume",
+def _run_streaming(ordered: list[str], workers: int = 1,
                    no_cache: bool = False,
                    prefilter: bool = True,
                    limit: int | None = None,
@@ -554,8 +464,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         start_times[name] = time.time()
         t = threading.Thread(
             target=_run_stage_streaming,
-            args=(name, tracker, stop_event, min_score, workers, validation_mode, source, no_cache, prefilter, limit,
-                  sync),
+            args=(name, tracker, stop_event, workers, no_cache, prefilter, limit, sync),
             name=f"stage-{name}",
             daemon=True,
         )
@@ -598,12 +507,9 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
 
 def run_pipeline(
     stages: list[str] | None = None,
-    min_score: int = DEFAULT_MIN_SCORE,
     dry_run: bool = False,
     stream: bool = False,
     workers: int = 1,
-    validation_mode: str = "normal",
-    source: str = "resume",
     no_cache: bool = False,
     prefilter: bool = True,
     limit: int | None = None,
@@ -614,15 +520,12 @@ def run_pipeline(
 
     Args:
         stages: List of stage names, or None / ["all"] for full pipeline.
-        min_score: Minimum fit score for tailor/cover stages.
         dry_run: If True, preview stages without executing.
         stream: If True, run stages concurrently (streaming mode).
         workers: Number of parallel threads for discovery/enrichment stages.
-        source: Resume source — "resume" (default) or "content-library".
         no_cache: If True, bypass per-domain strategy cache in smart-extract.
         prefilter: If False, score every job with the LLM (skip the title pre-filter).
-        limit: Max jobs sent to the LLM by the score stage (default: all) and by the tailor and
-            cover stages (default: each stage's own, 20).
+        limit: Max jobs sent to the LLM by the score and extract stages (default: all).
         sync: Score and extract with one request per job instead of a Message Batch (full price, no wait).
         with_discover: Also run discover (left out of "all" by default).
 
@@ -638,6 +541,8 @@ def run_pipeline(
     if stages is None:
         stages = ["all"]
     ordered = _resolve_stages(stages, with_discover=with_discover)
+    if not ordered:
+        return {"stages": [], "errors": {}, "elapsed": 0.0}
 
     # Banner
     mode = "streaming" if stream else "sequential"
@@ -646,13 +551,7 @@ def run_pipeline(
         f"[bold]Strelitzia Pipeline[/bold] ({mode})",
         border_style="blue",
     ))
-    console.print(f"  Min score:  {min_score}")
     console.print(f"  Workers:    {workers}")
-    if validation_mode:
-        console.print(f"  Validation: {validation_mode}")
-    else:
-        console.print(f"  Validation: tailor {tailor_validation_mode(None, source)}, cover normal")
-    console.print(f"  Source:     {source}")
     console.print(f"  Stages:     {' -> '.join(ordered)}")
     console.print(f"  Discovery:  {'on' if 'discover' in ordered else DISCOVERY_OFF_NOTE}")
 
@@ -670,13 +569,9 @@ def run_pipeline(
 
     # Execute
     if stream:
-        result = _run_streaming(ordered, min_score, workers=workers,
-                                validation_mode=validation_mode, source=source,
-                                no_cache=no_cache, prefilter=prefilter, limit=limit, sync=sync)
+        result = _run_streaming(ordered, workers=workers, no_cache=no_cache, prefilter=prefilter, limit=limit, sync=sync)
     else:
-        result = _run_sequential(ordered, min_score, workers=workers,
-                                 validation_mode=validation_mode, source=source,
-                                 no_cache=no_cache, prefilter=prefilter, limit=limit, sync=sync)
+        result = _run_sequential(ordered, workers=workers, no_cache=no_cache, prefilter=prefilter, limit=limit, sync=sync)
 
     # Summary table
     console.print(f"\n{'=' * 70}")

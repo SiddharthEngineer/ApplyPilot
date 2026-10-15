@@ -200,48 +200,7 @@ def test_drive_sync_enabled(token, monkeypatch):
     assert not drive_sync_enabled()
 
 
-def _patch_tailoring(monkeypatch):
-    from strelitzia.scoring import tailor
-    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
-
-
-def test_pipeline_syncs_after_tailor(token, monkeypatch):
-    from strelitzia import pipeline
-    from strelitzia.storage import sync
-    token.write_text("{}")
-    monkeypatch.setenv("DRIVE_SYNC", "1")
-    calls = []
-    monkeypatch.setattr(sync, "run_drive_sync", lambda: calls.append(1) or {})
-    _patch_tailoring(monkeypatch)
-    pipeline._run_tailor(min_score=7)
-    assert calls == [1]
-
-
-def test_pipeline_drive_errors_do_not_fail_stage(token, monkeypatch):
-    from strelitzia import pipeline
-    from strelitzia.storage import sync
-    token.write_text("{}")
-    monkeypatch.setenv("DRIVE_SYNC", "1")
-
-    def boom():
-        raise RuntimeError("Drive is down")
-
-    monkeypatch.setattr(sync, "run_drive_sync", boom)
-    _patch_tailoring(monkeypatch)
-    assert not pipeline._run_tailor(min_score=7)["status"].startswith("error")
-
-
-def test_pipeline_skips_sync_when_disabled(token, monkeypatch):
-    from strelitzia import pipeline
-    from strelitzia.storage import sync
-    monkeypatch.delenv("DRIVE_SYNC", raising=False)
-
-    def fail():
-        raise AssertionError("sync should not run")
-
-    monkeypatch.setattr(sync, "run_drive_sync", fail)
-    _patch_tailoring(monkeypatch)
-    pipeline._run_tailor(min_score=7)
+# DRIVE_SYNC after a draft is saved: tests/test_cli_workbench.py.
 
 
 def test_pdf_stage_does_not_rebuild_moved_pdfs(conn, client, tmp_path, monkeypatch):

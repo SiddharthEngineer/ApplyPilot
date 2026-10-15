@@ -133,8 +133,8 @@ class TestDoctorContentLibraryCheck:
             result = runner.invoke(app, ["doctor"])
 
         assert result.exit_code == 0
-        assert "Content library mode is the default" in result.output
-        assert "--source content-library" in result.output
+        assert "Open in Claude" in result.output and "claude-setup" in result.output
+        assert "--source" not in result.output
         assert "strelitzia template init" in result.output
 
     def test_tier_summary_no_hint_when_missing(self, tmp_path: Path) -> None:
@@ -181,8 +181,7 @@ class TestDoctorClaude:
         lines = {line.split()[0]: " ".join(line.split()[3:]) for line in result.output.splitlines()
                  if " model " in line and line.split()[0] in ("Discovery", "Extract", "Scoring", "Tailor", "Cover")}
         assert lines == {"Discovery": "claude-haiku-5-5 (effort low)", "Extract": "claude-haiku-5-5 (effort low)",
-                         "Scoring": "claude-haiku-5-5 (effort medium)", "Tailor": "claude-sonnet-5-5 (effort medium)",
-                         "Cover": "claude-sonnet-5-5 (effort medium)"}
+                         "Scoring": "claude-haiku-5-5 (effort medium)"}  # no Tailor or Cover: those run in Claude
 
     def test_missing_key_and_no_old_provider_lines(self, tmp_path, monkeypatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, {"GEMINI_API_KEY": "g", "LLM_TAILOR_MODEL": "gemini-3.6-flash"})

@@ -6,8 +6,9 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 
 Strelitzia is the workspace between finding a job (LinkedIn, Indeed, a company's site, anywhere) and applying for it.
-Paste a job's link into the dashboard: Strelitzia reads the posting, scores it against your resume with AI, tailors your
-resume and writes a cover letter on request, and keeps your notes, contacts and interviews for each job. It can also
+Paste a job's link into the dashboard: Strelitzia reads the posting, scores it against your resume with AI, prepares a
+packet for tailoring your resume and cover letter in your own Claude chat (and checks the result), and keeps your
+notes, contacts and interviews for each job. It can also
 crawl job boards for you (optional). **It never submits applications for you.** You decide where to apply, and you
 click submit.
 
@@ -35,7 +36,7 @@ In the dashboard, click **Add job** and paste a posting's link. The job appears 
 its title, company, salary and fit score. If the page can't be read (LinkedIn and Indeed often show a sign-in page), the
 job page asks you to paste the description instead.
 
-`strelitzia run` processes the jobs in bulk (enrich > score > tailor > cover letters > extract). It no longer crawls job
+`strelitzia run` processes the jobs in bulk (enrich > score > extract). It no longer crawls job
 boards unless you ask: `strelitzia run --with-discover` (or `strelitzia run discover`).
 
 For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate.sh`.
@@ -48,7 +49,8 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 |-----------|-------------|---------|
 | Python 3.11+ | Everything | Core runtime |
 | Chromium (Playwright) | Discovery, enrichment, PDFs | `playwright install chromium` |
-| Claude API key | Scoring, tailoring, cover letters, extraction | Pay as you go, capped by a monthly budget (see [Cost and budget](#cost-and-budget)). Create one at [console.anthropic.com](https://console.anthropic.com) |
+| Claude API key | Scoring, extraction, discovery fallbacks (Haiku only) | Pay as you go, capped by a monthly budget (see [Cost and budget](#cost-and-budget)). Create one at [console.anthropic.com](https://console.anthropic.com) |
+| Claude Pro (or higher) | Writing resumes and cover letters | In a claude.ai Project (see [Resumes and cover letters in Claude](#resumes-and-cover-letters-in-claude)). No API cost |
 | Node.js 22 | Only to change the dashboard UI | The built UI ships in the package |
 
 ---
@@ -60,17 +62,16 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 | **1. Discover** (optional) | Off by default: jobs come from the dashboard's **Add job**. With `--with-discover` (or `strelitzia run discover`), searches Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
 | **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
 | **3. Score** | Every job gets a 0-100 fit score: your Preferences page (salary, location, work mode, ...) scored in code, plus Claude's assessment of skills, experience and domain fit against your resume |
-| **4. Tailor** | AI writes per-job bullets from your content library and renders them through your own resume template (or rewrites `resume.txt` without a library). Every number is checked against the project facts it cites. Never fabricates |
-| **5. Cover letter** | AI writes a targeted cover letter per job, citing the same projects as that job's resume |
-| **6. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back. Each job keeps notes, contacts (shared across jobs, on the Contacts page) and interviews with prep and debrief notes |
+| **4. Tailor in Claude** | On the job page, **Open in Claude** copies a prompt (and writes a packet Doc to Drive): the posting, each required and preferred qualification marked evidenced or not, and your allowed projects. You iterate in a claude.ai chat, then **Paste result**: Strelitzia checks it (every number against the facts it cites, no unsupported skills, no hidden text, banned words, cover-letter rules) and renders a one-page PDF, a DOCX and the cover-letter PDF. Never fabricates |
+| **5. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back. Each job keeps notes, contacts (shared across jobs, on the Contacts page) and interviews with prep and debrief notes |
 
 **Extract** (`strelitzia run extract`) parses each enriched posting into structured fields: role category, seniority,
 employment type, work mode, locations, salary range, posted date and deadline, responsibilities, required and preferred
 qualifications, skills, education, years of experience, visa sponsorship and more. It sends one posting per request,
 all in one Message Batch (half price), and saves each result as it arrives. The full record is stored in `details_json`,
 and the filter fields get their own columns. Until a job has been extracted, `strelitzia classify` fills its role
-category, work mode and location from keyword rules (no LLM). In a full `strelitzia run`, extract runs after the cover
-stage, so scoring gets the monthly budget first.
+category, work mode and location from keyword rules (no LLM). In a full `strelitzia run`, extract runs after scoring,
+so scoring gets the monthly budget first.
 
 Each stage is independent. Run them all or pick what you need.
 
@@ -90,24 +91,48 @@ that isn't secret lives in a YAML file:
 | `config/employers.yaml` | Workday employer registry (48 preconfigured) |
 | `config/ats_boards.yaml` | Greenhouse / Lever / Ashby company boards (23 preconfigured) |
 | `config/sites.yaml` | Direct career sites (30+), blocked sites, base URLs |
-| `content_library.md` | Optional: raw facts per project, grouped by role. When present, tailoring uses it by default |
+| `content_library.md` | Raw facts per project, grouped by role: the only facts a tailored resume or letter may use |
 | `resume_template.html` | Optional: your resume layout (Jinja2), from `strelitzia template init` |
 | `resume_fixed.yaml` | Optional: header, education and per-role title/company/dates, copied verbatim into every tailored resume |
+| `cover_letter_template.html` | Optional: your cover-letter layout (Jinja2); see `src/strelitzia/config/cover_letter_template.default.html` |
 
-### Resume template (content-library tailoring)
+### Resume template
 
 With a `content_library.md`, each tailored resume keeps your own resume's look and shape. Only the bullets and the skill order change per job.
 
 1. `strelitzia template init` writes `resume_fixed.yaml` from `resume.txt` (header, education, and each role's title, company, dates and tagline, verbatim) and a starter `resume_template.html`.
-2. Edit `resume_template.html` to match your resume (fonts, spacing, section rules). It's Jinja2 with `name`, `contact`, `roles`, `education` and `skills`. See `src/strelitzia/config/resume_template.default.html` for the variables.
+2. Edit `resume_template.html` to match your resume (fonts, spacing, section rules). It's Jinja2 with `name`, `headline`, `contact`, `roles`, `education` and `skills`. Keep it one column, with no tables, text boxes or header/footer regions, so ATS parsers read it in order. See `src/strelitzia/config/resume_template.default.html` for the variables.
 3. `strelitzia template preview` renders your base resume through the template to `template_preview.pdf`. Compare it with your resume, and iterate until they match.
 
-When tailoring, the LLM picks bullets per role (between your base resume's bullet count and two fewer, so the shape stays the same), and each bullet cites the library projects it draws on. Every number in a bullet must appear in those projects' facts. Output per job: `<job>.pdf` (always one page; bullets above a role's minimum are dropped if it overflows), `<job>.json` (bullets with their `project_ids`), and `<job>.txt`. On Linux, install `fonts-liberation` so Chromium has a Times New Roman–compatible font.
+Each draft has bullets per role (between your base resume's bullet count and two fewer, so the shape stays the same), and each bullet cites the library projects it draws on. Every number in a bullet must appear in those projects' facts. Output per job: `<job>.pdf` (always one page; bullets above a role's minimum are dropped if it overflows), `<job>.docx` (the same resume as a single-column Word file, which some Workday setups parse better), `<job>.json` (bullets with their `project_ids`), `<job>.txt`, and the cover letter as `<job>_CL.pdf`. On Linux, install `fonts-liberation` so Chromium has a Times New Roman–compatible font.
+
+### Resumes and cover letters in Claude
+
+Resumes and cover letters are written in your Claude Pro plan, not through the API, so they cost nothing extra and you
+pick the model (Opus or Sonnet) per chat. Results come back by pasting, which works on any plan.
+
+1. **Once:** open **Claude setup** in the dashboard (`/app/claude-setup`). With Google Drive set up, Strelitzia writes
+   two Google Docs into `Strelitzia/_Claude/`: "Strelitzia rules" (the writing rules and the JSON format every reply
+   ends with) and "Strelitzia content library". Create a claude.ai Project named "Strelitzia Resumes", add both Docs,
+   and paste the project instructions the page shows. Strelitzia keeps the Docs current when the rules or your library
+   change.
+2. **Per job:** **Open in Claude** writes "<Company> – <Role> – Claude packet" into the job's Drive folder and copies a
+   short prompt. Without Drive, the whole packet (with the rules and your library) is copied instead.
+3. **Iterate** in one chat. Every reply ends with a ```` ```json ```` block.
+4. **Paste result** on the job page. If a check fails, nothing is saved: you get the errors and a **Copy fix message**
+   for the same chat. If it passes, you get the PDF, DOCX and cover-letter PDF (moved to Drive when it's set up), a new
+   draft version, and **Resume targeting**: how many required qualifications the resume covers, and which ones nothing
+   in your library backs ("Not on your resume"; report-only, never written in).
+
+Marking a job Submitted records its draft and rules versions (`submitted_draft_version`, `submitted_rules_version`).
+In a terminal: `strelitzia workbench packet <key>` prints the full packet, and `strelitzia workbench import <key>
+<file>` checks and saves a reply (exit code 1 and the fix message if it fails; with `DRIVE_SYNC=1` the PDFs move to
+Drive).
 
 ### Cost and budget
 
-Every LLM call goes to the Claude API with your own `ANTHROPIC_API_KEY`, through the official `anthropic` SDK. Each
-stage has its own model and effort ([`config/llm_models.yaml`](src/strelitzia/config/llm_models.yaml), which also
+The API is used only for scoring, extraction and discovery fallbacks, all on Haiku, with your own
+`ANTHROPIC_API_KEY` through the official `anthropic` SDK. Each stage has its own model and effort ([`config/llm_models.yaml`](src/strelitzia/config/llm_models.yaml), which also
 holds the prices used for spend tracking):
 
 | Stage | Default | Override |
@@ -115,8 +140,6 @@ holds the prices used for spend tracking):
 | SmartExtract strategy + API judge, enrichment fallback | `claude-haiku-5-5`, effort `low` | `LLM_DISCOVERY_MODEL`, `LLM_DISCOVERY_EFFORT` |
 | Posting extraction | `claude-haiku-5-5`, effort `low` | `LLM_EXTRACT_MODEL`, `LLM_EXTRACT_EFFORT` |
 | Scoring | `claude-haiku-5-5`, effort `low` | `LLM_SCORING_MODEL`, `LLM_SCORING_EFFORT` |
-| Resume tailoring | `claude-sonnet-5-5`, effort `medium` | `LLM_TAILOR_MODEL`, `LLM_TAILOR_EFFORT` |
-| Cover letters | `claude-sonnet-5-5`, effort `medium` | `LLM_COVER_MODEL`, `LLM_COVER_EFFORT` |
 
 An override that isn't a `claude-*` model id (say, a leftover Gemini setting) is ignored with a warning, and
 `strelitzia init` removes old-provider settings from `.env`.
@@ -135,11 +158,8 @@ An override that isn't a `claude-*` model id (say, a leftover Gemini setting) is
   `strelitzia doctor` shows month-to-date spend against the budget and any batches still open.
 - **Scoring pre-filter**: jobs whose title shares no word with your search queries or `target_role` get `fit_score` 1
   without an LLM call. Use `--no-prefilter` to score them anyway.
-- **Structured output**: scoring, extraction and tailoring ask for schema-constrained JSON, so malformed replies don't
-  cost retries.
-- **`--validation lenient`** skips the LLM judge, saving one call per attempt. It's the default for content-library
-  tailoring, whose bullets are already checked mechanically (project ids, numbers, bullet ranges). Pass
-  `--validation normal` to bring the judge back.
+- **Structured output**: scoring and extraction ask for schema-constrained JSON, so malformed replies don't cost
+  retries.
 - **Errors**: the SDK retries rate limits and server errors with backoff. A bad key or an API that stays overloaded
   stops the stage (`stopped: Claude API key missing or rejected` / `stopped: Claude API overloaded`) without charging
   the job an attempt.
@@ -163,7 +183,8 @@ mode Claude Code prefers `ANTHROPIC_API_KEY` over its subscription login, so the
 
 ### Google Drive file library
 
-Strelitzia can move tailored resume and cover letter PDFs to your Google Drive, filed as
+Strelitzia can move tailored resume and cover letter PDFs to your Google Drive, and writes the Claude Project Docs and
+each job's Claude packet there (see [Resumes and cover letters in Claude](#resumes-and-cover-letters-in-claude)). Files are filed as
 `Strelitzia/<Company>/<Role>/<YYYY-MM-DD>/` (set `DRIVE_ROOT_FOLDER` to use another top-level folder). This is useful
 when you run Strelitzia on more than one machine. Each job's Drive links are saved in the database (`resume_drive_url`,
 `cover_letter_drive_url`). A local PDF is deleted only after Drive confirms the same checksum. Re-syncing, or
@@ -193,8 +214,9 @@ strelitzia drive links --csv links.csv   # list the saved links
 ```
 
 On a headless server, run `strelitzia drive auth --no-browser`. From your laptop, open a tunnel first with
-`ssh -N -L 8765:localhost:8765 <user>@<server>`, then open the printed URL in your laptop's browser. To move new PDFs
-automatically after the tailor and cover stages, set `DRIVE_SYNC=1` in `.env`. `strelitzia doctor` shows whether Drive
+`ssh -N -L 8765:localhost:8765 <user>@<server>`, then open the printed URL in your laptop's browser. The dashboard
+moves a pasted draft's PDFs to Drive whenever Drive is authorized; to do the same after `strelitzia workbench import`,
+set `DRIVE_SYNC=1` in `.env`. `strelitzia doctor` shows whether Drive
 is authorized.
 
 ### Database
@@ -216,7 +238,7 @@ to `<name>.db.bak-<date>` first, without changing it. To switch back to SQLite, 
 ### Dashboard
 
 `strelitzia serve` runs the job dashboard at `http://127.0.0.1:8765/app/`: a filterable, sortable jobs table and a detail
-page per job, with buttons to generate the resume and cover letter and to track the application's status.
+page per job, with the Claude workbench (Open in Claude, Paste result, Resume targeting) and the application's status.
 The built UI ships in the package (`src/strelitzia/web/static/`), so Node is only needed to change it:
 
 ```bash
@@ -239,10 +261,13 @@ curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", .
   `POST /app/api/jobs/{key}/interviews`, `PATCH/DELETE /app/api/interviews/{id}`.
 - Status: `POST /app/api/jobs/{key}/status {"status": "submitted"}` (or `rejected`, `heard_back`, `in_progress`, `null`
   to reset). Active and Inactive are derived from the deadline. `PATCH /app/api/jobs/{key}` edits `submitted_at` and `notes`.
-- `POST /app/api/jobs/{key}/generate {"resume": true, "cover": true}` queues a tailored resume and/or cover letter
-  for that job, then moves the PDFs to Drive when it's authorized. A cover letter is written from the tailored
-  resume's content-library evidence, so asking for only a cover letter tailors the resume first if there isn't one.
-  Poll `GET /app/api/tasks/{id}`. Tasks run one at a time on a background thread.
+- Claude workbench: `POST /app/api/jobs/{key}/packet` returns `{prompt, doc_url, inline}` (it writes the packet Doc
+  when Drive is authorized, else `inline: true` and the prompt holds the whole packet). `POST /app/api/jobs/{key}/result
+  {"text": "<Claude's reply>"}` runs the checks: 422 with `errors` and a `fix_prompt`, or 200 with the saved draft and
+  the job. `GET /app/api/jobs/{key}/files/{resume_pdf|resume_docx|cover_letter_pdf}` downloads a draft file still on
+  this server. `GET /app/api/claude/setup` and `POST /app/api/claude/docs` back the Claude setup page.
+- `POST /app/api/jobs/{key}/rescore` queues a fresh assessment. Poll `GET /app/api/tasks/{id}`. Tasks run one at a
+  time on a background thread.
 
 Every POST/PATCH needs the header `X-Strelitzia: 1`. Put the server behind a reverse proxy with authentication;
 it has no login of its own.
@@ -281,11 +306,7 @@ strelitzia run [stages...]               # Run pipeline stages (or 'all', which 
 strelitzia run --with-discover           # Also crawl the job boards (discovery is off by default)
 strelitzia run --workers 4               # Parallel discovery/enrichment
 strelitzia run --stream                  # Concurrent stages (streaming mode)
-strelitzia run --min-score 80            # Override the fit score threshold (0-100, default 70)
 strelitzia run --dry-run                 # Preview without executing
-strelitzia run --source content-library  # Tailor from content_library.md (default when it exists)
-strelitzia run --source resume           # Tailor by rewriting resume.txt
-strelitzia run tailor --limit 3          # Cap the tailor/cover stages at N jobs
 strelitzia run score --limit 20          # Score at most N jobs (a Message Batch; each score is saved as it arrives)
 strelitzia run score --sync              # One request per job: full price, no batch wait
 strelitzia run extract --limit 100       # Parse N postings into structured fields (a Message Batch; stops at the budget)
@@ -293,7 +314,8 @@ strelitzia run extract --limit 3 --sync  # Parse a few postings right away
 strelitzia classify                      # Keyword role category / work mode / location for jobs not yet extracted (no LLM)
 strelitzia template init                 # Create resume_fixed.yaml + resume_template.html from resume.txt
 strelitzia template preview              # Render your base resume through the template (template_preview.pdf)
-strelitzia run --validation normal       # Run the LLM judge (default: lenient for content-library tailoring, else normal)
+strelitzia workbench packet <key>        # Print a job's full Claude packet (posting, qualifications, rules, library)
+strelitzia workbench import <key> <file> # Check a Claude reply and save it as the job's next draft (PDF, DOCX, letter)
 strelitzia run score --reset-errors      # Re-queue jobs whose scoring failed with an LLM error
 strelitzia run score --no-prefilter      # Also LLM-score jobs whose title shares no word with your queries/target role
 strelitzia discover --probe              # Check each job board (ok/empty/blocked/error) in seconds, no DB writes

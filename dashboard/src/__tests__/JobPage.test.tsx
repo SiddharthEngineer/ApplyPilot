@@ -12,7 +12,7 @@ vi.mock('../api');
 
 function task(state: Task['state'], extra: Partial<Task> = {}): Task {
   return {
-    id: 't1', url: 'https://example.com/job/1', kind: 'both', state, created_at: '2026-10-05T20:00:00+00:00',
+    id: 't1', url: 'https://example.com/job/1', kind: 'rescore', state, created_at: '2026-10-05T20:00:00+00:00',
     started_at: state === 'queued' ? null : '2026-10-05T20:00:01+00:00',
     finished_at: state === 'done' || state === 'error' ? '2026-10-05T20:00:30+00:00' : null,
     error: state === 'error' ? 'The Claude API is overloaded right now; try again in a few minutes.' : null,

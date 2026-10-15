@@ -197,12 +197,12 @@ def load_env():
 
 TIER_LABELS = {
     1: "Discovery",
-    2: "AI Scoring & Tailoring",
+    2: "AI Scoring",
 }
 
 TIER_COMMANDS: dict[int, list[str]] = {
     1: ["init", "run discover", "run enrich", "status", "dashboard"],
-    2: ["run score", "run tailor", "run cover", "run pdf", "run"],
+    2: ["run score", "run extract", "run pdf", "run"],
 }
 
 
@@ -210,7 +210,7 @@ def get_tier() -> int:
     """Detect the current tier based on available dependencies.
 
     Tier 1 (Discovery):            Python + pip
-    Tier 2 (AI Scoring & Tailoring): + ANTHROPIC_API_KEY
+    Tier 2 (AI Scoring):           + ANTHROPIC_API_KEY
     """
     load_env()
 

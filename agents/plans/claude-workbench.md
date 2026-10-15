@@ -168,7 +168,7 @@ validation options; `strelitzia run tailor` prints "Resumes are written in Claud
 `strelitzia workbench import <key> <file>` for terminal use. README: replace the Tailor/Cover pipeline rows and the Cost section with the workbench flow;
 API cost is now Haiku only. Delete the tests that only covered the removed API paths; keep or port every validator and rendering test.
 **Validate:** `grep -rn 'get_client("tailor")\|get_client("cover")' src` → nothing; `strelitzia run --dry-run` lists no tailor or cover stages; `scripts/validate.sh --full` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 The end-to-end run with a real Claude Project (Drive OAuth, Claude Pro, your library) is ROADMAP manual step M22, after merge.
 

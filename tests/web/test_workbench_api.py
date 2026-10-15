@@ -142,3 +142,22 @@ def test_setup_without_drive(client):
 def test_publish_docs_from_setup(client, drive):
     s = client.post("/app/api/claude/docs").json()
     assert all(d["url"] and d["changed_at"] for d in s["docs"])
+
+
+def test_a_saved_draft_marks_the_job_in_progress(client, the_job):
+    client.post(f"/app/api/jobs/{the_job}/result", json={"text": reply(good_result())})
+    d = client.get(f"/app/api/jobs/{the_job}").json()
+    assert d["status"] == "in_progress" and d["status_color"] == "yellow"
+    assert d["events"][0]["source"] == "workbench"
+
+
+def test_a_saved_draft_keeps_a_status_the_user_set(client, the_job):
+    client.post(f"/app/api/jobs/{the_job}/status", json={"status": "submitted"})
+    client.post(f"/app/api/jobs/{the_job}/result", json={"text": reply(good_result())})
+    d = client.get(f"/app/api/jobs/{the_job}").json()
+    assert d["status"] == "submitted" and len(d["events"]) == 1
+
+
+def test_a_rejected_paste_leaves_the_status_alone(client, the_job):
+    client.post(f"/app/api/jobs/{the_job}/result", json={"text": "no json here"})
+    assert client.get(f"/app/api/jobs/{the_job}").json()["status"] == "active"

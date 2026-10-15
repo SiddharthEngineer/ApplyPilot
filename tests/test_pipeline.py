@@ -116,7 +116,7 @@ class TestDiscoveryOffByDefault:
     def test_all_leaves_out_discover(self):
         from strelitzia.pipeline import _resolve_stages
 
-        assert _resolve_stages(["all"]) == ["enrich", "score", "tailor", "cover", "extract", "pdf"]
+        assert _resolve_stages(["all"]) == ["enrich", "score", "extract", "pdf"]
 
     def test_with_discover_adds_it(self):
         from strelitzia.pipeline import STAGE_ORDER, _resolve_stages

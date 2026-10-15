@@ -8,7 +8,7 @@ from strelitzia import pipeline
 from strelitzia.database import init_db
 from strelitzia.discovery import smartextract
 from strelitzia.llm import LLMStopRun
-from strelitzia.scoring import cover_letter, scorer, tailor
+from strelitzia.scoring import scorer
 from fit_helpers import add_extracted_job, reply
 
 URLS = [f"https://example.com/job/{i}" for i in range(3)]
@@ -60,38 +60,6 @@ def test_scoring_keeps_scores_before_the_stop(conn, resume):
     scores = sorted(r[0] for r in _rows(conn, "fit_score") if r[0] is not None)
     assert scores == [75]
     assert [r[0] for r in _rows(conn, "score_attempts")] == [0, 0, 0]
-
-
-def _ready_for_tailor(conn):
-    conn.execute("UPDATE jobs SET fit_score = 9")
-    conn.commit()
-
-
-def test_tailoring_stops_without_counting_attempt(conn, resume, tmp_path):
-    _ready_for_tailor(conn)
-    with patch.object(tailor, "get_connection", return_value=conn), \
-            patch.object(tailor, "load_profile", return_value={}), \
-            patch.object(tailor, "RESUME_PATH", resume), \
-            patch.object(tailor, "TAILORED_DIR", tmp_path / "tailored"), \
-            patch.object(tailor, "tailor_resume", side_effect=STOP) as tr:
-        stats = tailor.run_tailoring(min_score=7)
-    assert tr.call_count == 1
-    assert stats["stopped"] == "budget" and stats["errors"] == 0
-    assert _rows(conn, "tailor_attempts, tailored_resume_path") == [(0, None)] * 3
-
-
-def test_cover_letters_stop_without_counting_attempt(conn, resume, tmp_path):
-    conn.execute("UPDATE jobs SET fit_score = 9, tailored_resume_path = '/x.txt'")
-    conn.commit()
-    with patch.object(cover_letter, "get_connection", return_value=conn), \
-            patch.object(cover_letter, "load_profile", return_value={}), \
-            patch.object(cover_letter, "RESUME_PATH", resume), \
-            patch.object(cover_letter, "COVER_LETTER_DIR", tmp_path / "cl"), \
-            patch.object(cover_letter, "generate_cover_letter", side_effect=STOP) as gen:
-        stats = cover_letter.run_cover_letters(min_score=7)
-    assert gen.call_count == 1
-    assert stats["stopped"] == "budget" and stats["errors"] == 0
-    assert _rows(conn, "cover_attempts, cover_letter_path") == [(0, None)] * 3
 
 
 def test_smartextract_stop_is_fatal(tmp_path):

@@ -59,8 +59,9 @@ class TestRouting:
         assert resolve_model("extract") == ("claude-haiku-5-5", "low")
         assert resolve_model("scoring") == ("claude-haiku-5-5", "low")
         assert resolve_model("discovery") == ("claude-haiku-5-5", "low")
-        assert resolve_model("tailor") == ("claude-sonnet-5-5", "medium")
-        assert resolve_model("cover") == ("claude-sonnet-5-5", "medium")
+        for gone in ("tailor", "cover"):  # resumes and letters are written in Claude chats now
+            with pytest.raises(ValueError):
+                resolve_model(gone)
 
     def test_env_overrides(self, monkeypatch):
         monkeypatch.setenv("LLM_SCORING_MODEL", "claude-sonnet-5-5")
@@ -76,16 +77,16 @@ class TestRouting:
         assert caplog.text.count("Ignoring LLM_SCORING_MODEL") == 1
 
     def test_bad_effort_is_ignored(self, monkeypatch):
-        monkeypatch.setenv("LLM_TAILOR_EFFORT", "extreme")
-        assert resolve_model("tailor") == ("claude-sonnet-5-5", "medium")
+        monkeypatch.setenv("LLM_SCORING_EFFORT", "extreme")
+        assert resolve_model("scoring") == ("claude-haiku-5-5", "low")
 
     def test_unknown_purpose(self):
         with pytest.raises(ValueError):
             resolve_model("nope")
 
     def test_clients_are_memoized_per_purpose(self):
-        assert get_client("tailor") is get_client("tailor")
-        assert get_client("tailor") is not get_client("cover")
+        assert get_client("scoring") is get_client("scoring")
+        assert get_client("scoring") is not get_client("extract")
         assert get_client().purpose == "discovery"
         assert llm.get_discovery_client() is get_client("discovery")
 
