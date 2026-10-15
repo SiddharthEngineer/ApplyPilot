@@ -111,6 +111,10 @@ def test_paste_only_job_gets_a_synthetic_url(conn, fakes):
     assert fakes.scrapes == [] and fakes.scored == [row["url"]]
     assert (done["intake_status"], done["title"], done["location"]) == ("ok", "Analyst", "Austin, TX, US")
 
+    again, created = intake.add_job(conn, row["url"])
+    assert not created and again["url"] == row["url"]
+    with pytest.raises(ValueError):
+        intake.add_job(conn, "manual://" + "0" * 32)
     with pytest.raises(ValueError):
         intake.add_job(conn, None, intake.ManualFields(title="No description"))
     with pytest.raises(ValueError):

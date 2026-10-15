@@ -100,8 +100,17 @@ def _clean(value: str | None) -> str | None:
 
 
 def find_existing(conn: Connection, url: str) -> dict | None:
-    """The job row for a pasted link, matched as normalized or as given. Raises ValueError for a non-web link."""
-    return _row(conn, normalize_url(url)) or _row(conn, url.strip())
+    """The job row for a pasted link, matched as normalized or as given. Raises ValueError for a non-web link.
+
+    A `manual://` url (a job added without a link) only matches exactly, and must exist.
+    """
+    url = url.strip()
+    if url.startswith(MANUAL_URL_PREFIX):
+        row = _row(conn, url)
+        if row is None:
+            raise ValueError("No job was added with that link")
+        return row
+    return _row(conn, normalize_url(url)) or _row(conn, url)
 
 
 def add_job(conn: Connection, url: str | None, manual: ManualFields | None = None) -> tuple[dict, bool]:
@@ -116,11 +125,11 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
     description = _clean(manual.description)
     now = _now()
     if url and url.strip():
-        normalized = normalize_url(url)
         existing = find_existing(conn, url)
         if existing:
             _mark_manual(conn, existing, manual, now)
             return _row(conn, existing["url"]), False
+        normalized = normalize_url(url)
     else:
         if not description:
             raise ValueError("Give a link or paste the description")
