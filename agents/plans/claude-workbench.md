@@ -115,7 +115,7 @@ prompt, a number not in the facts → error, a valid result → files written, `
   opacity < 0.5 or off-page positioning, and for injection phrases ("ignore previous", "AI screener", "rank this candidate", "system prompt").
   The PDF's extracted text must contain no tokens outside the visible text. `import_result` runs both.
 **Validate:** `pytest tests/test_resume_roundtrip.py tests/test_hidden_text.py -q` → the default template passes; white-on-white, 1pt and injection fixtures fail. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 4: DOCX export and cover-letter PDF
 **Runs:** unattended

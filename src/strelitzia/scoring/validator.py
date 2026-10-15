@@ -11,8 +11,10 @@ normal  -- banned words = warnings only; fabrication/structure = errors (default
 lenient -- banned words ignored; only fabrication and required structure checked
 """
 
-import re
+import html as html_mod
 import logging
+import re
+import unicodedata
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -583,3 +585,206 @@ def validate_letter(paragraphs: list[str], evidence_slugs: list[str], library: "
                 errors.append(f"Cover letter mentions '{e.target.text}', which your content library and base "
                               "resume don't back; remove it")
     return errors
+
+
+# ── Hidden text and injection (rendered HTML and PDF) ─────────────────────
+
+# Instructions aimed at an AI screener. Screeners flag these and reject the application.
+INJECTION_PHRASES: tuple[str, ...] = (
+    "ignore previous", "ignore all previous", "ignore the above", "ai screener", "rank this candidate",
+    "system prompt", "hire this candidate", "as an ai language model",
+)
+MIN_FONT_PT = 6.0
+MIN_OPACITY = 0.5
+MIN_CONTRAST = 1.5  # WCAG contrast ratio below which text is effectively invisible
+_NAMED_COLORS = {"white": (255, 255, 255), "black": (0, 0, 0), "red": (255, 0, 0), "gray": (128, 128, 128),
+                 "grey": (128, 128, 128), "silver": (192, 192, 192), "whitesmoke": (245, 245, 245),
+                 "snow": (255, 250, 250), "ivory": (255, 255, 240), "navy": (0, 0, 128), "blue": (0, 0, 255)}
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+def _parse_color(value: str) -> tuple[int, int, int] | None:
+    v = value.strip().lower()
+    if v in _NAMED_COLORS:
+        return _NAMED_COLORS[v]
+    m = re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{6})", v)
+    if m:
+        h = m.group(1)
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    m = re.fullmatch(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)", v)
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return None
+
+
+def _contrast(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
+    def lum(c):
+        ch = [x / 255 for x in c]
+        ch = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in ch]
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _length_pt(value: str, base_pt: float = 10.0) -> float | None:
+    m = re.fullmatch(r"(-?[\d.]+)\s*(pt|px|em|rem|%|in|cm|mm)?", value.strip().lower())
+    if not m:
+        return None
+    n, unit = float(m.group(1)), m.group(2) or "px"
+    factor = {"pt": 1, "px": 0.75, "em": base_pt, "rem": base_pt, "%": base_pt / 100, "in": 72, "cm": 28.35,
+              "mm": 2.835}[unit]
+    return n * factor
+
+
+def _declarations(block: str) -> dict[str, str]:
+    out = {}
+    for decl in block.split(";"):
+        name, sep, value = decl.partition(":")
+        if sep:
+            out[name.strip().lower()] = value.replace("!important", "").strip()
+    return out
+
+
+def _hiding_reason(decls: dict[str, str], background: tuple[int, int, int]) -> str | None:
+    """Why a set of CSS declarations would hide text, or None."""
+    if decls.get("display", "").lower() == "none":
+        return "display:none hides text"
+    if decls.get("visibility", "").lower() in ("hidden", "collapse"):
+        return "visibility:hidden hides text"
+    try:
+        if "opacity" in decls and float(decls["opacity"]) < MIN_OPACITY:
+            return f"opacity {decls['opacity']} makes text nearly invisible"
+    except ValueError:
+        pass
+    size = _length_pt(decls["font-size"]) if "font-size" in decls else None
+    if size is not None and size < MIN_FONT_PT:
+        return f"font-size {decls['font-size']} is below {MIN_FONT_PT:g}pt"
+    color = decls.get("color", "").lower()
+    if color == "transparent":
+        return "transparent text"
+    bg_value = decls.get("background-color") or decls.get("background", "").split(" ")[0]
+    bg = _parse_color(bg_value) if bg_value else None
+    fg = _parse_color(color) if color else None
+    if fg and _contrast(fg, bg or background) < MIN_CONTRAST:
+        return f"text color {color} is nearly the background color"
+    for prop in ("left", "top", "right", "bottom", "text-indent", "margin-left", "margin-top"):
+        pt = _length_pt(decls[prop]) if prop in decls else None
+        if pt is not None and (pt <= -75 or pt >= 750):
+            return f"{prop}: {decls[prop]} moves text off the page"
+    return None
+
+
+def _css_rules(html: str) -> list[tuple[str, dict[str, str]]]:
+    rules = []
+    for style in re.findall(r"<style[^>]*>(.*?)</style>", html, flags=re.S | re.I):
+        style = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
+        for selector, block in re.findall(r"([^{}@]+)\{([^{}]*)\}", style):
+            rules.append((selector.strip(), _declarations(block)))
+    return rules
+
+
+def _page_background(rules) -> tuple[int, int, int]:
+    for selector, decls in rules:
+        if {s.strip() for s in selector.split(",")} & {"body", "html"}:
+            value = decls.get("background-color") or decls.get("background", "").split(" ")[0]
+            if value and _parse_color(value):
+                return _parse_color(value)
+    return (255, 255, 255)
+
+
+def _hidden_selectors(rules, background) -> tuple[set[str], set[str], set[str]]:
+    """(tags, classes, ids) whose CSS rule hides text, from the last simple selector of each rule."""
+    tags, classes, ids = set(), set(), set()
+    for selector, decls in rules:
+        if not _hiding_reason(decls, background):
+            continue
+        for sel in selector.split(","):
+            last = sel.strip().split()[-1] if sel.strip() else ""
+            for kind, name in re.findall(r"([.#]?)([\w-]+)", last):
+                (classes if kind == "." else ids if kind == "#" else tags).add(name.lower())
+    return tags, classes, ids
+
+
+def _visible_and_inline(html: str) -> tuple[str, list[str]]:
+    """The text a reader sees (hidden elements dropped), and errors for inline hiding."""
+    from html.parser import HTMLParser
+
+    rules = _css_rules(html)
+    background = _page_background(rules)
+    tags, classes, ids = _hidden_selectors(rules, background)
+    errors: list[str] = []
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack: list[tuple[str, bool]] = []
+            self.text: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            a = {k: v or "" for k, v in attrs}
+            reason = _hiding_reason(_declarations(a.get("style", "")), background) if "style" in a else None
+            if reason:
+                errors.append(f"Inline style on <{tag}>: {reason}")
+            if "hidden" in a or a.get("aria-hidden") == "true":
+                reason = reason or "hidden attribute"
+                errors.append(f"<{tag}> is hidden by an attribute")
+            hidden = bool(reason) or tag in tags or tag in ("style", "script", "head", "title") \
+                or bool(set(a.get("class", "").lower().split()) & classes) or a.get("id", "").lower() in ids
+            if tag not in _VOID_TAGS:
+                parent = self.stack[-1][1] if self.stack else False
+                self.stack.append((tag, parent or hidden))
+
+        def handle_endtag(self, tag):
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    del self.stack[i:]
+                    break
+
+        def handle_data(self, data):
+            if not (self.stack and self.stack[-1][1]):
+                self.text.append(data)
+
+    p = P()
+    p.feed(html)
+    return " ".join(p.text), errors
+
+
+def visible_text(html: str) -> str:
+    return _visible_and_inline(html)[0]
+
+
+def validate_visible(html: str) -> list[str]:
+    """Errors for hidden text (color near the background, < 6pt, display:none, visibility:hidden, opacity
+    < 0.5, off-page positioning, the hidden attribute) and for instructions aimed at AI screeners."""
+    rules = _css_rules(html)
+    background = _page_background(rules)
+    errors = []
+    for selector, decls in rules:
+        if selector.lower().startswith("@"):
+            continue
+        reason = _hiding_reason(decls, background)
+        if reason:
+            errors.append(f"CSS rule '{selector}': {reason}")
+    text, inline = _visible_and_inline(html)
+    errors += inline
+    all_text = re.sub(r"<[^>]+>", " ", re.sub(r"<style[^>]*>.*?</style>", " ", html, flags=re.S | re.I))
+    lowered = " ".join(html_mod.unescape(all_text).lower().split())
+    errors += [f"Instruction aimed at screeners: '{p}'" for p in INJECTION_PHRASES if p in lowered]
+    return errors
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", text).lower()))
+
+
+def validate_pdf_text(pdf_path, html: str) -> list[str]:
+    """The PDF's extracted text may contain no words that aren't visible in the HTML it was rendered from."""
+    from pypdf import PdfReader
+
+    extracted = " ".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)
+    extra = sorted(_tokens(extracted) - _tokens(visible_text(html)))
+    if extra:
+        return [f"The PDF contains text that isn't visible: {', '.join(extra[:10])}"]
+    return []

@@ -24,15 +24,23 @@ from strelitzia.database import Connection, job_company
 from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
 from strelitzia.scoring.resume_model import TailoredResume
 from strelitzia.scoring.targets import EvidenceMap, coverage, evidence_map, matches
-from strelitzia.scoring.template import fixed_roles_from_resume, load_fixed, parse_base_resume, resume_to_text
+from strelitzia.scoring.template import (
+    fixed_roles_from_resume,
+    load_fixed,
+    parse_base_resume,
+    render_resume,
+    resume_to_text,
+)
 from strelitzia.scoring.validator import (
     BANNED_WORDS,
     resume_parts,
     validate_claims,
     validate_letter,
+    validate_pdf_text,
     validate_provenance,
     validate_resume_model,
     validate_skills_known,
+    validate_visible,
     validate_wording,
 )
 
@@ -426,6 +434,14 @@ def extract_result(text: str) -> dict:
     return data
 
 
+class RenderRejected(ValueError):
+    """The rendered files failed a check (page overflow, hidden text, injection)."""
+
+    def __init__(self, errors: list[str]):
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
 @dataclass
 class ImportOutcome:
     ok: bool
@@ -537,9 +553,8 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
     prefix = output_prefix(job)
     try:
         files, render_warnings = render_outputs(resume, data, job, inputs, out_dir, prefix)
-    except OverflowError as e:
-        msg = str(e)
-        return ImportOutcome(ok=False, errors=[msg], warnings=warnings, fix_prompt=fix_prompt([msg]))
+    except RenderRejected as e:
+        return ImportOutcome(ok=False, errors=e.errors, warnings=warnings, fix_prompt=fix_prompt(e.errors))
     warnings += render_warnings
 
     ev = job_evidence(job, inputs.library, inputs.base_resume_text)
@@ -574,18 +589,33 @@ def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs
     """Render the resume PDF (fit to one page). Returns ({kind: path}, warnings).
 
     Raises:
-        OverflowError: the resume is still longer than one page after trimming to the bullet minimums.
+        RenderRejected: still longer than one page after trimming to the bullet minimums, or hidden text.
     """
     from strelitzia.scoring.tailor import _role_slots, fit_to_one_page
 
     base = parse_base_resume(inputs.base_resume_text, inputs.library) if inputs.base_resume_text.strip() else None
-    pdf = out_dir / f"{prefix}.pdf"
-    info, dropped = fit_to_one_page(resume, inputs.profile, inputs.fixed, _role_slots(inputs.library, base), pdf)
-    if info["overflow"]:
-        raise OverflowError("The resume is longer than one page even with the fewest bullets allowed. "
-                            "Shorten the bullets (aim for one printed line each) and the Skills lines.")
-    warnings = [f"Dropped to fit one page: '{t}'" for t in dropped]
-    return {"resume": str(pdf)}, warnings
+    # Render into staging files so a rejected paste never replaces the last accepted draft's files.
+    staged = {"resume": out_dir / f"{prefix}.staging.pdf"}
+    try:
+        info, dropped = fit_to_one_page(resume, inputs.profile, inputs.fixed, _role_slots(inputs.library, base),
+                                        staged["resume"])
+        if info["overflow"]:
+            raise RenderRejected(["The resume is longer than one page even with the fewest bullets allowed. "
+                                  "Shorten the bullets (aim for one printed line each) and the Skills lines."])
+        html = render_resume(resume, inputs.profile, fixed=inputs.fixed)
+        problems = validate_visible(html) + validate_pdf_text(staged["resume"], html)
+        if problems:
+            raise RenderRejected(problems)
+    except BaseException:
+        for path in staged.values():
+            path.unlink(missing_ok=True)
+        raise
+    files = {}
+    for kind, path in staged.items():
+        final = path.with_name(path.name.replace(".staging", ""))
+        path.replace(final)
+        files[kind] = str(final)
+    return files, [f"Dropped to fit one page: '{t}'" for t in dropped]
 
 
 def current_result(job: dict) -> dict | None:
