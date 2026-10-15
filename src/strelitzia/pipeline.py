@@ -3,7 +3,8 @@
 Runs pipeline stages in sequence or concurrently (streaming mode).
 
 Usage (via CLI):
-    strelitzia run                        # all stages, sequential
+    strelitzia run                        # all stages but discover, sequential
+    strelitzia run --with-discover        # discover too (off by default: jobs come from the dashboard's Add job)
     strelitzia run --stream               # all stages, concurrent
     strelitzia run discover enrich        # specific stages
     strelitzia run score tailor cover     # LLM-only stages
@@ -43,6 +44,9 @@ console = Console()
 # `extract` only needs `enrich`, but runs after the stages the user waits on, so a run that hits the monthly
 # LLM budget has spent it on scoring first.
 STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
+# Discovery is off by default: jobs come from the dashboard's Add job. `all` leaves it out unless --with-discover.
+OPTIONAL_STAGES = ("discover",)
+DISCOVERY_OFF_NOTE = "off (use --with-discover)"
 
 STAGE_META: dict[str, dict] = {
     "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
@@ -268,12 +272,15 @@ _STAGE_RUNNERS: dict[str, callable] = {
 # Stage resolution
 # ---------------------------------------------------------------------------
 
-def _resolve_stages(stage_names: list[str]) -> list[str]:
-    """Resolve 'all' and validate/order stage names."""
-    if "all" in stage_names:
-        return list(STAGE_ORDER)
+def _resolve_stages(stage_names: list[str], with_discover: bool = False) -> list[str]:
+    """Resolve 'all' and validate/order stage names.
 
-    resolved = []
+    'all' is every stage but discover; `with_discover` adds discover to any selection. Naming discover runs it.
+    """
+    if "all" in stage_names:
+        return [s for s in STAGE_ORDER if s not in OPTIONAL_STAGES or with_discover]
+
+    resolved = ["discover"] if with_discover else []
     for name in stage_names:
         if name not in STAGE_META:
             console.print(
@@ -601,6 +608,7 @@ def run_pipeline(
     prefilter: bool = True,
     limit: int | None = None,
     sync: bool = False,
+    with_discover: bool = False,
 ) -> dict:
     """Run pipeline stages.
 
@@ -616,6 +624,7 @@ def run_pipeline(
         limit: Max jobs sent to the LLM by the score stage (default: all) and by the tailor and
             cover stages (default: each stage's own, 20).
         sync: Score and extract with one request per job instead of a Message Batch (full price, no wait).
+        with_discover: Also run discover (left out of "all" by default).
 
     Returns:
         Dict with keys: stages (list of result dicts), errors (dict), elapsed (float).
@@ -628,7 +637,7 @@ def run_pipeline(
     # Resolve stages
     if stages is None:
         stages = ["all"]
-    ordered = _resolve_stages(stages)
+    ordered = _resolve_stages(stages, with_discover=with_discover)
 
     # Banner
     mode = "streaming" if stream else "sequential"
@@ -645,6 +654,7 @@ def run_pipeline(
         console.print(f"  Validation: tailor {tailor_validation_mode(None, source)}, cover normal")
     console.print(f"  Source:     {source}")
     console.print(f"  Stages:     {' -> '.join(ordered)}")
+    console.print(f"  Discovery:  {'on' if 'discover' in ordered else DISCOVERY_OFF_NOTE}")
 
     # Pre-run stats
     pre_stats = get_stats()

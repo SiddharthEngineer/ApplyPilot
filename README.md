@@ -5,10 +5,11 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 
-Strelitzia is a job-discovery dashboard. It finds jobs on Indeed, LinkedIn, company job boards (Greenhouse, Lever, Ashby,
-Workday) and direct career sites, scores each one against your resume with AI, tailors your resume and writes a cover
-letter per job, and gives you a dashboard to track every application by hand. **It never submits applications for you.**
-You decide where to apply, and you click submit.
+Strelitzia is the workspace between finding a job (LinkedIn, Indeed, a company's site, anywhere) and applying for it.
+Paste a job's link into the dashboard: Strelitzia reads the posting, scores it against your resume with AI, tailors your
+resume and writes a cover letter on request, and keeps your notes, contacts and interviews for each job. It can also
+crawl job boards for you (optional). **It never submits applications for you.** You decide where to apply, and you
+click submit.
 
 ### The name
 
@@ -27,9 +28,15 @@ uv pip install -e ".[web,jobspy]"
 playwright install chromium
 strelitzia init          # one-time setup: resume, profile, searches, API key
 strelitzia doctor        # check your setup
-strelitzia run           # discover > enrich > score > tailor > cover letters > extract
 strelitzia serve         # the dashboard at http://127.0.0.1:8765/app/
 ```
+
+In the dashboard, click **Add job** and paste a posting's link. The job appears at once; within about a minute it has
+its title, company, salary and fit score. If the page can't be read (LinkedIn and Indeed often show a sign-in page), the
+job page asks you to paste the description instead.
+
+`strelitzia run` processes the jobs in bulk (enrich > score > tailor > cover letters > extract). It no longer crawls job
+boards unless you ask: `strelitzia run --with-discover` (or `strelitzia run discover`).
 
 For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate.sh`.
 
@@ -50,12 +57,12 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 
 | Stage | What happens |
 |-------|-------------|
-| **1. Discover** | Searches Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
+| **1. Discover** (optional) | Off by default: jobs come from the dashboard's **Add job**. With `--with-discover` (or `strelitzia run discover`), searches Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
 | **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
 | **3. Score** | Every job gets a 0-100 fit score: your Preferences page (salary, location, work mode, ...) scored in code, plus Claude's assessment of skills, experience and domain fit against your resume |
 | **4. Tailor** | AI writes per-job bullets from your content library and renders them through your own resume template (or rewrites `resume.txt` without a library). Every number is checked against the project facts it cites. Never fabricates |
 | **5. Cover letter** | AI writes a targeted cover letter per job, citing the same projects as that job's resume |
-| **6. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back |
+| **6. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back. Each job keeps notes, contacts (shared across jobs, on the Contacts page) and interviews with prep and debrief notes |
 
 **Extract** (`strelitzia run extract`) parses each enriched posting into structured fields: role category, seniority,
 employment type, work mode, locations, salary range, posted date and deadline, responsibilities, required and preferred
@@ -220,9 +227,16 @@ curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", .
 
 - `GET /app/api/jobs` lists jobs. Filters: `status` (repeatable: active, inactive, in_progress, submitted, rejected,
   heard_back, no_response), `role`, `work_mode`, `location`, `found_from`/`found_to`, `due_from`/`due_to`,
-  `score_min`/`score_max` and `q`. Sort with `sort=-fit_score` (or `discovered_at`, `deadline`). Page with `page` and `page_size` (at most 200).
+  `score_min`/`score_max`, `source` (manual, discovered) and `q`. Sort with `sort=-fit_score` (or `discovered_at`,
+  `deadline`, `next_interview`). Page with `page` and `page_size` (at most 200).
   `GET /app/api/facets` returns the counts for the filter dropdowns and the hero banner.
-- `GET /app/api/jobs/{key}` returns one job with its extracted details, status history and links.
+- `GET /app/api/jobs/{key}` returns one job with its extracted details, status history, links, contacts and interviews.
+- Add job: `POST /app/api/jobs {"url": "..."}` (or `{"title", "company", "location", "description"}` without a link)
+  queues an `intake` task that reads, extracts and scores the posting; a link you already have returns `"created": false`
+  and the same key. `PUT /app/api/jobs/{key}/description` saves a pasted description when the page couldn't be read.
+- Contacts: `GET/POST /app/api/contacts`, `GET/PATCH/DELETE /app/api/contacts/{id}`, `POST /app/api/jobs/{key}/contacts
+  {"contact_id" | "contact", "relation"}`, `DELETE /app/api/jobs/{key}/contacts/{id}`. Interviews:
+  `POST /app/api/jobs/{key}/interviews`, `PATCH/DELETE /app/api/interviews/{id}`.
 - Status: `POST /app/api/jobs/{key}/status {"status": "submitted"}` (or `rejected`, `heard_back`, `in_progress`, `null`
   to reset). Active and Inactive are derived from the deadline. `PATCH /app/api/jobs/{key}` edits `submitted_at` and `notes`.
 - `POST /app/api/jobs/{key}/generate {"resume": true, "cover": true}` queues a tailored resume and/or cover letter
@@ -263,7 +277,8 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=$HOME -v $HOME/.strelitzia:$H
 ```
 strelitzia init                          # First-time setup wizard
 strelitzia doctor                        # Verify setup, diagnose missing requirements
-strelitzia run [stages...]               # Run pipeline stages (or 'all')
+strelitzia run [stages...]               # Run pipeline stages (or 'all', which skips discover)
+strelitzia run --with-discover           # Also crawl the job boards (discovery is off by default)
 strelitzia run --workers 4               # Parallel discovery/enrichment
 strelitzia run --stream                  # Concurrent stages (streaming mode)
 strelitzia run --min-score 80            # Override the fit score threshold (0-100, default 70)

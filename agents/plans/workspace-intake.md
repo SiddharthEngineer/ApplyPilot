@@ -143,7 +143,7 @@ still runs it explicitly. `enrich` keeps working on any rows without a descripti
 "discovery: off (use --with-discover)". README Quick start leads with `strelitzia serve` + Add job; the Pipeline table marks Discover as optional.
 **Validate:** `pytest -q -k "pipeline or cli"` → new test: `_resolve_stages(["all"])` excludes discover, with the flag includes it,
 explicit `discover` still runs; `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (Task 5 commit)
 
 The live check on real postings (Greenhouse, Lever, Ashby, Workday, LinkedIn, Indeed) is ROADMAP manual step M21, after merge.
 
