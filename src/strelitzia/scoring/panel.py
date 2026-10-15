@@ -43,9 +43,10 @@ def _rows(conn: Connection, sql: str, params: tuple = ()) -> list[dict]:
 
 
 def _drafts_by_job(conn: Connection) -> dict[str, list[dict]]:
-    """{job_url: drafts oldest first}."""
+    """{job_url: drafts oldest first}, without the resume text and the cover letter (only the packet needs those)."""
     out: dict[str, list[dict]] = {}
-    for d in _rows(conn, "SELECT * FROM drafts ORDER BY job_url, version"):
+    for d in _rows(conn, "SELECT id, job_url, version, rules_version, resume_json, created_at FROM drafts "
+                         "ORDER BY job_url, version"):
         out.setdefault(d["job_url"], []).append(d)
     return out
 
@@ -64,7 +65,7 @@ def select_items(conn: Connection, n: int = DEFAULT_ITEMS, mode: str = "latest_v
                  rules_a: str | None = None, rules_b: str | None = None) -> list[Item]:
     """Up to n jobs with two comparable drafts, the job with the newest draft first.
 
-    latest_vs_previous: the job's previous draft (a) vs its latest (b).
+    latest_vs_previous: the job's latest draft (b) vs the newest earlier draft with a different resume (a).
     rules_a_vs_b: the job's latest draft under rules_a vs its latest under rules_b. By default rules_b is the
     rules version of the newest draft overall, and rules_a the rules version of the newest draft under other rules.
     Drafts with identical resumes aren't comparable and are skipped.
@@ -80,9 +81,10 @@ def select_items(conn: Connection, n: int = DEFAULT_ITEMS, mode: str = "latest_v
     pairs = []
     for url, drafts in by_job.items():
         if mode == "latest_vs_previous":
-            if len(drafts) < 2:
+            b = drafts[-1]
+            a = next((d for d in reversed(drafts[:-1]) if d["resume_json"] != b["resume_json"]), None)
+            if a is None:
                 continue
-            a, b = drafts[-2], drafts[-1]
         else:
             under_a = [d for d in drafts if d["rules_version"] == rules_a]
             under_b = [d for d in drafts if d["rules_version"] == rules_b]
@@ -142,9 +144,10 @@ def create_run(conn: Connection, n: int = DEFAULT_ITEMS, mode: str = "latest_vs_
             "VALUES (?, ?, ?, ?, ?, ?)",
             (run_id, no, item.job_url, item.draft_a["id"], item.draft_b["id"], rng.choice("ab")),
         )
-    run = get_run(conn, run_id)
+    run, stored = get_run(conn, run_id), run_items(conn, run_id)
     conn.execute("UPDATE panel_runs SET packet_text = ?, packet_text_swapped = ? WHERE id = ?",
-                 (panel_packet(conn, run).text, panel_packet(conn, run, swapped=True).text, run_id))
+                 (panel_packet(conn, run, items=stored).text, panel_packet(conn, run, swapped=True, items=stored).text,
+                  run_id))
     conn.commit()
     return run_id
 
@@ -168,12 +171,18 @@ def get_run(conn: Connection, run_id: str) -> dict:
 def run_items(conn: Connection, run_id: str) -> list[dict]:
     """The run's items in order, each with its job and both drafts ("draft_a", "draft_b")."""
     items = _rows(conn, "SELECT * FROM panel_items WHERE run_id = ? ORDER BY item_no", (run_id,))
+    if not items:
+        return items
+    urls = sorted({i["job_url"] for i in items})
+    jobs = {r["url"]: r for r in _rows(conn, f"SELECT * FROM jobs WHERE url IN ({', '.join('?' * len(urls))})",
+                                       tuple(urls))}
+    ids = sorted({i[f"draft_{side}_id"] for i in items for side in ("a", "b")})
+    drafts = {r["id"]: r for r in _rows(conn, f"SELECT * FROM drafts WHERE id IN ({', '.join('?' * len(ids))})",
+                                        tuple(ids))}
     for item in items:
-        job = conn.execute("SELECT * FROM jobs WHERE url = ?", (item["job_url"],)).fetchone()
-        item["job"] = dict(job) if job else {"url": item["job_url"]}
+        item["job"] = jobs.get(item["job_url"]) or {"url": item["job_url"]}
         for side in ("a", "b"):
-            row = conn.execute("SELECT * FROM drafts WHERE id = ?", (item[f"draft_{side}_id"],)).fetchone()
-            item[f"draft_{side}"] = dict(row) if row else {}
+            item[f"draft_{side}"] = drafts.get(item[f"draft_{side}_id"]) or {}
     return items
 
 
@@ -285,12 +294,12 @@ def _order(item: dict, swapped: bool) -> tuple[str, str]:
     return (second, first) if swapped else (first, second)
 
 
-def panel_packet(conn: Connection, run: dict, swapped: bool = False) -> Packet:
+def panel_packet(conn: Connection, run: dict, swapped: bool = False, items: list[dict] | None = None) -> Packet:
     """Packet 1 (the stored order) or packet 2 (swapped): per item the job, its qualifications and both resumes.
 
     Nothing in it tells the versions apart except their text: no version numbers, rules versions or dates.
     """
-    items = run_items(conn, run["id"])
+    items = items if items is not None else run_items(conn, run["id"])
     d = _Doc("Strelitzia resume panel")
     d.p(f"{len(items)} items. Grade each with the Strelitzia panel rubric, then end with the JSON block.")
     for item in items:
@@ -397,16 +406,26 @@ def import_grades(conn: Connection, run_id: str, grader: str, text: str) -> Impo
     return ImportOutcome(True, [], graded=len(graded))
 
 
+class PicksLocked(Exception):
+    """Every item is picked and the report has un-blinded the panel."""
+
+
 def record_pick(conn: Connection, run_id: str, item_no: int, winner: str) -> None:
     """Your blind pick for one item (first | second | tie, in packet 1's order).
 
+    Picks can change until the last one is in; after that the report shows which version was newer, so they're locked.
+
     Raises:
-        KeyError: no such run or item. ValueError: an unknown winner.
+        KeyError: no such run or item. ValueError: an unknown winner. PicksLocked: every item is already picked.
     """
     if winner not in WINNERS:
         raise ValueError(f"Unknown pick {winner!r} (use one of: {', '.join(WINNERS)})")
     if conn.execute("SELECT 1 FROM panel_items WHERE run_id = ? AND item_no = ?", (run_id, item_no)).fetchone() is None:
         raise KeyError(f"{run_id}/{item_no}")
+    total = conn.execute("SELECT COUNT(*) FROM panel_items WHERE run_id = ?", (run_id,)).fetchone()[0]
+    picked = conn.execute("SELECT COUNT(*) FROM panel_grades WHERE run_id = ? AND grader = 'you'", (run_id,)).fetchone()[0]
+    if picked >= total:
+        raise PicksLocked("Your picks are locked: the report has un-blinded this panel.")
     conn.execute("DELETE FROM panel_grades WHERE run_id = ? AND item_no = ? AND grader = 'you'", (run_id, item_no))
     conn.execute(
         "INSERT INTO panel_grades (run_id, item_no, grader, winner, detail_json, created_at) "
@@ -550,11 +569,15 @@ def heard_back_by_rules(conn: Connection) -> list[dict]:
 def panel_due(conn: Connection, rules_version: str | None = None, now: datetime | None = None) -> str | None:
     """Why a panel is due, or None: the rules changed since the last completed panel (and 5 jobs have a draft
     under the new rules and one under older rules), or there has been no panel or 30+ days since the last one
-    (and 5 jobs have two comparable drafts)."""
+    (and 5 jobs have two comparable drafts). Not while a run started in the last 30 days is still open."""
     from strelitzia.scoring.workbench import RULES_VERSION
 
     rules_version = rules_version or RULES_VERSION
     now = now or datetime.now(UTC)
+    newest = conn.execute("SELECT created_at, status FROM panel_runs ORDER BY created_at DESC LIMIT 1").fetchone()
+    if newest is not None and newest[1] != "complete" and \
+            (now - datetime.fromisoformat(newest[0])).days < DUE_DAYS:
+        return None  # a panel is in progress
     last = conn.execute("SELECT created_at, rules_version_b FROM panel_runs WHERE status = 'complete' "
                         "ORDER BY created_at DESC LIMIT 1").fetchone()
     if last is not None and last[1] != rules_version and \

@@ -151,9 +151,9 @@ export default function PanelPage({ onChange }: { onChange?: () => void }) {
             Run of {day(run.created_at)} · {run.items.length} items · {MODE_LABELS[run.mode]} · {run.status}
           </p>
           {run.packets.map((p) => (
-            <ModelStep key={p.packet} run={run} packet={p} onUpdated={updated} />
+            <ModelStep key={`${run.id}-${p.packet}`} run={run} packet={p} onUpdated={updated} />
           ))}
-          <PicksStep run={run} onUpdated={updated} onError={setError} />
+          <PicksStep key={run.id} run={run} onUpdated={updated} onError={setError} />
           {run.report && <Report report={run.report} />}
         </>
       )}
@@ -255,6 +255,7 @@ function PicksStep({ run, onUpdated, onError }: {
 }) {
   const [busy, setBusy] = useState<number | null>(null);
   const picked = run.items.filter((i) => i.your_pick).length;
+  const locked = run.report !== null; // the report un-blinds the panel
 
   async function pick(item: number, winner: PanelWinner) {
     setBusy(item);
@@ -273,7 +274,10 @@ function PicksStep({ run, onUpdated, onError }: {
         <h2 id="panel-picks">4. Your picks</h2>
         <span className="muted">{picked} of {run.items.length} picked</span>
       </div>
-      <p className="muted small">Read both versions and pick the one you'd send. The report appears after your last pick.</p>
+      <p className="muted small">
+        {locked ? 'Your picks are locked: the report below shows which version was newer.'
+          : 'Read both versions and pick the one you\'d send. The report appears after your last pick, and locks your picks.'}
+      </p>
       {run.items.map((item) => (
         <div key={item.item} className="panel-item" aria-label={`Item ${item.item}`} role="group">
           <h3>Item {item.item}: {item.title ?? 'Untitled role'} at {item.company}</h3>
@@ -283,7 +287,7 @@ function PicksStep({ run, onUpdated, onError }: {
           </div>
           <div className="segmented small" role="group" aria-label={`Your pick for item ${item.item}`}>
             {(['first', 'second', 'tie'] as PanelWinner[]).map((w) => (
-              <button key={w} type="button" aria-pressed={item.your_pick === w} disabled={busy === item.item} onClick={() => pick(item.item, w)}>
+              <button key={w} type="button" aria-pressed={item.your_pick === w} disabled={busy !== null || locked} onClick={() => pick(item.item, w)}>
                 {w === 'first' ? 'First' : w === 'second' ? 'Second' : 'Tie'}
               </button>
             ))}

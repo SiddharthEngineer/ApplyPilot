@@ -86,6 +86,8 @@ def test_model_replies_picks_and_report(client, run):
         assert res.status_code == 200
     out = res.json()["run"]
     assert out["status"] == "complete" and out["items"][0]["your_pick"] == "first"
+    locked = client.post(url, json={"grader": "you", "item": 1, "winner": "second"})
+    assert locked.status_code == 409 and "locked" in locked.json()["detail"]
     report = out["report"]
     # Opus saw the swapped packet and also picked the version you saw first.
     assert report["agreement"] == {"sonnet_vs_opus": 1.0, "sonnet_vs_you": 1.0, "opus_vs_you": 1.0}

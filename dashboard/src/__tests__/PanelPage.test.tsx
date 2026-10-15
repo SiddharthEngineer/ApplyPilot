@@ -130,5 +130,8 @@ describe('PanelPage', () => {
     expect(screen.getByRole('list', { name: 'Items' })).toHaveTextContent('Opus older');
     expect(screen.getByRole('list', { name: 'Heard back' })).toHaveTextContent('1 of 3 heard back (too few to compare)');
     expect(screen.getByRole('row', { name: /Sonnet/ })).toHaveTextContent('2.0 → 3.5');
+    // The report un-blinds the panel, so the picks are locked.
+    expect(within(screen.getByRole('group', { name: 'Item 1' })).getByRole('button', { name: 'First' })).toBeDisabled();
+    expect(screen.getByText(/Your picks are locked/)).toBeInTheDocument();
   });
 });
