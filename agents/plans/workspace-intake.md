@@ -86,7 +86,7 @@ source. Discovery scraping stays in the code but is off by default.
 **Validate:** `pytest tests/test_intake.py -q` with a fake `scrape_detail_page` and fake `extract_one`/scoring: covers dedupe,
 tracking-param stripping, LinkedIn id normalization, paste-only synthetic url, login-wall → `needs_paste`, thin text → `needs_paste`,
 paste then re-intake → `ok` without scraping, budget stop keeps the description. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (Task 2 commit)
 
 ### Task 3: API routes for intake, contacts and interviews
 **Runs:** unattended

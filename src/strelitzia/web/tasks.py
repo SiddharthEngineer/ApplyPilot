@@ -1,4 +1,4 @@
-"""Background work for the dashboard: resume / cover-letter generation and fit re-assessment.
+"""Background work for the dashboard: resume / cover-letter generation, fit re-assessment and job intake.
 
 Tasks live in the `dashboard_tasks` table and one daemon thread runs them one at a time, because the LLM
 budget and Chromium (PDF rendering) are shared. A task left `running` by a stopped server is marked
@@ -23,8 +23,9 @@ log = logging.getLogger(__name__)
 
 GENERATE_KINDS = ("resume", "cover", "both")
 # rescore: assess one job now (sync). reassess_all: re-assess every stale job in a batch (url is NULL); only
-# queued after the user confirmed the cost estimate.
-KINDS = (*GENERATE_KINDS, "rescore", "reassess_all")
+# queued after the user confirmed the cost estimate. intake: read, extract and score a job the user added
+# (strelitzia.intake).
+KINDS = (*GENERATE_KINDS, "rescore", "reassess_all", "intake")
 STATES = ("queued", "running", "done", "error")
 # What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
 STOP_MESSAGES = {
@@ -130,8 +131,13 @@ def generate_for_job(url: str | None, kind: str) -> None:
 
     Uses the same settings as `strelitzia run` (content-library tailoring when the library exists, lenient
     validation for it, normal for cover letters). Runs against the configured database. The assessment kinds
-    go to `assess_task`.
+    go to `assess_task`, and `intake` to `intake.run_intake`.
     """
+    if kind == "intake":
+        from strelitzia.intake import run_intake
+
+        run_intake(url)
+        return
     if kind not in GENERATE_KINDS:
         assess_task(url, kind)
         return

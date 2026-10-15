@@ -156,7 +156,8 @@ def job_id(job: dict) -> str:
 def format_posting(job: dict) -> str:
     """User message for one extraction request: the job's metadata, then its (trimmed) description."""
     site = (job.get("site") or "").strip()
-    company = (job.get("company") or "").strip() or (site if site.lower() not in JOB_BOARD_SITES else "")
+    site_is_employer = site.lower() not in JOB_BOARD_SITES and job.get("strategy") != "manual"  # manual: a hostname
+    company = (job.get("company") or "").strip() or (site if site_is_employer else "")
     source = job.get("strategy") or ""
     if site.lower() in JOB_BOARD_SITES:
         source = f"{source} ({site})" if source else site

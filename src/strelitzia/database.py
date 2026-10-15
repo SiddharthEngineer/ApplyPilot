@@ -454,7 +454,8 @@ def job_company(job: dict) -> str:
     if company:
         return company
     site = (job.get("site") or "").strip()
-    if site and site.lower() not in JOB_BOARD_SITES:
+    # A job added by link has the posting's hostname as `site`, which isn't an employer.
+    if site and site.lower() not in JOB_BOARD_SITES and job.get("strategy") != "manual":
         return site
     return "Unknown company"
 
