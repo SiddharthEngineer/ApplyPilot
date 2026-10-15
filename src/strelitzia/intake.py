@@ -99,6 +99,11 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
+def find_existing(conn: Connection, url: str) -> dict | None:
+    """The job row for a pasted link, matched as normalized or as given. Raises ValueError for a non-web link."""
+    return _row(conn, normalize_url(url)) or _row(conn, url.strip())
+
+
 def add_job(conn: Connection, url: str | None, manual: ManualFields | None = None) -> tuple[dict, bool]:
     """Save a job the user added. Returns (row, created).
 
@@ -112,7 +117,7 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
     now = _now()
     if url and url.strip():
         normalized = normalize_url(url)
-        existing = _row(conn, normalized) or _row(conn, url.strip())
+        existing = find_existing(conn, url)
         if existing:
             _mark_manual(conn, existing, manual, now)
             return _row(conn, existing["url"]), False
@@ -135,7 +140,7 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
 
 
 def _mark_manual(conn: Connection, job: dict, manual: ManualFields, now: str) -> None:
-    updates: dict = {}
+    updates: dict = {} if job.get("job_key") else {"job_key": job_key(job["url"])}  # discovery may not set it
     if job.get("source") != "manual":
         updates.update(source="manual", added_at=now)
     for col in ("title", "company", "location"):

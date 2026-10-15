@@ -17,9 +17,9 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
-from strelitzia import __version__, tracking
+from strelitzia import __version__, intake, tracking, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend
@@ -66,6 +66,7 @@ def list_jobs(
     score_min: Annotated[int | None, Query(ge=0, le=100)] = None,
     score_max: Annotated[int | None, Query(ge=0, le=100)] = None,
     hide_flagged: bool = True,
+    source: Annotated[list[queries.SourceFilter], Query()] = [],  # noqa: B006
     q: str | None = None,
     sort: Annotated[str, Query(pattern=queries.SORT_PATTERN)] = "-discovered_at",
     page: Annotated[int, Query(ge=1)] = 1,
@@ -76,7 +77,7 @@ def list_jobs(
     filters = queries.JobFilters(
         status=list(status), role=role, work_mode=work_mode, location=location,
         found_from=found_from, found_to=found_to, due_from=due_from, due_to=due_to,
-        score_min=score_min, score_max=score_max, q=q, hide_flagged=hide_flagged,
+        score_min=score_min, score_max=score_max, q=q, hide_flagged=hide_flagged, source=list(source),
     )
     return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today(),
                              current_key=current_assessment_key(conn))
@@ -122,6 +123,9 @@ def job_detail(conn: Connection, job: dict) -> dict:
         days_since_submitted=tracking.days_since_submitted(job, day),
         submitted_date=tracking.submitted_date(job),
         events=tracking.status_events(conn, job["url"]),
+        source=job.get("source") or "discovered",
+        contacts=workspace.job_contacts(conn, job["url"]),
+        interviews=workspace.job_interviews(conn, job["url"]),
         links={
             "posting": job["url"],
             "apply": job.get("application_url"),
@@ -216,6 +220,195 @@ def rescore(key: str, request: Request) -> dict:
     task = tasks.enqueue(conn, job["url"], "rescore")
     _notify(request)
     return {**task, "key": key}
+
+
+class AddJobBody(BaseModel):
+    url: str | None = None
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    description: str | None = None
+
+
+def _queue_intake(conn: Connection, request: Request, url: str) -> dict:
+    conn.execute("UPDATE jobs SET intake_status = 'queued', intake_error = NULL WHERE url = ?", (url,))
+    conn.commit()
+    task = tasks.enqueue(conn, url, "intake")
+    _notify(request)
+    return task
+
+
+@api.post("/jobs")
+def add_job(body: AddJobBody, request: Request) -> JSONResponse:
+    """Add a job by link, or by pasting its description. 201 with a queued `intake` task for a new job.
+
+    A link the database already has returns 200 with the same key; it's queued for intake only if it hasn't been
+    extracted and scored yet.
+    """
+    url = (body.url or "").strip() or None
+    if not url and not (body.description or "").strip():
+        raise HTTPException(status_code=422, detail="Paste a link to the posting, or its description")
+    conn = db_conn(request)
+    try:
+        existing = intake.find_existing(conn, url) if url else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if existing is None or intake.needs_intake(existing):
+        budget_stop(conn)
+    manual = intake.ManualFields(title=body.title, company=body.company, location=body.location,
+                                 description=body.description)
+    row, created = intake.add_job(conn, url, manual)
+    task = _queue_intake(conn, request, row["url"]) if created or intake.needs_intake(row) else None
+    return JSONResponse({"key": row["job_key"], "created": created, "task": task},
+                        status_code=201 if created else 200)
+
+
+class PastedDescription(BaseModel):
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    description: str = Field(min_length=200)
+
+
+@api.put("/jobs/{key}/description")
+def put_description(key: str, body: PastedDescription, request: Request) -> dict:
+    """Save a pasted description (when the posting couldn't be read), then extract and score it."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    budget_stop(conn)
+    intake.save_pasted(conn, job["url"], intake.ManualFields(
+        title=body.title, company=body.company, location=body.location, description=body.description))
+    return {"task": _queue_intake(conn, request, job["url"]), "key": key}
+
+
+# --- Contacts and interviews (strelitzia.workspace) ---
+
+class ContactPatch(BaseModel):
+    name: str | None = None
+    company: str | None = None
+    role: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    linkedin_url: str | None = None
+    notes: str | None = None
+
+
+class ContactCreate(ContactPatch):
+    name: str = Field(min_length=1)
+
+
+Relation = Literal["recruiter", "hiring_manager", "referral", "interviewer", "other"]
+
+
+class JobContactLink(BaseModel):
+    contact_id: str | None = None
+    contact: ContactCreate | None = None
+    relation: Relation = "other"
+
+
+class InterviewPatch(BaseModel):
+    scheduled_at: str | None = None
+    stage: str | None = None
+    format: str | None = None
+    interviewers: str | None = None
+    prep_notes: str | None = None
+    debrief_notes: str | None = None
+    outcome: Literal["pending", "passed", "rejected", "withdrew"] | None = None
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def _iso(cls, value: str | None) -> str | None:
+        if value:
+            try:
+                datetime.fromisoformat(value)
+            except ValueError as e:
+                raise ValueError("scheduled_at must be an ISO date-time") from e
+        return value or None
+
+
+def _workspace_call(fn, *args, **kwargs):
+    """Run a workspace function, mapping its errors to 404 / 422."""
+    try:
+        return fn(*args, **kwargs)
+    except workspace.NotFound as e:
+        raise HTTPException(status_code=404, detail="Not found") from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@api.get("/contacts")
+def list_contacts(request: Request, q: str | None = None,
+                  limit: Annotated[int, Query(ge=1, le=500)] = 200) -> list[dict]:
+    return workspace.search_contacts(db_conn(request), q, limit=limit)
+
+
+@api.post("/contacts", status_code=201)
+def create_contact(body: ContactCreate, request: Request) -> dict:
+    return _workspace_call(workspace.create_contact, db_conn(request), **body.model_dump(exclude_unset=True))
+
+
+def _contact_out(conn: Connection, contact_id: str) -> dict:
+    contact = _workspace_call(workspace.get_contact, conn, contact_id)
+    return {**contact, "jobs": workspace.contact_jobs(conn, contact_id)}
+
+
+@api.get("/contacts/{contact_id}")
+def get_contact(contact_id: str, request: Request) -> dict:
+    return _contact_out(db_conn(request), contact_id)
+
+
+@api.patch("/contacts/{contact_id}")
+def patch_contact(contact_id: str, body: ContactPatch, request: Request) -> dict:
+    conn = db_conn(request)
+    _workspace_call(workspace.update_contact, conn, contact_id, **body.model_dump(exclude_unset=True))
+    return _contact_out(conn, contact_id)
+
+
+@api.delete("/contacts/{contact_id}")
+def delete_contact(contact_id: str, request: Request) -> dict:
+    _workspace_call(workspace.delete_contact, db_conn(request), contact_id)
+    return {"ok": True}
+
+
+@api.post("/jobs/{key}/contacts")
+def link_job_contact(key: str, body: JobContactLink, request: Request) -> dict:
+    """Link a contact to the job: an existing one (`contact_id`) or a new one (`contact`). Returns the job."""
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    if (body.contact_id is None) == (body.contact is None):
+        raise HTTPException(status_code=422, detail="Give either contact_id or a new contact")
+    contact_id = body.contact_id
+    if body.contact is not None:
+        contact_id = _workspace_call(workspace.create_contact, conn, **body.contact.model_dump(exclude_unset=True))["id"]
+    _workspace_call(workspace.link_contact, conn, job["url"], contact_id, body.relation)
+    return job_detail(conn, job_by_key(conn, key))
+
+
+@api.delete("/jobs/{key}/contacts/{contact_id}")
+def unlink_job_contact(key: str, contact_id: str, request: Request) -> dict:
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    workspace.unlink_contact(conn, job["url"], contact_id)
+    return job_detail(conn, job_by_key(conn, key))
+
+
+@api.post("/jobs/{key}/interviews", status_code=201)
+def create_interview(key: str, body: InterviewPatch, request: Request) -> dict:
+    conn = db_conn(request)
+    job = job_by_key(conn, key)
+    return _workspace_call(workspace.create_interview, conn, job["url"], **body.model_dump(exclude_unset=True))
+
+
+@api.patch("/interviews/{interview_id}")
+def patch_interview(interview_id: str, body: InterviewPatch, request: Request) -> dict:
+    return _workspace_call(workspace.update_interview, db_conn(request), interview_id,
+                           **body.model_dump(exclude_unset=True))
+
+
+@api.delete("/interviews/{interview_id}")
+def delete_interview(interview_id: str, request: Request) -> dict:
+    _workspace_call(workspace.delete_interview, db_conn(request), interview_id)
+    return {"ok": True}
 
 
 @api.get("/preferences")
