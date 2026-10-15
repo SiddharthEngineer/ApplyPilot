@@ -69,7 +69,7 @@ Verdict: "newer is better" when your picks favor it ≥ 60% and no model reports
 Across runs: the heard-back rate by `submitted_rules_version`, showing "too few to compare" under 10 submissions per version.
 `panel_due(conn) -> str | None`: a reason when the rules version changed since the last completed panel, or 30+ days have passed, **and** at least 5 jobs have two comparable drafts.
 **Validate:** `pytest tests/test_panel.py -q` (report math on fixture grades, due reasons). `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit; "no panel yet" is also a due reason; a rules change is due once 5 jobs have drafts under both rules)
 
 ### Task 4: Panel page in the dashboard
 **Runs:** unattended
