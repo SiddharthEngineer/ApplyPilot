@@ -25,7 +25,7 @@ MANUAL_URL_PREFIX = "manual://"
 MIN_DESCRIPTION_CHARS = 400
 
 _TRACKING_PARAMS = {"refid", "trackingid", "trk", "src"}
-_LINKEDIN_VIEW = re.compile(r"/jobs/view/(?:[^/?#]*?-)?(\d+)")
+_LINKEDIN_VIEW = re.compile(r"/jobs/view/(?:[^/]*-)?(\d+)/?$")  # /jobs/view/<id> or /jobs/view/<slug>-<id>
 # Hosts that show a login wall to logged-out visitors (often with HTTP 200).
 _WALLED_HOSTS = ("linkedin.com", "indeed.com")
 _WALL_URL_MARKERS = ("authwall", "/login", "/signin", "/uas/", "/checkpoint/", "secure.indeed.com")
@@ -77,7 +77,9 @@ def normalize_url(raw: str) -> str:
             return f"https://www.linkedin.com/jobs/view/{job_id}/"
     netloc = host + (f":{parts.port}" if parts.port else "")
     kept = [(k, v) for k, v in query if not (k.lower().startswith("utm_") or k.lower() in _TRACKING_PARAMS)]
-    return urlunsplit((parts.scheme.lower(), netloc, parts.path or "/", urlencode(kept), ""))
+    # A fragment is usually an anchor, but hash-routed career sites put the job in it (#/job/123).
+    fragment = parts.fragment if "/" in parts.fragment else ""
+    return urlunsplit((parts.scheme.lower(), netloc, parts.path or "/", urlencode(kept), fragment))
 
 
 def site_for(url: str) -> str:
@@ -110,7 +112,27 @@ def find_existing(conn: Connection, url: str) -> dict | None:
         if row is None:
             raise ValueError("No job was added with that link")
         return row
-    return _row(conn, normalize_url(url)) or _row(conn, url)
+    normalized = normalize_url(url)
+    return _row(conn, normalized) or _row(conn, url) or _same_posting(conn, normalized)
+
+
+def _same_posting(conn: Connection, normalized: str) -> dict | None:
+    """A row stored under another form of the same link (tracking parameters, a LinkedIn slug)."""
+    parts = urlsplit(normalized)
+    host = (parts.hostname or "").removeprefix("www.")
+    m = _LINKEDIN_VIEW.search(parts.path) if _on_host(host, "linkedin.com") else None
+    needle = f"linkedin.com/jobs/%{m.group(1)}" if m else host + parts.path.rstrip("/")
+    escaped = needle.replace("!", "!!").replace("_", "!_")
+    if not m:
+        escaped = escaped.replace("%", "!%")
+    rows = conn.execute("SELECT * FROM jobs WHERE url LIKE ? ESCAPE '!' LIMIT 50", (f"%{escaped}%",)).fetchall()
+    for row in rows:
+        try:
+            if normalize_url(row["url"]) == normalized:
+                return dict(row)
+        except ValueError:
+            continue
+    return None
 
 
 def add_job(conn: Connection, url: str | None, manual: ManualFields | None = None) -> tuple[dict, bool]:
@@ -247,7 +269,8 @@ def run_intake(url: str, conn: Connection | None = None) -> None:
                      intake_status="needs_paste", intake_error=reason)
                 return
             _set(conn, url, full_description=result["full_description"],
-                 application_url=result.get("application_url"), detail_scraped_at=now, detail_error=None)
+                 application_url=result.get("application_url") or job.get("application_url"),
+                 detail_scraped_at=now, detail_error=None)
         elif not job.get("full_description"):
             _set(conn, url, intake_status="needs_paste", intake_error="There's no link to read; paste the description.")
             return

@@ -53,6 +53,13 @@ def test_add_job_by_link_queues_intake_and_dedupes(client, conn):
     assert again.status_code == 200 and again.json()["created"] is False and again.json()["key"] == body["key"]
     assert len(_tasks(conn)) == 1  # the queued intake task is reused
 
+    conn.execute("UPDATE dashboard_tasks SET state = 'running'")
+    conn.execute("UPDATE jobs SET intake_status = 'scraping'")
+    conn.commit()
+    running = client.post("/app/api/jobs", json={"url": url}).json()
+    assert running["task"]["id"] == body["task"]["id"] and len(_tasks(conn)) == 1  # nor is a running one duplicated
+    assert client.get(f"/app/api/jobs/{body['key']}").json()["intake_status"] == "scraping"
+
 
 def test_readding_a_scored_job_queues_nothing(client, conn):
     add_job(conn, "https://x/scored", fit_score=80, details_json="{}", fit_flags='["prefilter"]')
@@ -72,7 +79,8 @@ def test_add_job_by_paste(client, conn):
     assert (job["title"], job["company"], job["description_text"]) == ("T", "C", DESC.strip())
 
 
-@pytest.mark.parametrize("body", [{}, {"title": "T"}, {"url": "  ", "description": " "}, {"url": "mailto:x@y.z"}])
+@pytest.mark.parametrize("body", [{}, {"title": "T"}, {"url": "  ", "description": " "}, {"url": "mailto:x@y.z"},
+                                  {"description": "hi"}, {"url": "manual://" + "0" * 32}])
 def test_add_job_needs_a_link_or_description(client, body):
     assert client.post("/app/api/jobs", json=body).status_code == 422
 
@@ -217,6 +225,7 @@ def test_manual_jobs_are_never_hidden_by_flags(client, conn):
     add_job(conn, "https://x/mine-flagged", fit_flags='["prefilter"]', source="manual")
     assert [i["key"] for i in _list(client, hide_flagged="true")] == [job_key("https://x/mine-flagged")]
     assert len(_list(client, hide_flagged="false")) == 2
+    assert client.get("/app/api/facets").json()["flagged"] == 1  # only the one hide_flagged hides
 
 
 def test_next_interview_sort_nulls_last(client, conn):

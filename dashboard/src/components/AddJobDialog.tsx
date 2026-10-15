@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addJob } from '../api';
+import { MIN_DESCRIPTION } from './PastePanel';
 
 export const DUPLICATE_TOAST = 'You already had this job';
 
@@ -29,6 +30,10 @@ export default function AddJobDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     if (!url.trim() && !description.trim()) {
       setError('Paste a link to the posting, or its description.');
+      return;
+    }
+    if (!url.trim() && description.trim().length < MIN_DESCRIPTION) {
+      setError(`Paste the whole description (at least ${MIN_DESCRIPTION} characters).`);
       return;
     }
     setBusy(true);

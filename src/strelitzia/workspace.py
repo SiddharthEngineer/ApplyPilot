@@ -91,9 +91,10 @@ def search_contacts(conn: Connection, q: str | None, limit: int = 20) -> list[di
            "FROM contacts c")
     params: list = []
     if q and q.strip():
-        like = f"%{q.strip().lower()}%"
-        sql += (" WHERE LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.company, '')) LIKE ? "
-                "OR LOWER(COALESCE(c.email, '')) LIKE ?")
+        escaped = q.strip().lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        like = f"%{escaped}%"
+        sql += (" WHERE LOWER(c.name) LIKE ? ESCAPE '!' OR LOWER(COALESCE(c.company, '')) LIKE ? ESCAPE '!' "
+                "OR LOWER(COALESCE(c.email, '')) LIKE ? ESCAPE '!'")
         params += [like, like, like]
     sql += " ORDER BY LOWER(c.name), c.id LIMIT ?"
     params.append(limit)

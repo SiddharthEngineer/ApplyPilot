@@ -222,6 +222,9 @@ def rescore(key: str, request: Request) -> dict:
     return {**task, "key": key}
 
 
+MIN_PASTED_CHARS = 200  # a pasted description shorter than this isn't a whole posting
+
+
 class AddJobBody(BaseModel):
     url: str | None = None
     title: str | None = None
@@ -231,6 +234,12 @@ class AddJobBody(BaseModel):
 
 
 def _queue_intake(conn: Connection, request: Request, url: str) -> dict:
+    """Queue the intake task for a job, or return the one already queued or running for it."""
+    active = conn.execute(
+        "SELECT * FROM dashboard_tasks WHERE url = ? AND kind = 'intake' AND state IN ('queued', 'running') "
+        "ORDER BY created_at DESC LIMIT 1", (url,)).fetchone()
+    if active:
+        return tasks.task_dict(active)
     conn.execute("UPDATE jobs SET intake_status = 'queued', intake_error = NULL WHERE url = ?", (url,))
     conn.commit()
     task = tasks.enqueue(conn, url, "intake")
@@ -248,6 +257,8 @@ def add_job(body: AddJobBody, request: Request) -> JSONResponse:
     url = (body.url or "").strip() or None
     if not url and not (body.description or "").strip():
         raise HTTPException(status_code=422, detail="Paste a link to the posting, or its description")
+    if not url and len(body.description.strip()) < MIN_PASTED_CHARS:
+        raise HTTPException(status_code=422, detail=f"Paste the whole description (at least {MIN_PASTED_CHARS} characters)")
     conn = db_conn(request)
     try:
         existing = intake.find_existing(conn, url) if url else None
@@ -267,7 +278,7 @@ class PastedDescription(BaseModel):
     title: str | None = None
     company: str | None = None
     location: str | None = None
-    description: str = Field(min_length=200)
+    description: str = Field(min_length=MIN_PASTED_CHARS)
 
 
 @api.put("/jobs/{key}/description")
@@ -377,10 +388,15 @@ def link_job_contact(key: str, body: JobContactLink, request: Request) -> dict:
     job = job_by_key(conn, key)
     if (body.contact_id is None) == (body.contact is None):
         raise HTTPException(status_code=422, detail="Give either contact_id or a new contact")
-    contact_id = body.contact_id
-    if body.contact is not None:
+    if body.contact is None:
+        _workspace_call(workspace.link_contact, conn, job["url"], body.contact_id, body.relation)
+    else:
         contact_id = _workspace_call(workspace.create_contact, conn, **body.contact.model_dump(exclude_unset=True))["id"]
-    _workspace_call(workspace.link_contact, conn, job["url"], contact_id, body.relation)
+        try:
+            workspace.link_contact(conn, job["url"], contact_id, body.relation)
+        except Exception:
+            workspace.delete_contact(conn, contact_id)  # don't leave a contact behind that the user never saw
+            raise
     return job_detail(conn, job_by_key(conn, key))
 
 

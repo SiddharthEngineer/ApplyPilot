@@ -65,6 +65,9 @@ def _run(conn, fakes, url):
     ("https://linkedin.com/jobs/view/senior-data-scientist-at-acme-4012345678", "https://www.linkedin.com/jobs/view/4012345678/"),
     ("https://www.linkedin.com/jobs/search/?currentJobId=4012345678&keywords=data", "https://www.linkedin.com/jobs/view/4012345678/"),
     ("https://www.indeed.com/viewjob?jk=abc123&from=serp", "https://www.indeed.com/viewjob?jk=abc123&from=serp"),
+    ("https://www.linkedin.com/jobs/view/python-3-developer-at-acme-3812345678/", "https://www.linkedin.com/jobs/view/3812345678/"),
+    ("https://careers.example.com/#/job/123?utm_source=x", "https://careers.example.com/#/job/123?utm_source=x"),
+    ("https://careers.example.com/jobs?id=9#apply", "https://careers.example.com/jobs?id=9"),
 ])
 def test_normalize_url(raw, expected):
     assert intake.normalize_url(raw) == expected
@@ -87,6 +90,18 @@ def test_add_job_by_link_and_dedupe(conn):
 
     again, created = intake.add_job(conn, "https://www.linkedin.com/jobs/search/?currentJobId=42")
     assert not created and again["url"] == row["url"]
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize(("stored", "pasted"), [
+    ("https://www.linkedin.com/jobs/view/senior-eng-at-acme-381234?trk=x", "https://linkedin.com/jobs/view/381234"),
+    ("https://boards.greenhouse.io/acme/jobs/7?gh_src=1&utm_source=li", "https://boards.greenhouse.io/acme/jobs/7?gh_src=1"),
+])
+def test_dedupes_against_another_form_of_a_discovered_link(conn, stored, pasted):
+    conn.execute("INSERT INTO jobs (url, title) VALUES (?, 'Old')", (stored,))
+    conn.commit()
+    row, created = intake.add_job(conn, pasted)
+    assert not created and row["url"] == stored and row["source"] == "manual"
     assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
 
 
@@ -134,6 +149,15 @@ def test_intake_scrapes_extracts_and_scores(conn, fakes):
     assert (done["title"], done["company"], done["location"]) == ("Data Scientist", "Acme", "Austin, TX, US")
     assert done["details_json"] and done["fit_score"] == 80
     assert (done["intake_status"], done["intake_error"]) == ("ok", None)
+
+
+def test_a_scrape_without_an_apply_link_keeps_the_stored_one(conn, fakes):
+    url = "https://boards.greenhouse.io/acme/jobs/9"
+    conn.execute("INSERT INTO jobs (url, application_url) VALUES (?, 'https://acme.com/apply/9')", (url,))
+    conn.commit()
+    intake.add_job(conn, url)
+    fakes.result = {"status": "partial", "full_description": LONG, "application_url": None}
+    assert _run(conn, fakes, url)["application_url"] == "https://acme.com/apply/9"
 
 
 def test_login_wall_needs_paste(conn, fakes):
