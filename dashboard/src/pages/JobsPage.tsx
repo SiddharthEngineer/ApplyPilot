@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getFacets, listJobs } from '../api';
 import Filters from '../components/Filters';
 import Flower from '../components/Flower';
@@ -13,7 +14,7 @@ const CLEAR_ALL_SOURCES: Partial<JobQuery> = {
   q: undefined, hide_flagged: undefined, source: [],
 };
 
-export default function JobsPage() {
+export default function JobsPage({ panelDue = null }: { panelDue?: string | null }) {
   const [query, update] = useQueryState();
   const [data, setData] = useState<JobList | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,11 @@ export default function JobsPage() {
           </span>
         )}
       </div>
+      {panelDue && (
+        <p className="stale-note panel-due" role="status">
+          Panel due: {panelDue}. <Link to="/panel">Run the resume panel</Link>
+        </p>
+      )}
       <Filters query={shown} facets={facets}
         // Clear filters shows every source, or the "Added by me" default would come straight back.
         onChange={(patch) => update(patch === null && hasManual ? CLEAR_ALL_SOURCES : patch)} />

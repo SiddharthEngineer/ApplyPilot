@@ -24,6 +24,7 @@ from strelitzia import __version__, intake, tracking, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend
+from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
 from strelitzia.scoring import workbench
 from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
@@ -322,6 +323,97 @@ def publish_claude_docs(request: Request) -> dict:
         raise HTTPException(status_code=409, detail="Google Drive isn't set up. Run `strelitzia drive auth`.")
     workbench.publish_static_docs(client, db_conn(request), _workbench_inputs(), force=True)
     return claude_setup(request)
+
+
+# --- Resume panel (strelitzia.scoring.panel) ---
+
+@api.get("/panel")
+def get_panel(request: Request) -> dict:
+    """The Panel page: whether a panel is due, how many jobs can be compared, the runs, and the project setup."""
+    conn = db_conn(request)
+    rubric = workbench.published_static_docs(conn).get("panel_rubric") or {}
+    return {
+        "due": panel.panel_due(conn),
+        "needed": panel.DEFAULT_ITEMS,
+        "comparable": {mode: panel.comparable_count(conn, mode) for mode in panel.MODES},
+        "runs": panel.list_runs(conn),
+        "project_name": panel.PROJECT_NAME,
+        "project_instructions": panel.PROJECT_INSTRUCTIONS,
+        "rubric": {"name": workbench.STATIC_DOCS["panel_rubric"], "url": rubric.get("url"),
+                   "text": panel.rubric_text()},
+    }
+
+
+class PanelRunCreate(BaseModel):
+    n: int = Field(default=panel.DEFAULT_ITEMS, ge=1, le=20)
+    mode: Literal["latest_vs_previous", "rules_a_vs_b"] = "latest_vs_previous"
+
+
+def _panel_run(conn: Connection, run_id: str) -> dict:
+    """A run for the page. The report (which un-blinds the items) is only sent once you've picked every item."""
+    try:
+        run = panel.get_run(conn, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Panel run not found") from None
+    items = panel.run_items(conn, run_id)
+    graded = panel.grades(conn, run_id)
+    yours = graded.get("you") or {}
+    shown = []
+    for item in items:
+        first, second = (item["draft_a"], item["draft_b"]) if item["shown_first"] == "a" else \
+            (item["draft_b"], item["draft_a"])
+        shown.append({"item": item["item_no"], "title": item["job"].get("title"), "company": job_company(item["job"]),
+                      "first_text": first.get("resume_text") or "", "second_text": second.get("resume_text") or "",
+                      "your_pick": (yours.get(item["item_no"]) or {}).get("winner")})
+    picked_all = len(yours) == len(items)
+    return {
+        "id": run["id"], "created_at": run["created_at"], "mode": run["mode"], "status": run["status"],
+        "packets": panel.run_packets(run), "items": shown,
+        "graded": {g: len(graded.get(g) or {}) for g in panel.GRADERS},
+        "report": panel.panel_report(conn, run_id) if picked_all else None,
+    }
+
+
+@api.post("/panel/runs", status_code=201)
+def create_panel_run(body: PanelRunCreate, request: Request) -> dict:
+    conn = db_conn(request)
+    try:
+        run_id = panel.create_run(conn, body.n, body.mode)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return _panel_run(conn, run_id)
+
+
+@api.get("/panel/runs/{run_id}")
+def get_panel_run(run_id: str, request: Request) -> dict:
+    return _panel_run(db_conn(request), run_id)
+
+
+class PanelGrade(BaseModel):
+    """A model's pasted reply (grader sonnet | opus, with text), or your pick for one item (grader you)."""
+    grader: Literal["sonnet", "opus", "you"]
+    text: str | None = Field(default=None, max_length=500_000)
+    item: int | None = None
+    winner: Literal["first", "second", "tie"] | None = None
+
+
+@api.post("/panel/runs/{run_id}/grades")
+def post_panel_grades(run_id: str, body: PanelGrade, request: Request):
+    """422 with the errors when a pasted reply doesn't fit the panel; otherwise the updated run."""
+    conn = db_conn(request)
+    _panel_run(conn, run_id)  # 404 for an unknown run
+    if body.grader == "you":
+        if body.item is None or body.winner is None:
+            raise HTTPException(status_code=422, detail="Your pick needs an item and a winner.")
+        try:
+            panel.record_pick(conn, run_id, body.item, body.winner)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Item {body.item} isn't in this panel") from None
+        return {"graded": None, "run": _panel_run(conn, run_id)}
+    outcome = panel.import_grades(conn, run_id, body.grader, body.text or "")
+    if not outcome.ok:
+        return JSONResponse({"detail": outcome.errors[0], "errors": outcome.errors}, status_code=422)
+    return {"graded": outcome.graded, "run": _panel_run(conn, run_id)}
 
 
 def budget_stop(conn: Connection, estimated_usd: float = 0.0) -> None:

@@ -1,7 +1,8 @@
 // Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
 import type {
   AddJobInput, AddJobResult, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets, Interview,
-  ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview, Relation,
+  ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PanelGradeOutcome, PanelMode, PanelOverview,
+  PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview, Relation,
   SavePreferencesResult, Task, UserStatus,
 } from './types';
 
@@ -210,4 +211,43 @@ export function updateInterview(id: string, fields: InterviewFields): Promise<In
 
 export function deleteInterview(id: string): Promise<{ ok: boolean }> {
   return request(`/interviews/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function getPanel(signal?: AbortSignal): Promise<PanelOverview> {
+  return request<PanelOverview>('/panel', { signal });
+}
+
+/** Start a blind panel: n jobs with two comparable drafts each. 409 when there are none. */
+export function createPanelRun(n: number, mode: PanelMode): Promise<PanelRun> {
+  return request<PanelRun>('/panel/runs', { method: 'POST', body: JSON.stringify({ n, mode }) });
+}
+
+export function getPanelRun(id: string, signal?: AbortSignal): Promise<PanelRun> {
+  return request<PanelRun>(`/panel/runs/${encodeURIComponent(id)}`, { signal });
+}
+
+async function postPanelGrade(id: string, body: object): Promise<PanelGradeOutcome> {
+  const res = await fetch(`${API_BASE}/panel/runs/${encodeURIComponent(id)}/grades`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Strelitzia': '1' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 422) {
+    const err = await res.clone().json().catch(() => null);
+    if (err && Array.isArray(err.errors)) return { ok: false, errors: err.errors };
+  }
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  return { ok: true, ...((await res.json()) as { graded: number | null; run: PanelRun }) };
+}
+
+/** Import a model's pasted reply: ok with the run, or not ok with the errors (e.g. the wrong item count). */
+export function importPanelGrades(id: string, grader: 'sonnet' | 'opus', text: string): Promise<PanelGradeOutcome> {
+  return postPanelGrade(id, { grader, text });
+}
+
+/** Your blind pick for one item, in packet 1's order. */
+export async function pickPanelItem(id: string, item: number, winner: PanelWinner): Promise<PanelRun> {
+  const out = await postPanelGrade(id, { grader: 'you', item, winner });
+  if (!out.ok) throw new ApiError(422, out.errors[0]);
+  return out.run;
 }

@@ -389,3 +389,74 @@ export interface AddJobResult {
   created: boolean;
   task: Task | null;
 }
+
+export type PanelMode = 'latest_vs_previous' | 'rules_a_vs_b';
+export type PanelGrader = 'sonnet' | 'opus' | 'you';
+export type PanelWinner = 'first' | 'second' | 'tie';
+
+export interface PanelRunSummary {
+  id: string;
+  created_at: string;
+  mode: PanelMode;
+  rules_version_a: string | null;
+  rules_version_b: string | null;
+  status: 'open' | 'complete';
+}
+
+/** GET /panel */
+export interface PanelOverview {
+  due: string | null;
+  needed: number;
+  comparable: Record<PanelMode, number>;
+  runs: PanelRunSummary[];
+  project_name: string;
+  project_instructions: string;
+  rubric: { name: string; url: string | null; text: string };
+}
+
+export interface PanelSideStats {
+  mean_overall: number | null;
+  mean_clarity: number | null;
+  met_rate: { required: number | null; preferred: number | null };
+  red_flags: number;
+}
+
+export interface PanelGraderStats {
+  graded: number;
+  newer_win_rate: number | null;
+  a?: PanelSideStats;
+  b?: PanelSideStats;
+}
+
+export interface PanelReport {
+  items_total: number;
+  items: {
+    item: number;
+    title: string | null;
+    company: string;
+    older_version: number | null;
+    newer_version: number | null;
+    newer_shown: 'first' | 'second';
+    winners: Record<PanelGrader, 'newer' | 'older' | 'tie' | null>;
+  }[];
+  graders: Record<PanelGrader, PanelGraderStats>;
+  agreement: { sonnet_vs_opus: number | null; sonnet_vs_you: number | null; opus_vs_you: number | null };
+  verdict: 'newer is better' | 'no clear gain' | 'worse' | null;
+  heard_back: { rules_version: string; submitted: number; heard_back: number; rate: number | null; note: string | null }[];
+}
+
+/** GET /panel/runs/{id}. The report is null until you've picked every item (it un-blinds them). */
+export interface PanelRun {
+  id: string;
+  created_at: string;
+  mode: PanelMode;
+  status: 'open' | 'complete';
+  packets: { packet: number; model: 'sonnet' | 'opus'; text: string; prompt: string }[];
+  items: { item: number; title: string | null; company: string; first_text: string; second_text: string; your_pick: PanelWinner | null }[];
+  graded: Record<PanelGrader, number>;
+  report: PanelReport | null;
+}
+
+export type PanelGradeOutcome =
+  | { ok: true; graded: number | null; run: PanelRun }
+  | { ok: false; errors: string[] };
