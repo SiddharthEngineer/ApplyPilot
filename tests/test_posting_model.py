@@ -119,3 +119,9 @@ class TestSchema:
         assert props["company"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
         assert props["salary_period"]["anyOf"][0]["enum"] == list(ENUMS["salary_period"])
         assert props["posted_date"]["anyOf"][0]["format"] == "date"
+
+    def test_empty_text_reads_as_unstated(self):
+        posting = JobPosting.from_dict({"team": "", "travel": " ", "company_blurb": "",
+                                        "locations": [{"city": "", "state": "WA", "country": "US"}]})
+        assert (posting.team, posting.travel, posting.company_blurb) == (None, None, None)
+        assert posting.locations[0].city is None and posting.locations[0].state == "WA"

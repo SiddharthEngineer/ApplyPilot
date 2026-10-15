@@ -3,11 +3,24 @@
 _UNSUPPORTED = {"nullable", "propertyOrdering", "minimum", "maximum", "minLength", "maxLength", "pattern",
                 "minItems", "maxItems", "multipleOf"}
 _TYPES = {"object", "array", "string", "number", "integer", "boolean", "null"}
+# The API rejects a schema with more than 16 union-typed parameters (type arrays or anyOf).
+MAX_UNIONS = 16
+
+
+def count_unions(schema) -> int:
+    if isinstance(schema, list):
+        return sum(count_unions(s) for s in schema)
+    if not isinstance(schema, dict):
+        return 0
+    own = isinstance(schema.get("type"), list) or "anyOf" in schema
+    return own + sum(count_unions(v) for v in schema.values())
 
 
 def assert_strict_schema(schema: dict, path: str = "$") -> None:
     """Every object lists all its properties as required and sets additionalProperties: false; types are lowercase."""
     assert isinstance(schema, dict), path
+    if path == "$":
+        assert count_unions(schema) <= MAX_UNIONS, f"{count_unions(schema)} union-typed parameters (limit {MAX_UNIONS})"
     bad = _UNSUPPORTED & set(schema)
     assert not bad, f"{path}: unsupported keywords {bad}"
     if "type" in schema:

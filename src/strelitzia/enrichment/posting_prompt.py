@@ -47,7 +47,7 @@ def build_extract_prompt(today: str) -> str:
 You get one posting: a metadata block (title, company, location, salary, source) followed by the description.
 Return one object for it.
 
-CORE RULE: extract, never infer. If the posting doesn't state something, use null, "unknown" or [].
+CORE RULE: extract, never infer. If the posting doesn't state something, use null, "", "unknown" or [].
 Never invent a company, salary, date, skill, or requirement. Copy names, numbers and tools as written.
 Use both the metadata block and the description; the metadata location and salary are reliable.
 
@@ -77,7 +77,8 @@ FIELD RULES
   remote. A required share of office time (days per week, a percentage) -> hybrid, even when the location
   says remote-friendly. "on-site", "in office 5 days", "not remote" -> onsite. Nothing explicit -> unknown:
   an office address, a shift schedule or a city alone does not make a job onsite.
-- locations: each listed place as city / state / country. US states as 2-letter codes, the US as "US".
+- locations: each listed place as city / state / country ("" for a part not given). US states as 2-letter
+  codes, the US as "US".
   Leave out "Remote" itself; remote_region holds where a remote worker may live ("US", "EMEA", "Canada").
 - salary_min / salary_max: base pay as plain numbers (no commas, "$120K" -> 120000). Use the exact figures
   from the description when it has them ("$38.07 - $56.73 per hour" -> 38.07 and 56.73); the metadata
@@ -90,7 +91,7 @@ FIELD RULES
   Resolve relative dates against today.
 - summary: at most 2 sentences in your own words: what the role does and for which team/product.
   No marketing language, no company praise.
-- team: the team or org named in the posting, else null.
+- team: the team or org named in the posting, else "".
 - responsibilities / required_qualifications / preferred_qualifications: short phrases, one requirement per
   item, in the posting's order. "basic", "minimum", "required", "must have", "what we need to see" ->
   required_qualifications. "preferred", "nice to have", "bonus", "ways to stand out", "strongly desired" ->
@@ -106,9 +107,9 @@ FIELD RULES
 - visa_sponsorship: yes or no only when stated ("we sponsor visas", "no sponsorship", "must be authorized
   to work without sponsorship" -> no). Otherwise unknown.
 - security_clearance: required, preferred or none only when stated; otherwise unknown.
-- travel: the stated travel expectation ("up to 25%"), else null.
+- travel: the stated travel expectation ("up to 25%"), else "".
 - benefits: short items (401(k), equity, medical, parental leave) only when listed.
-- company_blurb: one sentence on what the company does, from its own description, else null.
+- company_blurb: one sentence on what the company does, from its own description, else "".
 """
 
 
