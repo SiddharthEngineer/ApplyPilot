@@ -184,6 +184,9 @@ _NULL_STR = nullable({"type": "string"})
 _NULL_NUM = nullable({"type": "number"})
 _NULL_DATE = nullable({"type": "string", "format": "date"})
 _STR_LIST = {"type": "array", "items": {"type": "string"}}
+# Free-text fields where "" means unstated (`_str` reads it as None). Structured outputs allow at most 16
+# union-typed parameters per schema, so only fields where null carries meaning stay nullable.
+_TEXT = {"type": "string"}
 
 
 def _enum_schema(values: tuple[str, ...]) -> dict:
@@ -200,7 +203,7 @@ def posting_schema() -> dict:
         "employment_type": _enum_schema(EMPLOYMENT_TYPES),
         "work_mode": _enum_schema(WORK_MODES),
         "locations": {"type": "array", "items": json_object(
-            {"city": _NULL_STR, "state": _NULL_STR, "country": _NULL_STR})},
+            {"city": _TEXT, "state": _TEXT, "country": _TEXT})},
         "remote_region": _NULL_STR,
         "salary_min": _NULL_NUM,
         "salary_max": _NULL_NUM,
@@ -210,7 +213,7 @@ def posting_schema() -> dict:
         "application_deadline": _NULL_DATE,
         "start_date": _NULL_DATE,
         "summary": {"type": "string"},
-        "team": _NULL_STR,
+        "team": _TEXT,
         "responsibilities": _STR_LIST,
         "required_qualifications": _STR_LIST,
         "preferred_qualifications": _STR_LIST,
@@ -222,8 +225,8 @@ def posting_schema() -> dict:
         "years_experience_max": _NULL_NUM,
         "visa_sponsorship": _enum_schema(VISA_SPONSORSHIP),
         "security_clearance": _enum_schema(SECURITY_CLEARANCE),
-        "travel": _NULL_STR,
+        "travel": _TEXT,
         "benefits": _STR_LIST,
-        "company_blurb": _NULL_STR,
+        "company_blurb": _TEXT,
     }
     return json_object(props)
