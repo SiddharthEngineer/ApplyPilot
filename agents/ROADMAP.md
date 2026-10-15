@@ -14,7 +14,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | 🟡 Tasks 0-4 merged (#40); ⏳ Task 5 eval script queued; you: labels + eval run (M20) | R20 |
 | R22 | Workspace intake: Add job by link (scrape, paste fallback), shared contacts, interviews, discovery off by default | [workspace-intake](plans/workspace-intake.md) | review | 🟡 Tasks 1-5 done (PR open, branch agent/workspace-intake); you: live check (M21) | R20 |
 | R23 | Claude workbench: tailor resume + cover in Claude Pro via Drive packets and paste-back; ATS-safe PDF/DOCX; API writer removed | [claude-workbench](plans/claude-workbench.md) | review | 🟡 Tasks 0-7 done (PR open, branch agent/claude-workbench); you: end-to-end (M22) | R22 (M8 only for real Drive use) |
-| R24 | Resume panel: blind A/B grading in Claude Pro with a rubric, your picks, "panel due" reminders | [resume-panel](plans/resume-panel.md) | review | ⏳ queued after R23; you: first panel (M23) | R23 |
+| R24 | Resume panel: blind A/B grading in Claude Pro with a rubric, your picks, "panel due" reminders | [resume-panel](plans/resume-panel.md) | review | 🟡 Tasks 0-4 done (PR open, branch agent/resume-panel); you: first panel (M23) | R23 |
 
 ## Manual steps (you)
 

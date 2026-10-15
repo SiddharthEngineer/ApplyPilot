@@ -1,5 +1,5 @@
 # Plan: Resume panel: blind A/B grading in Claude Pro with a rubric, plus your own picks
-**Status:** ❌ Not started
+**Status:** ✅ Tasks 0-4 done (2026-10-15); the first real panel is M23
 **Risk:** review (new table, web routes and dashboard page)
 
 ## Goal

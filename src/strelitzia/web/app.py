@@ -401,7 +401,10 @@ class PanelGrade(BaseModel):
 def post_panel_grades(run_id: str, body: PanelGrade, request: Request):
     """422 with the errors when a pasted reply doesn't fit the panel; otherwise the updated run."""
     conn = db_conn(request)
-    _panel_run(conn, run_id)  # 404 for an unknown run
+    try:
+        panel.get_run(conn, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Panel run not found") from None
     if body.grader == "you":
         if body.item is None or body.winner is None:
             raise HTTPException(status_code=422, detail="Your pick needs an item and a winner.")
@@ -409,6 +412,8 @@ def post_panel_grades(run_id: str, body: PanelGrade, request: Request):
             panel.record_pick(conn, run_id, body.item, body.winner)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"Item {body.item} isn't in this panel") from None
+        except panel.PicksLocked as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
         return {"graded": None, "run": _panel_run(conn, run_id)}
     outcome = panel.import_grades(conn, run_id, body.grader, body.text or "")
     if not outcome.ok:

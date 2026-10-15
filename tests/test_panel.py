@@ -83,6 +83,11 @@ def test_identical_drafts_are_not_comparable(conn):
     add_draft(conn, job["url"], 1, headline="Same")
     add_draft(conn, job["url"], 2, headline="Same")
     assert panel.select_items(conn) == []
+    # A third draft that differs is compared with the newest earlier one that differs from it.
+    add_draft(conn, job["url"], 3, headline="Different")
+    add_draft(conn, job["url"], 4, headline="Different")
+    items = panel.select_items(conn)
+    assert (items[0].draft_a["version"], items[0].draft_b["version"]) == (2, 4)
 
 
 def test_rules_a_vs_b_compares_the_latest_draft_under_each_rules_version(conn):
@@ -219,15 +224,20 @@ def test_import_errors(conn, run_id):
 
 
 def test_picks_and_completion(conn, run_id):
-    for no in range(1, 5):
+    panel.record_pick(conn, run_id, 1, "first")
+    panel.record_pick(conn, run_id, 1, "second")  # before the last pick, a pick can change
+    for no in range(2, 5):
         panel.record_pick(conn, run_id, no, "second")
+    assert panel.grades(conn, run_id)["you"][1]["winner"] == "second"
     assert panel.get_run(conn, run_id)["status"] == "open"
     panel.record_pick(conn, run_id, 5, "tie")
     assert panel.get_run(conn, run_id)["status"] == "open"  # no model yet
     panel.import_grades(conn, run_id, "sonnet", model_reply(["first"] * 5))
     assert panel.get_run(conn, run_id)["status"] == "complete"
-    panel.record_pick(conn, run_id, 5, "first")  # changing a pick replaces it
-    assert panel.grades(conn, run_id)["you"][5]["winner"] == "first"
+    # The last pick un-blinds the panel, so the picks are locked from then on.
+    with pytest.raises(panel.PicksLocked):
+        panel.record_pick(conn, run_id, 5, "first")
+    assert panel.grades(conn, run_id)["you"][5]["winner"] == "tie"
     with pytest.raises(ValueError):
         panel.record_pick(conn, run_id, 1, "A")
     with pytest.raises(KeyError):
@@ -343,7 +353,10 @@ def test_panel_due_reasons(conn):
     seed_jobs_from(conn, 5)
     assert panel.panel_due(conn, rules_version="r2") == "no panel has been run yet"
     run_id = panel.create_run(conn, rng=random.Random(1))
-    assert panel.panel_due(conn, rules_version="r2") == "no panel has been run yet"  # not complete yet
+    started = datetime.fromisoformat(panel.get_run(conn, run_id)["created_at"])
+    assert panel.panel_due(conn, rules_version="r2") is None  # in progress
+    # An open run abandoned for 30+ days no longer hides the reminder.
+    assert panel.panel_due(conn, rules_version="r2", now=started + timedelta(days=30)) == "no panel has been run yet"
     _complete(conn, run_id)
     assert panel.panel_due(conn, rules_version="r2") is None
     created = datetime.fromisoformat(panel.get_run(conn, run_id)["created_at"])
