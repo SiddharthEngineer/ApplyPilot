@@ -105,7 +105,7 @@ paste then re-intake → `ok` without scraping, budget stop keeps the descriptio
   `hide_flagged` (prefilter/dealbreaker flags apply to discovered rows only). `facets` adds source counts.
 **Validate:** `pytest tests/web -q` → new tests cover each route, CSRF header required on writes, 404s, dedupe returning 200 with the same key,
 source filter, `next_interview` sort with NULLs last, manual rows visible with `hide_flagged=true`. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (Task 3 commit)
 
 ### Task 4: Dashboard: Add job, paste fallback, contacts, interviews, Contacts page
 **Runs:** unattended

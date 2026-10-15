@@ -71,6 +71,7 @@ def test_item_shape(client, jobs):
         "role_category": "data_science", "location": "Remote, US", "work_mode": "remote", "fit_score": 90,
         "discovered_at": "2026-10-01T10:00:00+00:00", "deadline": "2026-10-20", "status": "submitted",
         "status_color": "blue", "days_since_submitted": 7,
+        "source": "discovered", "added_at": None, "intake_status": None, "next_interview": None,
         "fit_breakdown": [], "fit_flags": [], "flag_reasons": [], "assessment_stale": False,
     }
     assert items[job_key("https://x/de")]["company"] == "Umbrella"  # site stands in for a missing company

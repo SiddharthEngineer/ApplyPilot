@@ -12,23 +12,28 @@ from typing import Literal
 
 from strelitzia.database import UNFLAGGED_WHERE, Connection, job_company
 from strelitzia.scoring.assessment import PREFILTER_FLAG
+from strelitzia.workspace import next_interview_sql
 from strelitzia.tracking import COLORS, STATUSES, days_since_submitted, effective_status, status_sql
 
 SORT_COLUMNS = {
     "discovered_at": "discovered_at",
     "deadline": "NULLIF(deadline, '')",
     "fit_score": "fit_score",
+    "next_interview": "next_interview",  # the computed column in list_jobs' SELECT
 }
 SORT_PATTERN = r"^-?(" + "|".join(SORT_COLUMNS) + r")$"
 STATUS_FILTERS = (*STATUSES, "no_response", "all")
+SourceFilter = Literal["manual", "discovered"]
 StatusFilter = Literal["active", "inactive", "in_progress", "submitted", "rejected", "heard_back", "no_response", "all"]
 MAX_PAGE_SIZE = 200
 
 _LIST_COLUMNS = (
     "url", "job_key", "title", "company", "site", "role_category", "location", "work_mode", "fit_score",
     "discovered_at", "deadline", "user_status", "apply_status", "applied_at", "submitted_at", "responded_at",
-    "fit_flags", "fit_breakdown", "assessment_hash",
+    "fit_flags", "fit_breakdown", "assessment_hash", "strategy", "source", "added_at", "intake_status",
 )
+# Jobs the user added (strelitzia.intake); NULL source means discovered.
+MANUAL_WHERE = "source = 'manual'"
 PREFILTER_REASON = "title doesn't match your target roles"
 
 
@@ -46,6 +51,7 @@ class JobFilters:
     score_max: int | None = None
     q: str | None = None
     hide_flagged: bool = True
+    source: list[str] = field(default_factory=list)
 
 
 def _like(text: str) -> str:
@@ -104,8 +110,10 @@ def where_clause(f: JobFilters, today: date) -> tuple[str, list]:
     if f.score_max is not None:
         conds.append("fit_score <= ?")
         params.append(f.score_max)
-    if f.hide_flagged:
-        conds.append(UNFLAGGED_WHERE)
+    if f.hide_flagged:  # the prefilter and dealbreakers never hide a job the user added
+        conds.append(f"({UNFLAGGED_WHERE} OR {MANUAL_WHERE})")
+    if f.source and set(f.source) != {"manual", "discovered"}:
+        conds.append(MANUAL_WHERE if "manual" in f.source else f"(source IS NULL OR NOT {MANUAL_WHERE})")
     if f.q and f.q.strip():
         cols = ("title", "company", "site")
         conds.append("(" + " OR ".join(f"LOWER(COALESCE({c}, '')) LIKE ? ESCAPE '!'" for c in cols) + ")")
@@ -159,6 +167,10 @@ def list_item(row: dict, today: date, current_key: str | None = None) -> dict:
         "status": status,
         "status_color": COLORS[status],
         "days_since_submitted": days_since_submitted(row, today),
+        "source": row.get("source") or "discovered",
+        "added_at": row.get("added_at"),
+        "intake_status": row.get("intake_status"),
+        "next_interview": row.get("next_interview"),
         **fit_fields(row, current_key),
     }
 
@@ -169,7 +181,7 @@ def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered
     total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {where}", params).fetchone()[0]
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
     rows = conn.execute(
-        f"SELECT {', '.join(_LIST_COLUMNS)} FROM jobs WHERE {where} ORDER BY {order_clause(sort)} LIMIT ? OFFSET ?",
+        f"SELECT {', '.join(_LIST_COLUMNS)}, {next_interview_sql()} AS next_interview FROM jobs WHERE {where} ORDER BY {order_clause(sort)} LIMIT ? OFFSET ?",
         [*params, page_size, (max(page, 1) - 1) * page_size],
     ).fetchall()
     return {"total": total, "page": page, "page_size": page_size,
@@ -177,7 +189,7 @@ def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered
 
 
 def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
-    """Counts for the filter dropdowns: per status (plus no_response), role_category, work_mode; top locations."""
+    """Counts for the filter dropdowns: per status (plus no_response), role_category, work_mode, source; top locations."""
     status_expr = status_sql(today.isoformat())
     by_status = {s: 0 for s in STATUSES}
     for st, n in conn.execute(f"SELECT {status_expr} AS st, COUNT(*) FROM jobs GROUP BY st").fetchall():
@@ -194,11 +206,14 @@ def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
         return [{"value": r[0], "count": r[1]} for r in rows]
 
     locations = counts("location")[:top_locations]
+    total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    manual = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {MANUAL_WHERE}").fetchone()[0]
     return {
-        "total": conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0],
+        "total": total,
         "status": [{"value": s, "count": by_status[s], "color": COLORS.get(s)} for s in (*STATUSES, "no_response")],
         "role_category": counts("role_category"),
         "work_mode": counts("work_mode"),
         "location": locations,
         "flagged": conn.execute(f"SELECT COUNT(*) FROM jobs WHERE NOT ({UNFLAGGED_WHERE})").fetchone()[0],
+        "source": [{"value": "manual", "count": manual}, {"value": "discovered", "count": total - manual}],
     }
