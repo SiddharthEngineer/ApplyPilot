@@ -56,7 +56,7 @@ source. Discovery scraping stays in the code but is off by default.
   `job_interviews(conn, job_url) -> list[dict]` (by `scheduled_at`), `next_interview_sql() -> str` (correlated subquery: earliest
   `scheduled_at >= now` for the row). Deleting a contact deletes its links; field names are allow-listed.
 **Validate:** `pytest tests/test_workspace.py -q` → passes on SQLite (and with `-m pg` when a PG URL is set); `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (Task 1 commit)
 
 ### Task 2: Intake backend: add a job by link or by paste
 **Runs:** unattended
