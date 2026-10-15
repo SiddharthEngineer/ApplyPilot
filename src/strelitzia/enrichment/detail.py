@@ -14,6 +14,8 @@ import json
 import logging
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -603,6 +605,20 @@ def scrape_detail_page(page, url: str) -> dict:
     return result
 
 
+@contextmanager
+def detail_page() -> Iterator:
+    """One headless Chromium page (with the proxy, if set) for `scrape_detail_page`; the browser closes on exit."""
+    with sync_playwright() as p:
+        launch_opts: dict = {"headless": True}
+        if _PROXY_CONFIG:
+            launch_opts["proxy"] = _PROXY_CONFIG["playwright"]
+        browser = p.chromium.launch(**launch_opts)
+        try:
+            yield browser.new_context(user_agent=UA).new_page()
+        finally:
+            browser.close()
+
+
 def scrape_site_batch(
     conn: Connection | None,
     site: str,
@@ -629,14 +645,7 @@ def scrape_site_batch(
     now = datetime.now(timezone.utc).isoformat()
 
     try:
-        with sync_playwright() as p:
-            launch_opts: dict = {"headless": True}
-            if _PROXY_CONFIG:
-                launch_opts["proxy"] = _PROXY_CONFIG["playwright"]
-            browser = p.chromium.launch(**launch_opts)
-            context = browser.new_context(user_agent=UA)
-            page = context.new_page()
-
+        with detail_page() as page:
             for i, (url, title) in enumerate(jobs):
                 log.info("[%d/%d] %s", i + 1, len(jobs), title[:50] if title else url[:50])
 
@@ -676,8 +685,6 @@ def scrape_site_batch(
 
                 if i < len(jobs) - 1:
                     time.sleep(delay)
-
-            browser.close()
     finally:
         if own_conn:
             conn.close()
