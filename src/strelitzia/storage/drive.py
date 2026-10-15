@@ -25,7 +25,8 @@ log = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 FOLDER_MIME = "application/vnd.google-apps.folder"
 PDF_MIME = "application/pdf"
-_FILE_FIELDS = "id, name, parents, trashed, md5Checksum, webViewLink, appProperties"
+DOC_MIME = "application/vnd.google-apps.document"  # uploading HTML with this target type makes a Google Doc
+_FILE_FIELDS = "id, name, mimeType, parents, trashed, md5Checksum, webViewLink, appProperties"
 # appProperties key prefix. Kept from before the rename (legacy): files already in Drive are tagged with it.
 PROP_PREFIX = "applypilot_"
 INSTALL_HINT = 'Install the Drive extra: pip install -e ".[drive]"'
@@ -123,12 +124,21 @@ def _pdf_media(path: Path):
     return MediaFileUpload(str(path), mimetype=PDF_MIME, resumable=False)
 
 
+def _html_media(html: str):
+    import io
+
+    from googleapiclient.http import MediaIoBaseUpload
+    return MediaIoBaseUpload(io.BytesIO(html.encode("utf-8")), mimetype="text/html", resumable=False)
+
+
 class DriveClient:
     """Thin wrapper around a googleapiclient Drive v3 service (injectable for tests)."""
 
-    def __init__(self, service, media_factory: Callable[[Path], object] | None = None):
+    def __init__(self, service, media_factory: Callable[[Path], object] | None = None,
+                 html_media_factory: Callable[[str], object] | None = None):
         self._service = service
         self._media = media_factory or _pdf_media
+        self._html_media = html_media_factory or _html_media
         self._folders: dict[tuple[str, str], str] = {}
 
     @classmethod
@@ -213,6 +223,35 @@ class DriveClient:
             }
             meta = self._service.files().create(
                 body=body, media_body=self._media(local_path), fields=_FILE_FIELDS,
+            ).execute()
+            created = True
+        return DriveFile(id=meta["id"], url=meta.get("webViewLink", ""), md5=meta.get("md5Checksum"), created=created,
+                         folder_id=folder_id)
+
+    def upsert_doc(self, folder_id: str, name: str, html: str, known_id: str | None = None) -> DriveFile:
+        """Write html as a Google Doc named `name` in folder_id, updating the existing Doc in place.
+
+        The existing Doc is `known_id` (if it is still there), else a same-named Doc in the folder; with the
+        drive.file scope both can only be Docs this app created.
+        """
+        existing = None
+        if known_id:
+            meta = self._get(known_id)
+            if meta and not meta.get("trashed") and meta.get("mimeType", DOC_MIME) == DOC_MIME:
+                existing = meta
+        if existing is None:
+            found = self._list(f"name = {_q(name)} and mimeType = {_q(DOC_MIME)} and {_q(folder_id)} in parents "
+                               "and trashed = false")
+            existing = found[0] if found else None
+        if existing:
+            meta = self._service.files().update(
+                fileId=existing["id"], media_body=self._html_media(html), fields=_FILE_FIELDS,
+            ).execute()
+            created = False
+        else:
+            body = {"name": name, "parents": [folder_id], "mimeType": DOC_MIME}
+            meta = self._service.files().create(
+                body=body, media_body=self._html_media(html), fields=_FILE_FIELDS,
             ).execute()
             created = True
         return DriveFile(id=meta["id"], url=meta.get("webViewLink", ""), md5=meta.get("md5Checksum"), created=created,

@@ -1,5 +1,7 @@
 """Where a job's files go in Google Drive: Strelitzia/<Company>/<Role>/<YYYY-MM-DD>/.
 
+The Claude Project's fixed Docs (rules, content library) go in Strelitzia/_Claude/.
+
 Pure functions with no Google imports, so the layout is easy to test and stable across machines.
 """
 
@@ -58,6 +60,18 @@ def job_date(job: dict, kind: str) -> str:
 
 def folder_path(job: dict, kind: str) -> list[str]:
     return [root_folder(), clean_name(job_company(job)), clean_name(job.get("title")), job_date(job, kind)]
+
+
+CLAUDE_FOLDER = "_Claude"
+
+
+def claude_folder_path() -> list[str]:
+    return [root_folder(), CLAUDE_FOLDER]
+
+
+def packet_folder_path(job: dict) -> list[str]:
+    """The job's folder for its Claude packet Doc (next to the resume)."""
+    return folder_path(job, "resume")
 
 
 def file_name(job: dict, kind: str, suffix: str = "") -> str:
