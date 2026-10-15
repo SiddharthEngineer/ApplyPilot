@@ -1,5 +1,5 @@
 # Plan: Claude workbench: tailor resumes and cover letters in Claude Pro via Drive packets and paste-back
-**Status:** ❌ Not started
+**Status:** 🔨 In progress
 **Risk:** review (removes the API writer, changes the template, PDF output, Drive client, DB columns, web routes and the job page; adds deps)
 
 ## Goal
@@ -53,7 +53,7 @@ Code:
 If that fails, plan `workspace-intake` hasn't merged yet. Change nothing, and finish with result status `blocked` and summary
 "waiting for workspace-intake to merge; requeue with buildqueue.py add claude-workbench".
 **Validate:** the command exits 0.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (R22 is on origin/trunk)
 
 ### Task 1: Output contract and packet builder
 **Runs:** unattended
@@ -81,7 +81,7 @@ If that fails, plan `workspace-intake` hasn't merged yet. Change nothing, and fi
   cover letter for the job in the Google Doc '<name>' …". Without Drive, `prompt` = `text` + the rules (everything inline).
   `RULES_VERSION`: a short hash of `rules_doc()`.
 **Validate:** `pytest tests/test_workbench_packet.py tests/test_targets.py -q` → evidence map on a synthetic library (acronym match counts, a skills-boundary-only skill is unevidenced), packet lists unmet targets, prompt under 600 chars, schema validates a sample result. `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 2: Paste-back import and checks
 **Runs:** unattended
