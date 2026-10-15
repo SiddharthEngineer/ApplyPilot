@@ -119,3 +119,115 @@ def test_create_run_without_comparable_jobs_is_an_error(conn):
     add_draft(conn, add_job(conn, 1)["url"], 1)
     with pytest.raises(ValueError, match="two comparable drafts"):
         panel.create_run(conn)
+
+
+# ── Task 2: rubric, packets and import ──
+
+def version_grade(overall="B", clarity=3, flags=(), quals=None):
+    quals = quals if quals is not None else [
+        {"text": "Airflow", "kind": "required", "status": "met", "evidence": "Airflow"},
+        {"text": "dbt", "kind": "preferred", "status": "not_met", "evidence": ""},
+    ]
+    return {"qualifications": quals, "overall": overall, "clarity": clarity, "red_flags": list(flags)}
+
+
+def model_reply(winners, first=None, second=None, count=None) -> str:
+    """A panel reply with the given winner per item (first | second | tie), in the packet's order."""
+    items = [{"item": no, "first": first or version_grade(), "second": second or version_grade(),
+              "winner": w, "why": "Clearer fit."} for no, w in enumerate(winners, 1)]
+    return reply({"panel": 1, "items": items[:count] if count is not None else items}, prose="My grades follow.")
+
+
+@pytest.fixture
+def run_id(conn):
+    seed_jobs(conn, 5)
+    return panel.create_run(conn, n=5, rng=random.Random(3))
+
+
+def test_rubric_doc_has_the_grading_steps_and_format():
+    html = panel.rubric_doc()
+    for needle in ("met, partial or not_met", "Overall grade A-D", "Clarity 1-5", "Red flags", "Winner",
+                   "&quot;panel&quot;: 1", "&quot;winner&quot;", "verbatim"):
+        assert needle in html, needle
+    text = panel.rubric_text()
+    assert " A/B" not in text and "newer" not in text.replace("which version is newer", "")
+
+
+def test_packets_are_blind_and_swapped(conn, run_id):
+    run = panel.get_run(conn, run_id)
+    p1, p2 = panel.panel_packet(conn, run), panel.panel_packet(conn, run, swapped=True)
+    assert run["packet_text"] == p1.text and run["packet_text_swapped"] == p2.text
+    assert p1.prompt.endswith(p1.text) and "Strelitzia panel rubric" in p1.prompt
+    for text in (p1.text, p2.text):
+        assert "Item 1: Data Engineer 5 at Initech" in text and "Item 5: Data Engineer 1 at Initech" in text
+        assert "Airflow" in text and "Terraform" in text and "Required qualifications" in text
+        for item in panel.run_items(conn, run_id):
+            for side in "ab":
+                draft = item[f"draft_{side}"]
+                assert draft["created_at"][:10] not in text  # no draft dates
+                assert draft["rules_version"] not in text and draft["id"] not in text
+        lowered = text.lower()
+        for word in ("version", "draft", "newer", "older", "latest", "previous", " v1", " v2"):
+            assert word not in lowered, word
+    for item in panel.run_items(conn, run_id):
+        a, b = item["draft_a"]["resume_text"].strip(), item["draft_b"]["resume_text"].strip()
+        first, second = (a, b) if item["shown_first"] == "a" else (b, a)
+        assert p1.text.index(first) < p1.text.index(second)
+        assert p2.text.index(second) < p2.text.index(first)
+
+
+def test_import_maps_each_models_order_back_to_the_drafts(conn, run_id):
+    items = panel.run_items(conn, run_id)
+    # Sonnet sees packet 1 and always picks First; Opus sees packet 2 and always picks First too.
+    out = panel.import_grades(conn, run_id, "sonnet", model_reply(["first"] * 5, first=version_grade("A")))
+    assert out.ok and out.graded == 5
+    assert panel.import_grades(conn, run_id, "opus", model_reply(["first"] * 5, first=version_grade("D"))).ok
+    g = panel.grades(conn, run_id)
+    for item in items:
+        no, shown = item["item_no"], item["shown_first"]
+        other = "b" if shown == "a" else "a"
+        assert g["sonnet"][no]["winner"] == "first"
+        assert g["opus"][no]["winner"] == "second"  # stored in packet 1's order
+        assert g["sonnet"][no]["detail"][shown]["overall"] == "A"
+        assert g["opus"][no]["detail"][other]["overall"] == "D"  # packet 2 showed the other side first
+        assert g["sonnet"][no]["detail"]["why"] == "Clearer fit."
+
+
+def test_reimport_replaces_and_ties_stay_ties(conn, run_id):
+    assert panel.import_grades(conn, run_id, "opus", model_reply(["first"] * 5)).ok
+    assert panel.import_grades(conn, run_id, "opus", model_reply(["tie"] * 5)).ok
+    rows = conn.execute("SELECT winner FROM panel_grades WHERE grader = 'opus'").fetchall()
+    assert [r[0] for r in rows] == ["tie"] * 5
+
+
+def test_import_errors(conn, run_id):
+    out = panel.import_grades(conn, run_id, "sonnet", model_reply(["first"] * 5, count=4))
+    assert not out.ok and "grades 4 items, but this panel has 5" in out.errors[0]
+    assert not panel.import_grades(conn, run_id, "sonnet", "no json here").ok
+    bad = panel.import_grades(conn, run_id, "sonnet", "```json\n{\"panel\": 1, \"items\": [\n```")
+    assert not bad.ok and "isn't valid JSON" in bad.errors[0]
+    wrong = panel.import_grades(conn, run_id, "sonnet", model_reply(["first"] * 5, first=version_grade("E")))
+    assert not wrong.ok and "doesn't match the panel format" in wrong.errors[0] and '"E"' in wrong.errors[0]
+    data = json.loads(model_reply(["first"] * 5).split("```json\n")[1].split("```")[0])
+    data["items"][4]["item"] = 9
+    numbers = panel.import_grades(conn, run_id, "sonnet", json.dumps(data))
+    assert not numbers.ok and "items [1, 2, 3, 4, 9]" in numbers.errors[0]
+    assert not panel.import_grades(conn, run_id, "you", model_reply(["first"] * 5)).ok
+    assert not panel.import_grades(conn, "nope", "sonnet", model_reply(["first"] * 5)).ok
+    assert conn.execute("SELECT COUNT(*) FROM panel_grades").fetchone()[0] == 0
+
+
+def test_picks_and_completion(conn, run_id):
+    for no in range(1, 5):
+        panel.record_pick(conn, run_id, no, "second")
+    assert panel.get_run(conn, run_id)["status"] == "open"
+    panel.record_pick(conn, run_id, 5, "tie")
+    assert panel.get_run(conn, run_id)["status"] == "open"  # no model yet
+    panel.import_grades(conn, run_id, "sonnet", model_reply(["first"] * 5))
+    assert panel.get_run(conn, run_id)["status"] == "complete"
+    panel.record_pick(conn, run_id, 5, "first")  # changing a pick replaces it
+    assert panel.grades(conn, run_id)["you"][5]["winner"] == "first"
+    with pytest.raises(ValueError):
+        panel.record_pick(conn, run_id, 1, "A")
+    with pytest.raises(KeyError):
+        panel.record_pick(conn, run_id, 6, "first")

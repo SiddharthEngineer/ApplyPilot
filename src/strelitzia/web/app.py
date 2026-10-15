@@ -305,7 +305,7 @@ def claude_setup(request: Request) -> dict:
         "rules_version": workbench.RULES_VERSION,
         "docs": [{"kind": kind, "name": name, "url": (docs.get(kind) or {}).get("url"),
                   "changed_at": (docs.get(kind) or {}).get("changed_at")}
-                 for kind, name in workbench.STATIC_DOCS.items()],
+                 for kind, name in workbench.STATIC_DOCS.items() if kind in workbench.RESUME_DOCS],
         "project_name": "Strelitzia Resumes",
         "project_instructions": workbench.PROJECT_INSTRUCTIONS,
     }

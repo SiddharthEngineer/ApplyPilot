@@ -411,11 +411,11 @@ def job_packet(job: dict, library: ContentLibrary, base_resume_text: str, curren
 _FENCE = re.compile(r"```[ \t]*([A-Za-z]*)[ \t]*\n(.*?)```", re.S)
 
 
-def extract_result(text: str) -> dict:
-    """The result object from a pasted reply: the last ```json block, or the whole text if it is JSON.
+def extract_json(text: str) -> tuple[object, str]:
+    """(parsed JSON, where it came from) from a pasted reply: the last ```json block, or the whole text if it is JSON.
 
     Raises:
-        ValueError: no JSON block, invalid JSON, or JSON that doesn't match RESULT_SCHEMA.
+        ValueError: nothing pasted, no JSON block, or invalid JSON.
     """
     text = (text or "").strip()
     if not text:
@@ -432,6 +432,16 @@ def extract_result(text: str) -> dict:
         data = json.loads(source)
     except json.JSONDecodeError as e:
         raise ValueError(f"{where} isn't valid JSON ({e.msg} at line {e.lineno}, column {e.colno}).") from e
+    return data, where
+
+
+def extract_result(text: str) -> dict:
+    """The result object from a pasted reply: the last ```json block, or the whole text if it is JSON.
+
+    Raises:
+        ValueError: no JSON block, invalid JSON, or JSON that doesn't match RESULT_SCHEMA.
+    """
+    data, where = extract_json(text)
     errors = schema_errors(data, RESULT_SCHEMA)
     if errors:
         raise ValueError(f"{where} doesn't match the Strelitzia format: " + "; ".join(errors[:8]))
@@ -697,11 +707,18 @@ PROJECT_INSTRUCTIONS = (
     "that matches the schema in the rules document, even when I only ask a question."
 )
 
-STATIC_DOCS = {"rules": "Strelitzia rules", "library": "Strelitzia content library"}
+# The panel rubric belongs in a separate "Strelitzia Panel" project (strelitzia.scoring.panel).
+STATIC_DOCS = {"rules": "Strelitzia rules", "library": "Strelitzia content library",
+               "panel_rubric": "Strelitzia panel rubric"}
+RESUME_DOCS = ("rules", "library")  # the ones the Strelitzia Resumes project holds
 _STATE_KEY = "claude_doc:{}"
 
 
 def static_doc_html(kind: str, inputs: Inputs) -> str:
+    if kind == "panel_rubric":
+        from strelitzia.scoring.panel import rubric_doc
+
+        return rubric_doc()
     return rules_doc() if kind == "rules" else library_doc(inputs.library, inputs.base_resume_text)
 
 
@@ -718,7 +735,7 @@ def published_static_docs(conn: Connection) -> dict[str, dict]:
 
 
 def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, force: bool = False) -> dict[str, str]:
-    """Write the rules and content-library Docs into Strelitzia/_Claude/ when their content changed.
+    """Write the rules, content-library and panel-rubric Docs into Strelitzia/_Claude/ when their content changed.
 
     Returns {kind: doc URL}. `force` rewrites them even when the stored hash matches (e.g. a Doc was deleted).
     """

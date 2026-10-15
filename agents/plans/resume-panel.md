@@ -58,7 +58,7 @@ If that fails, plan `claude-workbench` hasn't merged yet. Change nothing, and fi
   as plain text (`resume_to_text`) in the stored order. Each run also stores a second packet with the order swapped, for the second model.
 - `import_grades(conn, run_id, grader, text) -> ImportOutcome`: parse the JSON, map first/second back to the drafts, store. Wrong item count or bad JSON → errors.
 **Validate:** `pytest tests/test_panel.py -q` (packet never contains version numbers or dates of the drafts; swap mapping; import round trip). `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit; Sonnet grades packet 1, Opus the swapped packet 2; winners are stored in packet 1's order)
 
 ### Task 3: Report and "panel due"
 **Runs:** unattended

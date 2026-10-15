@@ -58,7 +58,7 @@ def test_packet_with_drive_writes_docs_and_a_short_prompt(client, conn, the_job,
     assert body["inline"] is False and body["doc_url"]
     assert len(body["prompt"]) <= wb.PROMPT_MAX and "Claude packet" in body["prompt"]
     names = sorted(f["name"] for f in drive.store.values() if f["mimeType"] == DOC_MIME)
-    assert names == sorted(["Strelitzia rules", "Strelitzia content library",
+    assert names == sorted(["Strelitzia rules", "Strelitzia content library", "Strelitzia panel rubric",
                             f"Initech – {job()['title']} – Claude packet"])
     detail = client.get(f"/app/api/jobs/{the_job}").json()
     assert detail["packet_doc_url"] == body["doc_url"] == detail["links"]["packet"]
