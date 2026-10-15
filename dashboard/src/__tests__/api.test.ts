@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, generate, jobsQueryString, listJobs, rescore, savePreferences, setStatus } from '../api';
+import {
+  addJob, ApiError, generate, jobsQueryString, linkContact, listJobs, putDescription, rescore, savePreferences, setStatus,
+} from '../api';
 import type { Preferences } from '../types';
 
 function mockFetch(status: number, body: unknown) {
@@ -63,5 +65,34 @@ describe('api', () => {
 
   it('sends hide_flagged=false when flagged jobs are shown', () => {
     expect(jobsQueryString({ hide_flagged: false, score_min: 70 })).toBe('hide_flagged=false&score_min=70');
+  });
+
+  it('sends the source filter and the next-interview sort', () => {
+    expect(jobsQueryString({ source: ['manual'], sort: 'next_interview' })).toBe('source=manual&sort=next_interview');
+    expect(jobsQueryString({ source: [], sort: '-next_interview' })).toBe('sort=-next_interview'); // all sources
+  });
+
+  it('POSTs a new job and PUTs a pasted description with the CSRF header', async () => {
+    const fetch = mockFetch(201, { key: 'k1', created: true, task: null });
+    await addJob({ url: 'https://example.com/1' });
+    let [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/jobs');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-Strelitzia']).toBe('1');
+    expect(JSON.parse(init.body)).toEqual({ url: 'https://example.com/1' });
+
+    const put = mockFetch(200, { task: null, key: 'k1' });
+    await putDescription('k1', { description: 'text' });
+    [url, init] = put.mock.calls[0];
+    expect(url).toBe('/app/api/jobs/k1/description');
+    expect(init.method).toBe('PUT');
+  });
+
+  it('links a contact with its relation', async () => {
+    const fetch = mockFetch(200, {});
+    await linkContact('k1', { contact: { name: 'Ana' } }, 'recruiter');
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/jobs/k1/contacts');
+    expect(JSON.parse(init.body)).toEqual({ contact: { name: 'Ana' }, relation: 'recruiter' });
   });
 });

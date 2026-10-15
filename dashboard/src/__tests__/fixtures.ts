@@ -1,4 +1,4 @@
-import type { Facets, JobDetail, JobList, JobListItem, Status, StatusColor } from '../types';
+import type { Contact, Facets, Interview, JobDetail, JobList, JobListItem, Status, StatusColor } from '../types';
 
 export const COLORS: Record<Status, StatusColor> = {
   active: 'grey', inactive: 'orange', in_progress: 'yellow', submitted: 'blue', rejected: 'red', heard_back: 'green',
@@ -18,6 +18,10 @@ export function listItem(status: Status, n: number, extra: Partial<JobListItem> 
     status,
     status_color: COLORS[status],
     days_since_submitted: status === 'submitted' ? 3 : null,
+    source: 'discovered',
+    added_at: null,
+    intake_status: null,
+    next_interview: null,
     fit_breakdown: [],
     fit_flags: [],
     flag_reasons: [],
@@ -45,6 +49,7 @@ export const FACETS: Facets = {
   work_mode: [{ value: 'remote', count: 4 }, { value: 'hybrid', count: 3 }],
   location: [{ value: 'Chicago, IL', count: 4 }, { value: 'Remote, US', count: 3 }],
   flagged: 2,
+  source: [{ value: 'manual', count: 0 }, { value: 'discovered', count: 10 }],
 };
 
 export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
@@ -83,6 +88,12 @@ export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
       posting: 'https://example.com/job/1', apply: 'https://example.com/job/1/apply',
       drive_folder: null, resume: null, cover_letter: null,
     },
+    source: 'discovered',
+    added_at: null,
+    intake_status: null,
+    intake_error: null,
+    contacts: [],
+    interviews: [],
     fit_breakdown: [
       { key: 'salary', label: 'Salary', score: 1, importance: 'important', dealbreaker_hit: false,
         note: 'up to $150,000/year meets your $100,000 minimum' },
@@ -105,5 +116,21 @@ export function jobDetail(extra: Partial<JobDetail> = {}): JobDetail {
       summary: 'Strong match on Python and SQL.',
     },
     ...extra,
+  };
+}
+
+export function contact(extra: Partial<Contact> = {}): Contact {
+  return {
+    id: 'c1', name: 'Ana Ruiz', company: 'Acme', role: 'Recruiter', email: 'ana@acme.com', phone: null,
+    linkedin_url: null, notes: null, created_at: '2026-10-05T20:00:00+00:00', updated_at: '2026-10-05T20:00:00+00:00',
+    ...extra,
+  };
+}
+
+export function interview(extra: Partial<Interview> = {}): Interview {
+  return {
+    id: 'i1', job_url: 'https://example.com/job/1', scheduled_at: '2099-10-18T14:00:00.000Z', stage: 'Phone screen',
+    format: 'Video', interviewers: 'Ana', prep_notes: null, debrief_notes: null, outcome: 'pending',
+    created_at: '2026-10-05T20:00:00+00:00', updated_at: '2026-10-05T20:00:00+00:00', ...extra,
   };
 }

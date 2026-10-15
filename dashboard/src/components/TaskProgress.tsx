@@ -10,6 +10,7 @@ const KIND_LABELS: Record<Task['kind'], string> = {
   both: 'resume and cover letter',
   rescore: 'assessment',
   reassess_all: 're-assessment of your jobs',
+  intake: 'posting',
 };
 const ASSESS_KINDS: Task['kind'][] = ['rescore', 'reassess_all'];
 
@@ -58,7 +59,14 @@ export default function TaskProgress({ task: initial, onFinish }: { task: Task; 
   const assess = ASSESS_KINDS.includes(task.kind);
   let text: string;
   let cls = 'progress';
-  if (task.state === 'queued') text = `Queued: ${what}…`;
+  if (task.kind === 'intake') {
+    // Add job: read the posting, extract it and score it.
+    if (task.state === 'queued' || task.state === 'running') text = `Reading the posting… ${elapsed(task.started_at)}`.trim();
+    else if (task.state === 'done') text = `Read and scored the posting in ${elapsed(task.started_at, task.finished_at)}.`;
+    else text = `Couldn't finish reading the posting: ${task.error ?? 'unknown error'}`;
+    if (task.state === 'done') cls += ' ok';
+    if (task.state === 'error') cls += ' error';
+  } else if (task.state === 'queued') text = `Queued: ${what}…`;
   else if (task.state === 'running') text = `${assess ? 'Running' : 'Generating'} ${what}… ${elapsed(task.started_at)}`;
   else if (task.state === 'done') {
     text = `${assess ? 'Finished' : 'Generated'} ${what} in ${elapsed(task.started_at, task.finished_at)}.`;

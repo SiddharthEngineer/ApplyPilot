@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import * as api from '../api';
 import ActionBar from '../components/ActionBar';
+import ContactsPanel from '../components/ContactsPanel';
+import InterviewsPanel from '../components/InterviewsPanel';
+import PastePanel from '../components/PastePanel';
 import FitBreakdown from '../components/FitBreakdown';
 import Flower from '../components/Flower';
 import StatusBadge from '../components/StatusBadge';
@@ -129,13 +132,16 @@ export default function JobPage() {
   const [busy, setBusy] = useState(false);
   const [task, setTask] = useState<Task | null>(null); // the latest generation task for this job
   const [rescoreTask, setRescoreTask] = useState<Task | null>(null); // a rescore still queued or running
+  const [intakeTask, setIntakeTask] = useState<Task | null>(null); // Add job: reading the posting
   const [notes, setNotes] = useState('');
+  const toast = (useLocation().state as { toast?: string } | null)?.toast;
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const [detail, tasks] = await Promise.all([api.getJob(key, signal), api.listJobTasks(key, signal)]);
     setJob(detail);
     setNotes(detail.notes ?? '');
-    setTask(tasks.find((t) => t.kind !== 'rescore') ?? null);
+    setTask(tasks.find((t) => t.kind !== 'rescore' && t.kind !== 'intake') ?? null);
+    setIntakeTask(tasks.find((t) => t.kind === 'intake') ?? null);
     const rescoring = tasks.find((t) => t.kind === 'rescore');
     setRescoreTask(rescoring && (rescoring.state === 'queued' || rescoring.state === 'running') ? rescoring : null);
   }, [key]);
@@ -182,6 +188,14 @@ export default function JobPage() {
     setTask(t);
     api.getJob(key).then((d) => setJob(d)).catch(() => {}); // new Drive links
   }, [key]);
+  const onIntakeFinish = useCallback((t: Task) => {
+    setIntakeTask(t);
+    api.getJob(key).then((d) => setJob(d)).catch(() => {}); // the title, description and fit score
+  }, [key]);
+  const onPasted = (t: Task) => {
+    setIntakeTask(t);
+    api.getJob(key).then((d) => setJob(d)).catch(() => {});
+  };
 
   if (error) {
     return <p className="notice error" role="alert">Couldn't load this job: {error}. <Link to="/">Back to jobs</Link></p>;
@@ -197,10 +211,20 @@ export default function JobPage() {
 
   const generating = task?.state === 'queued' || task?.state === 'running';
   const d = job.details;
+  const reading = intakeTask?.state === 'queued' || intakeTask?.state === 'running'
+    || job.intake_status === 'queued' || job.intake_status === 'scraping';
+  const needsPaste = !reading && (job.intake_status === 'needs_paste' || job.intake_status === 'error');
 
   return (
     <article className="job-page">
       <Link to="/" className="back">← Jobs</Link>
+      {toast && <p className="progress ok" role="status">{toast}</p>}
+      {intakeTask && (reading || intakeTask.state === 'done') ? (
+        <TaskProgress task={intakeTask} onFinish={onIntakeFinish} />
+      ) : reading ? (
+        <p className="progress" role="status"><span className="spinner" aria-hidden="true" />Reading the posting…</p>
+      ) : null}
+      {needsPaste && <PastePanel key={job.intake_error ?? ''} job={job} onSaved={onPasted} />}
       <header className="job-header">
         <div className="job-title">
           <h1>{job.title || '(untitled)'}</h1>
@@ -257,6 +281,9 @@ export default function JobPage() {
           }}
         />
       </label>
+
+      <ContactsPanel job={job} onChange={setJob} />
+      <InterviewsPanel job={job} onChange={setJob} />
 
       <div className="sections">
         {d ? (

@@ -115,7 +115,7 @@ describe('JobsPage', () => {
     const user = userEvent.setup();
     renderPage('/?sort=deadline');
     await screen.findByText('Job 1');
-    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: 'Next →' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/?sort=deadline&page=2');
   });
 

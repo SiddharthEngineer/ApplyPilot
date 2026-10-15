@@ -4,6 +4,7 @@ import type { Facets, JobQuery, StatusFilter } from '../types';
 
 export const DEBOUNCE_MS = 300;
 const WORK_MODES = ['remote', 'hybrid', 'onsite'] as const;
+const SOURCE_OPTIONS = [['all', 'All sources'], ['manual', 'Added by me'], ['discovered', 'Discovered']] as const;
 const SCORES = Array.from({ length: 11 }, (_, i) => i * 10); // fit_score is 0-100
 
 interface Props {
@@ -51,6 +52,8 @@ export default function Filters({ query, facets, onChange }: Props) {
   const roles = Object.keys(ROLE_LABELS);
   const selectedRoles = query.role ?? [];
   const hasFilters = Object.keys(query).some((k) => k !== 'sort' && k !== 'page');
+  const sourceCounts = new Map(facets?.source?.map((s) => [s.value, s.count]));
+  const source = query.source?.length === 1 ? query.source[0] : 'all';
 
   return (
     <div className="filters">
@@ -72,6 +75,18 @@ export default function Filters({ query, facets, onChange }: Props) {
       </div>
 
       <div className="filter-row">
+        <div className="segmented small" role="group" aria-label="Source">
+          {SOURCE_OPTIONS.map(([value, label]) => {
+            const count = value === 'all' ? undefined : sourceCounts.get(value);
+            return (
+              <button key={value} type="button" aria-pressed={source === value}
+                onClick={() => onChange({ source: value === 'all' ? [] : [value] })}>
+                {label}
+                {count !== undefined && <span className="count">{count.toLocaleString()}</span>}
+              </button>
+            );
+          })}
+        </div>
         <label className="field grow">
           <span>Search</span>
           <DebouncedInput

@@ -4,7 +4,7 @@ import Filters from '../components/Filters';
 import Flower from '../components/Flower';
 import Hero from '../components/Hero';
 import JobsTable from '../components/JobsTable';
-import type { Facets, JobList } from '../types';
+import type { Facets, JobList, JobQuery } from '../types';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
 
 export default function JobsPage() {
@@ -13,19 +13,25 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [facets, setFacets] = useState<Facets | null>(null);
-  const queryKey = JSON.stringify(query);
+  const [facetsLoaded, setFacetsLoaded] = useState(false);
+  // Without a source in the URL, show the jobs the user added when there are any.
+  const hasManual = (facets?.source?.find((s) => s.value === 'manual')?.count ?? 0) > 0;
+  const shown: JobQuery = query.source === undefined && hasManual ? { ...query, source: ['manual'] } : query;
+  const queryKey = JSON.stringify(shown);
 
   useEffect(() => {
     const ctrl = new AbortController();
-    getFacets(ctrl.signal).then(setFacets).catch(() => {}); // counts are optional
+    getFacets(ctrl.signal).then(setFacets).catch(() => {}) // counts are optional
+      .finally(() => { if (!ctrl.signal.aborted) setFacetsLoaded(true); });
     return () => ctrl.abort();
   }, []);
 
   useEffect(() => {
+    if (query.source === undefined && !facetsLoaded) return; // the default source depends on the facets
     const ctrl = new AbortController();
     setLoading(true);
     setError(null);
-    listJobs({ ...query, page_size: PAGE_SIZE }, ctrl.signal)
+    listJobs({ ...shown, page_size: PAGE_SIZE }, ctrl.signal)
       .then((res) => setData(res))
       .catch((err) => {
         if (!ctrl.signal.aborted) setError(err.message || String(err));
@@ -35,7 +41,7 @@ export default function JobsPage() {
       });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey]);
+  }, [queryKey, facetsLoaded]);
 
   const sort = query.sort ?? DEFAULT_SORT;
   const page = query.page ?? 1;
@@ -55,7 +61,7 @@ export default function JobsPage() {
           </span>
         )}
       </div>
-      <Filters query={query} facets={facets} onChange={update} />
+      <Filters query={shown} facets={facets} onChange={update} />
       {error ? (
         <p className="notice error" role="alert">Couldn't load jobs: {error}</p>
       ) : !data && loading ? (
