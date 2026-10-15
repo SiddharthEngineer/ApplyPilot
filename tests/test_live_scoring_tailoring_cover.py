@@ -1,4 +1,6 @@
-"""Live Claude smoke tests: scoring, extraction (sync + prompt caching), a 2-job batch, tailoring and cover letters.
+"""Live Claude smoke tests: scoring, extraction (sync + prompt caching) and a 2-job batch.
+
+Resumes and cover letters are written in Claude chats now (strelitzia.scoring.workbench), so nothing here tailors.
 
 Marked @llm @expensive (real Claude API calls, about $0.05 in all). Run with:
     pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py -q
@@ -62,20 +64,6 @@ def _load_enriched_jobs() -> list[dict]:
             "full_description": "We need a data scientist with machine learning skills.",
         },
     ]
-
-
-def _load_profile() -> dict:
-    """Load profile from fixture or create synthetic."""
-    path = FIXTURES_DIR / "profile_anonymized.json"
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {
-        "name": "Test User",
-        "email": "test@example.com",
-        "phone": "555-0100",
-        "location": "San Francisco, CA",
-    }
 
 
 def _load_resume() -> str:
@@ -174,100 +162,3 @@ class TestBatch:
 # ---------------------------------------------------------------------------
 # Tailoring tests
 # ---------------------------------------------------------------------------
-
-@pytest.mark.llm
-@pytest.mark.expensive
-class TestTailorResume:
-    """Test tailor_resume with real LLM."""
-
-    def test_tailor_returns_valid_output(self, ledger):
-        from strelitzia.scoring.tailor import tailor_resume
-
-        resume = _load_resume()
-        job = _load_enriched_jobs()[0]
-        profile = _load_profile()
-
-        tailored, report = tailor_resume(
-            resume, job, profile,
-            validation_mode="lenient",
-            max_retries=1,
-        )
-
-        assert isinstance(tailored, str)
-        assert len(tailored) > 100, "Tailored resume too short"
-        assert report["attempts"] >= 1
-        assert report["validation_mode"] == "lenient"
-        assert _usage(ledger, "tailor")[0]["model"] == "claude-sonnet-5-5"
-
-    def test_tailor_no_llm_leak_phrases(self):
-        from strelitzia.scoring.tailor import tailor_resume
-
-        resume = _load_resume()
-        job = _load_enriched_jobs()[0]
-        profile = _load_profile()
-
-        tailored, _ = tailor_resume(
-            resume, job, profile,
-            validation_mode="lenient",
-            max_retries=1,
-        )
-
-        leak_phrases = [
-            "as an AI", "I'm an AI", "I am an AI",
-            "large language model", "GPT", "Claude",
-        ]
-        for phrase in leak_phrases:
-            assert phrase.lower() not in tailored.lower(), (
-                f"LLM leak phrase found: {phrase}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# Cover letter tests
-# ---------------------------------------------------------------------------
-
-@pytest.mark.llm
-@pytest.mark.expensive
-class TestCoverLetter:
-    """Test generate_cover_letter with real LLM."""
-
-    def test_cover_starts_with_dear(self, ledger):
-        from strelitzia.scoring.cover_letter import generate_cover_letter
-
-        resume = _load_resume()
-        job = _load_enriched_jobs()[0]
-        profile = _load_profile()
-
-        letter = generate_cover_letter(
-            resume, job, profile,
-            validation_mode="lenient",
-            max_retries=1,
-        )
-
-        assert isinstance(letter, str)
-        assert letter.strip().startswith("Dear"), (
-            f"Cover letter should start with 'Dear', got: {letter[:50]}"
-        )
-        assert _usage(ledger, "cover"), "no llm_usage row for the cover letter"
-
-    def test_cover_no_llm_leak_phrases(self):
-        from strelitzia.scoring.cover_letter import generate_cover_letter
-
-        resume = _load_resume()
-        job = _load_enriched_jobs()[0]
-        profile = _load_profile()
-
-        letter = generate_cover_letter(
-            resume, job, profile,
-            validation_mode="lenient",
-            max_retries=1,
-        )
-
-        leak_phrases = [
-            "as an AI", "I'm an AI", "I am an AI",
-            "large language model", "GPT", "Claude",
-        ]
-        for phrase in leak_phrases:
-            assert phrase.lower() not in letter.lower(), (
-                f"LLM leak phrase found: {phrase}"
-            )

@@ -181,7 +181,8 @@ def _setup_content_library() -> None:
         break
 
     console.print(
-        "\n[dim]Tip: Run [bold]strelitzia run tailor --source content-library[/bold] to tailor resumes from your content library.[/dim]"
+        "\n[dim]Tip: resumes are tailored from your content library in Claude: open a job in the dashboard → "
+        "[bold]Open in Claude[/bold] (one-time setup at /app/claude-setup).[/dim]"
     )
 
 

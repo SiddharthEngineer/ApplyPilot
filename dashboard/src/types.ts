@@ -305,7 +305,7 @@ export interface SavePreferencesResult {
   task: Task | null;
 }
 
-export type TaskKind = 'resume' | 'cover' | 'both' | 'rescore' | 'reassess_all' | 'intake';
+export type TaskKind = 'rescore' | 'reassess_all' | 'intake';
 export type TaskState = 'queued' | 'running' | 'done' | 'error';
 
 export interface Task {

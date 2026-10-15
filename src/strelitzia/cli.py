@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -28,8 +29,8 @@ app = typer.Typer(
 console = Console()
 log = logging.getLogger(__name__)
 
-# Valid pipeline stages (in execution order)
-VALID_STAGES = ("discover", "enrich", "score", "tailor", "cover", "extract", "pdf")
+# Valid pipeline stages (in execution order). tailor and cover moved to the Claude workbench (`strelitzia workbench`).
+VALID_STAGES = ("discover", "enrich", "score", "extract", "pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -86,31 +87,9 @@ def run(
             "Defaults to 'all' if omitted, which leaves out discover (add it with --with-discover)."
         ),
     ),
-    min_score: int = typer.Option(70, "--min-score", help="Minimum fit score (0-100) for tailor/cover stages."),
     workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for discovery/enrichment stages."),
     stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview stages without executing."),
-    validation: str | None = typer.Option(
-        None,
-        "--validation",
-        help=(
-            "Validation strictness for tailor/cover stages. "
-            "strict: banned words = errors, judge must pass. "
-            "normal: banned words = warnings only. "
-            "lenient: banned words ignored, LLM judge skipped (fewest API calls). "
-            "Default: lenient for content-library tailoring (bullets are checked mechanically), normal otherwise."
-        ),
-    ),
-    source: str | None = typer.Option(
-        None,
-        "--source",
-        help=(
-            "Resume source for tailoring. "
-            "content-library: write bullets from ~/.strelitzia/content_library.md and render them "
-            "through your resume template (default when content_library.md exists). "
-            "resume: rewrite ~/.strelitzia/resume.txt (default otherwise)."
-        ),
-    ),
     no_cache: bool = typer.Option(
         False,
         "--no-cache",
@@ -124,8 +103,7 @@ def run(
     ),
     limit: int | None = typer.Option(
         None, "--limit", "-l", min=1,
-        help="Max jobs sent to the LLM by the score and extract stages (default: all) and by the tailor "
-             "and cover stages (default 20 each).",
+        help="Max jobs sent to the LLM by the score and extract stages (default: all).",
     ),
     sync: bool = typer.Option(
         False,
@@ -144,16 +122,16 @@ def run(
         help="Mark jobs whose scoring failed with an LLM error as unscored again (resets their retry count), then exit.",
     ),
 ) -> None:
-    """Run pipeline stages: discover, enrich, score, tailor, cover, extract, pdf."""
+    """Run pipeline stages: discover, enrich, score, extract, pdf. Resumes are written in Claude (see `workbench`)."""
     _bootstrap()
 
-    from strelitzia.pipeline import run_pipeline
+    from strelitzia.pipeline import REMOVED_STAGES, run_pipeline
 
     stage_list = stages if stages else ["all"]
 
     # Validate stage names
     for s in stage_list:
-        if s != "all" and s not in VALID_STAGES:
+        if s != "all" and s not in VALID_STAGES and s not in REMOVED_STAGES:
             console.print(
                 f"[red]Unknown stage:[/red] '{s}'. "
                 f"Valid stages: {', '.join(VALID_STAGES)}, all"
@@ -167,52 +145,16 @@ def run(
         return
 
     # Gate AI stages behind Tier 2
-    llm_stages = {"score", "tailor", "cover", "extract"}
+    llm_stages = {"score", "extract"}
     if any(s in stage_list for s in llm_stages) or "all" in stage_list:
         from strelitzia.config import check_tier
-        check_tier(2, "AI scoring/tailoring")
-
-    # Validate the --validation flag value
-    valid_modes = ("strict", "normal", "lenient")
-    if validation is not None and validation not in valid_modes:
-        console.print(
-            f"[red]Invalid --validation value:[/red] '{validation}'. "
-            f"Choose from: {', '.join(valid_modes)}"
-        )
-        raise typer.Exit(code=1)
-
-    # Default source: the content library when the user has one
-    if source is None:
-        from strelitzia.config import CONTENT_LIBRARY_PATH
-        source = "content-library" if CONTENT_LIBRARY_PATH.exists() else "resume"
-
-    # Validate the --source flag value
-    valid_sources = ("resume", "content-library")
-    if source not in valid_sources:
-        console.print(
-            f"[red]Invalid --source value:[/red] '{source}'. "
-            f"Choose from: {', '.join(valid_sources)}"
-        )
-        raise typer.Exit(code=1)
-
-    # Validate content-library file exists if selected
-    if source == "content-library":
-        from strelitzia.config import CONTENT_LIBRARY_PATH
-        if not CONTENT_LIBRARY_PATH.exists():
-            console.print(
-                f"[red]Content library not found:[/red] {CONTENT_LIBRARY_PATH}\n"
-                "Place your content_library.md in ~/.strelitzia/ or use [bold]--source resume[/bold]."
-            )
-            raise typer.Exit(code=1)
+        check_tier(2, "AI scoring")
 
     result = run_pipeline(
         stages=stage_list,
-        min_score=min_score,
         dry_run=dry_run,
         stream=stream,
         workers=workers,
-        validation_mode=validation,
-        source=source,
         no_cache=no_cache,
         prefilter=not no_prefilter,
         limit=limit,
@@ -346,6 +288,78 @@ def classify() -> None:
     console.print(table)
 
 
+workbench_app = typer.Typer(
+    help="Claude workbench: print a job's packet for a Claude chat, and import the reply.", no_args_is_help=True,
+)
+app.add_typer(workbench_app, name="workbench")
+
+
+def _workbench_job(key: str) -> tuple:
+    from strelitzia.database import backfill_job_keys, get_connection
+
+    _bootstrap()
+    conn = get_connection()
+    backfill_job_keys(conn)
+    row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+    if row is None:
+        console.print(f"[red]No job with key {key}.[/red] The key is the last part of the job's dashboard URL.")
+        raise typer.Exit(code=1)
+    return conn, dict(row)
+
+
+def _workbench_inputs():
+    from strelitzia.scoring.workbench import Inputs
+
+    try:
+        return Inputs.load()
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}.[/red] Run `strelitzia init` first.")
+        raise typer.Exit(code=1) from e
+
+
+@workbench_app.command("packet")
+def workbench_packet(key: str = typer.Argument(..., help="The job's key (from its dashboard URL).")) -> None:
+    """Print the job's full packet (posting, qualifications, rules, content library) to paste into Claude."""
+    from strelitzia.scoring.workbench import current_result, job_packet
+
+    _, job = _workbench_job(key)
+    inputs = _workbench_inputs()
+    packet = job_packet(job, inputs.library, inputs.base_resume_text, current_result(job), inline=True)
+    typer.echo(packet.prompt)
+
+
+@workbench_app.command("import")
+def workbench_import(
+    key: str = typer.Argument(..., help="The job's key (from its dashboard URL)."),
+    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="A file holding Claude's reply."),
+) -> None:
+    """Check a Claude reply and, if it passes, save the resume PDF/DOCX and cover letter as a new draft."""
+    from strelitzia.config import drive_sync_enabled
+    from strelitzia.scoring.workbench import import_result
+
+    conn, job = _workbench_job(key)
+    outcome = import_result(conn, job, file.read_text(encoding="utf-8"), _workbench_inputs())
+    for w in outcome.warnings:
+        console.print(f"[yellow]Warning:[/yellow] {w}", highlight=False)
+    if not outcome.ok:
+        console.print("[red]Not saved.[/red] Paste this into the same chat:\n", highlight=False)
+        typer.echo(outcome.fix_prompt)
+        raise typer.Exit(code=1)
+    console.print(f"[green]Saved draft v{outcome.draft_version}[/green]")
+    for kind, path in outcome.files.items():
+        typer.echo(f"  {kind}: {path}")
+    if drive_sync_enabled():
+        try:
+            from strelitzia.storage.drive import DriveClient
+            from strelitzia.storage.sync import sync_job
+
+            row = conn.execute("SELECT * FROM jobs WHERE url = ?", (job["url"],)).fetchone()
+            sync_job(conn, DriveClient.from_credentials(), dict(row))
+            console.print("  Moved the PDFs to Google Drive.")
+        except Exception as e:  # noqa: BLE001 -- the files are saved locally; `strelitzia drive sync` retries
+            console.print(f"[yellow]Drive upload failed (run `strelitzia drive sync` later):[/yellow] {e}")
+
+
 template_app = typer.Typer(help="Your resume template: create the fixed blocks and preview the layout.", no_args_is_help=True)
 app.add_typer(template_app, name="template")
 
@@ -403,7 +417,6 @@ app.add_typer(db_app, name="db")
 
 
 def _db_endpoints(src: Optional[str], dst: Optional[str]):
-    from pathlib import Path
 
     from strelitzia.config import DB_PATH, database_url, load_env
 
@@ -486,7 +499,6 @@ def drive_auth(
     no_browser: bool = typer.Option(False, "--no-browser", help="Print the sign-in URL instead (headless VPS)."),
 ) -> None:
     """Sign in to Google and allow Strelitzia to manage the files it creates in your Drive."""
-    from pathlib import Path
 
     from strelitzia.config import GOOGLE_CLIENT_SECRET_PATH, ensure_dirs, load_env
     from strelitzia.storage.drive import DriveNotConfigured, authorize
@@ -784,11 +796,11 @@ def doctor() -> None:
     console.print(f"[bold]Current tier: Tier {tier} — {TIER_LABELS[tier]}[/bold]")
 
     if tier == 1:
-        console.print("[dim]  → Tier 2 unlocks: scoring, tailoring, cover letters (needs LLM API key)[/dim]")
+        console.print("[dim]  → Tier 2 unlocks: scoring and extraction (needs LLM API key)[/dim]")
 
     if CONTENT_LIBRARY_PATH.exists():
         from strelitzia.config import RESUME_FIXED_PATH, RESUME_TEMPLATE_PATH
-        console.print("[dim]  → Content library mode is the default for tailoring (--source content-library)[/dim]")
+        console.print("[dim]  → Resumes are tailored from it in Claude (dashboard → Open in Claude; see /app/claude-setup)[/dim]")
         if not (RESUME_TEMPLATE_PATH.exists() and RESUME_FIXED_PATH.exists()):
             console.print("[dim]  → Run `strelitzia template init` to set up your resume template[/dim]")
 

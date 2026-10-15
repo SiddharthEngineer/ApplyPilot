@@ -1,7 +1,8 @@
-"""Background work for the dashboard: resume / cover-letter generation, fit re-assessment and job intake.
+"""Background work for the dashboard: fit re-assessment and job intake.
 
 Tasks live in the `dashboard_tasks` table and one daemon thread runs them one at a time, because the LLM
-budget and Chromium (PDF rendering) are shared. A task left `running` by a stopped server is marked
+budget is shared. Resumes and cover letters aren't tasks: they are written in Claude and pasted back
+(strelitzia.scoring.workbench). A task left `running` by a stopped server is marked
 `error: interrupted` on the next start.
 """
 
@@ -11,21 +12,18 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
-from strelitzia import tracking
 from strelitzia.database import Connection, get_connection
 from strelitzia.llm import LLMStopRun
 from strelitzia.tracking import _now
 
 log = logging.getLogger(__name__)
 
-GENERATE_KINDS = ("resume", "cover", "both")
 # rescore: assess one job now (sync). reassess_all: re-assess every stale job in a batch (url is NULL); only
 # queued after the user confirmed the cost estimate. intake: read, extract and score a job the user added
 # (strelitzia.intake).
-KINDS = (*GENERATE_KINDS, "rescore", "reassess_all", "intake")
+KINDS = ("rescore", "reassess_all", "intake")
 STATES = ("queued", "running", "done", "error")
 # What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
 STOP_MESSAGES = {
@@ -59,10 +57,7 @@ def job_tasks(conn: Connection, url: str) -> list[dict]:
 
 
 def enqueue(conn: Connection, url: str | None, kind: str) -> dict:
-    """Queue a task (or return the identical one already waiting). Generation marks the job In progress.
-
-    The status only changes when the user hasn't set one (Active/Inactive jobs).
-    """
+    """Queue a task (or return the identical one already waiting)."""
     if kind not in KINDS:
         raise ValueError(f"Unknown task kind {kind!r}")
     if (url is None) != (kind == "reassess_all"):
@@ -83,11 +78,6 @@ def enqueue(conn: Connection, url: str | None, kind: str) -> dict:
         (task_id, url, kind, _now()),
     )
     conn.commit()
-    if kind not in GENERATE_KINDS:
-        return get_task(conn, task_id)
-    job = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
-    if job is not None and tracking.effective_status(dict(job), datetime.now(UTC).date()) in ("active", "inactive"):
-        tracking.set_status(conn, url, "in_progress", source="generate")
     return get_task(conn, task_id)
 
 
@@ -99,12 +89,6 @@ def recover_interrupted(conn: Connection) -> int:
     )
     conn.commit()
     return cur.rowcount
-
-
-def _drive_configured() -> bool:
-    from strelitzia.storage.drive import drive_status
-
-    return drive_status()[0] == "authorized"
 
 
 def assess_task(url: str | None, kind: str) -> None:
@@ -127,69 +111,14 @@ def assess_task(url: str | None, kind: str) -> None:
 
 
 def generate_for_job(url: str | None, kind: str) -> None:
-    """The real work: tailor and/or write the cover letter for one job, then move its PDFs to Drive.
-
-    Uses the same settings as `strelitzia run` (content-library tailoring when the library exists, lenient
-    validation for it, normal for cover letters). Runs against the configured database. The assessment kinds
-    go to `assess_task`, and `intake` to `intake.run_intake`.
-    """
+    """The real work for one task, against the configured database: `intake` goes to `intake.run_intake`,
+    the assessment kinds to `assess_task`."""
     if kind == "intake":
         from strelitzia.intake import run_intake
 
         run_intake(url)
         return
-    if kind not in GENERATE_KINDS:
-        assess_task(url, kind)
-        return
-    from strelitzia.config import CONTENT_LIBRARY_PATH
-    from strelitzia.pipeline import tailor_validation_mode
-
-    use_library = CONTENT_LIBRARY_PATH.exists()
-    if kind == "cover" and _needs_resume_first(url, use_library):
-        kind = "both"  # the letter is written from the tailored resume's content-library evidence
-    if kind in ("resume", "both"):
-        from strelitzia.scoring.tailor import run_tailoring
-
-        source = "content-library" if use_library else "resume"
-        stats = run_tailoring(urls=[url], source=source, validation_mode=tailor_validation_mode(None, source))
-        _check(stats, "approved", "resume")
-    if kind in ("cover", "both"):
-        from strelitzia.scoring.cover_letter import run_cover_letters
-
-        stats = run_cover_letters(urls=[url], validation_mode="normal")
-        _check(stats, "generated", "cover letter")
-    if _drive_configured():
-        from strelitzia.storage.drive import DriveClient
-        from strelitzia.storage.sync import sync_job
-
-        conn = get_connection()
-        cur = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,))
-        names = [d[0] for d in cur.description]
-        job = dict(zip(names, cur.fetchone()))
-        try:
-            sync_job(conn, DriveClient.from_credentials(), job)
-        except Exception as e:  # the files exist locally; say what failed
-            raise GenerationFailed(f"Generated, but the Drive upload failed: {e}") from e
-
-
-def _needs_resume_first(url: str, use_library: bool) -> bool:
-    """No tailored resume yet, or (with a content library) none with the .json sidecar a cover letter cites."""
-    row = get_connection().execute("SELECT tailored_resume_path FROM jobs WHERE url = ?", (url,)).fetchone()
-    path = row[0] if row else None
-    if not path:
-        return True
-    return use_library and not Path(path).with_suffix(".json").exists()
-
-
-def _check(stats: dict, ok_key: str, what: str) -> None:
-    if stats.get("stopped") in STOP_MESSAGES:
-        raise LLMStopRun(stats["stopped"])
-    if not stats.get(ok_key):
-        if stats.get("errors"):
-            raise GenerationFailed(f"The {what} failed with an error (see the server log).")
-        if stats.get("failed"):
-            raise GenerationFailed(f"The {what} didn't pass validation; try again.")
-        raise GenerationFailed(f"No {what} was generated (the job has no description).")
+    assess_task(url, kind)
 
 
 class TaskRunner:

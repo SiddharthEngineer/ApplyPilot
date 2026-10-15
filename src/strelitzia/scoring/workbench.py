@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from strelitzia import config
+from strelitzia import config, tracking
 from strelitzia.database import Connection, job_company
 from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
 from strelitzia.scoring.resume_model import TailoredResume
@@ -585,6 +585,9 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
         conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
                      (files["cover_letter"], now, job["url"]))
     conn.commit()
+    # A first draft starts the application: Active/Inactive become In progress (a status the user set stays).
+    if tracking.effective_status(job, datetime.now(UTC).date()) in ("active", "inactive"):
+        tracking.set_status(conn, job["url"], "in_progress", source="workbench")
     return ImportOutcome(ok=True, warnings=warnings, draft_version=version, coverage=cov.to_dict(), unmet=unmet,
                          files=files)
 

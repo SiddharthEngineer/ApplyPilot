@@ -1,9 +1,9 @@
-"""Scoring and tailoring request Claude structured output (JSON Schema via output_config.format)."""
+"""Scoring requests Claude structured output (JSON Schema via output_config.format)."""
 
 import json
 from unittest.mock import MagicMock, patch
 
-from strelitzia.scoring import assessment, scorer, tailor
+from strelitzia.scoring import assessment, scorer
 from strelitzia.scoring.preferences import Preferences
 from fit_helpers import add_extracted_job, reply
 
@@ -30,7 +30,6 @@ def test_assessment_parser_reads_only_json():
 def test_schemas_are_valid_for_structured_outputs():
     from schema_rules import assert_strict_schema
     assert_strict_schema(assessment.ASSESS_SCHEMA)
-    assert_strict_schema(tailor.RESUME_SCHEMA)
 
 
 def test_resume_goes_in_the_cached_system_prompt():
@@ -68,22 +67,3 @@ def test_unparseable_score_is_counted(tmp_path):
             patch.object(scorer, "get_client", return_value=client):
         stats = scorer.run_scoring(prefilter=False)
     assert stats["parse_errors"] == 1
-
-
-def test_resume_schema_matches_assembler_shape():
-    props = tailor.RESUME_SCHEMA["properties"]
-    assert set(tailor.RESUME_SCHEMA["required"]) == {"title", "summary", "skills", "experience", "projects", "education"}
-    assert props["experience"]["items"]["required"] == ["header", "subtitle", "bullets"]
-
-
-def test_tailor_resume_sends_schema_and_counts_json_retries():
-    good = ('{"title": "Data Engineer", "summary": "s", "skills": {"Languages": "Python"}, '
-            '"experience": [], "projects": [], "education": "BS"}')
-    client = MagicMock()
-    client.chat.side_effect = ["not json", good]
-    with patch.object(tailor, "get_client", return_value=client), \
-            patch.object(tailor, "validate_json_fields", return_value={"passed": True, "errors": [], "warnings": []}):
-        _, report = tailor.tailor_resume("resume", JOB, {}, validation_mode="lenient")
-    assert all(c.kwargs["schema"] is tailor.RESUME_SCHEMA for c in client.chat.call_args_list)
-    assert report["json_retries"] == 1
-    assert report["status"] == "approved"

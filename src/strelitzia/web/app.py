@@ -325,24 +325,6 @@ def publish_claude_docs(request: Request) -> dict:
     return claude_setup(request)
 
 
-class GenerateRequest(BaseModel):
-    resume: bool = True
-    cover: bool = False
-
-
-@api.post("/jobs/{key}/generate")
-def generate(key: str, body: GenerateRequest, request: Request) -> dict:
-    """Queue resume and/or cover-letter generation for one job. Poll GET /app/api/tasks/{id}."""
-    if not (body.resume or body.cover):
-        raise HTTPException(status_code=422, detail="Choose a resume, a cover letter, or both")
-    conn = db_conn(request)
-    job = job_by_key(conn, key)
-    kind = "both" if body.resume and body.cover else ("resume" if body.resume else "cover")
-    task = tasks.enqueue(conn, job["url"], kind)
-    _notify(request)
-    return {**task, "key": key}
-
-
 def budget_stop(conn: Connection, estimated_usd: float = 0.0) -> None:
     """402 with the month's spend if `estimated_usd` more would pass LLM_MONTHLY_BUDGET_USD."""
     try:
@@ -660,7 +642,7 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
 
     static_dir: the built UI (default: $STRELITZIA_WEB_DIR, else the bundle in web/static); without it only the API is served.
     db: a SQLite path or database URL (default: STRELITZIA_DATABASE_URL, else the SQLite DB_PATH).
-    generate: the generation function for queued tasks (default: real tailoring/cover/Drive, which uses the
+    generate: the function that runs queued tasks (default: real intake and assessment, which uses the
         configured database, so pass db=None with it). run_tasks=False queues tasks without running them.
     """
     runner = tasks.TaskRunner(db, generate) if run_tasks else None

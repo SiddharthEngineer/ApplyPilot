@@ -1,14 +1,12 @@
-"""Background generation tasks (dashboard-api Task 6)."""
+"""Background tasks (dashboard-api Task 6): the queue, run one at a time, through POST /jobs/{key}/rescore."""
 
 import threading
 import time
 
 import pytest
-from fake_drive import FakeDrive, fake_media
 from fastapi.testclient import TestClient
 from web_helpers import add_job
 
-from strelitzia import database
 from strelitzia.database import get_connection, init_db, job_key
 from strelitzia.llm import LLMStopRun
 from strelitzia.web import tasks
@@ -69,50 +67,43 @@ def tclient(db_path, gen):
         yield c
 
 
-def _generate(client, url, **body):
-    return client.post(f"/app/api/jobs/{job_key(url)}/generate", json=body)
+def _queue(client, url):
+    return client.post(f"/app/api/jobs/{job_key(url)}/rescore")
 
 
-def test_generate_returns_a_task_that_finishes(tclient, gen):
-    r = _generate(tclient, URLS[0], resume=True, cover=True)
+def test_rescore_returns_a_task_that_finishes(tclient, gen):
+    r = _queue(tclient, URLS[0])
     assert r.status_code == 200
     task = r.json()
-    assert task["state"] == "queued" and task["kind"] == "both" and task["key"] == job_key(URLS[0])
+    assert task["state"] == "queued" and task["kind"] == "rescore" and task["key"] == job_key(URLS[0])
     done = wait_for(tclient, task["id"])
     assert done["state"] == "done" and done["error"] is None
     assert done["started_at"] and done["finished_at"]
-    assert gen.calls == [(URLS[0], "both")]
+    assert gen.calls == [(URLS[0], "rescore")]
 
 
-def test_kinds(tclient, gen):
-    assert _generate(tclient, URLS[0]).json()["kind"] == "resume"  # default: resume only
-    assert _generate(tclient, URLS[1], resume=False, cover=True).json()["kind"] == "cover"
-    assert _generate(tclient, URLS[2], resume=False, cover=False).status_code == 422
+def test_generation_kinds_are_gone(tclient, conn):
+    """Resumes and cover letters are written in Claude and pasted back; there is no generate task or route."""
+    assert tclient.post(f"/app/api/jobs/{job_key(URLS[0])}/generate", json={}).status_code in (404, 405)
+    for kind in ("resume", "cover", "both"):
+        with pytest.raises(ValueError):
+            tasks.enqueue(conn, URLS[0], kind)
 
 
 def test_tasks_run_one_at_a_time_in_order(tclient, gen):
     gen.delay = 0.1
-    ids = [_generate(tclient, url).json()["id"] for url in URLS]
+    ids = [_queue(tclient, url).json()["id"] for url in URLS]
     for task_id in ids:
         assert wait_for(tclient, task_id)["state"] == "done"
     assert [c[0] for c in gen.calls] == URLS
     assert gen.max_active == 1
 
 
-def test_status_becomes_in_progress(tclient):
+def test_queueing_leaves_the_status_alone(tclient):
     key = job_key(URLS[0])
-    wait_for(tclient, _generate(tclient, URLS[0]).json()["id"])
+    wait_for(tclient, _queue(tclient, URLS[0]).json()["id"])
     detail = tclient.get(f"/app/api/jobs/{key}").json()
-    assert detail["status"] == "in_progress" and detail["status_color"] == "yellow"
-    assert detail["events"][0]["source"] == "generate"
-
-
-def test_user_status_is_kept(tclient):
-    key = job_key(URLS[1])
-    tclient.post(f"/app/api/jobs/{key}/status", json={"status": "submitted"})
-    wait_for(tclient, _generate(tclient, URLS[1]).json()["id"])
-    detail = tclient.get(f"/app/api/jobs/{key}").json()
-    assert detail["status"] == "submitted" and len(detail["events"]) == 1
+    assert detail["status"] == "active" and detail["events"] == []
 
 
 def test_budget_error_message(db_path):
@@ -120,7 +111,7 @@ def test_budget_error_message(db_path):
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
     gen = FakeGenerate(fail={URLS[0]: LLMStopRun("budget", "over budget")})
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
-        task = wait_for(c, _generate(c, URLS[0]).json()["id"])
+        task = wait_for(c, _queue(c, URLS[0]).json()["id"])
     assert task["state"] == "error" and task["error"] == STOP_MESSAGES["budget"]
     assert "LLM_MONTHLY_BUDGET_USD" in task["error"]
 
@@ -132,7 +123,7 @@ def test_other_errors_are_reported_and_the_queue_continues(db_path):
         add_job(conn, url, job_key=job_key(url))
     gen = FakeGenerate(fail={URLS[0]: ValueError("boom")})
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
-        first, second = (_generate(c, u).json()["id"] for u in URLS[:2])
+        first, second = (_queue(c, u).json()["id"] for u in URLS[:2])
         assert wait_for(c, first)["error"] == "ValueError: boom"
         assert wait_for(c, second)["state"] == "done"
 
@@ -142,7 +133,7 @@ def test_interrupted_tasks_are_recovered_on_start(db_path, gen):
     conn = get_connection(db_path)
     add_job(conn, URLS[0], job_key=job_key(URLS[0]))
     conn.execute("INSERT INTO dashboard_tasks (id, url, kind, state, created_at, started_at) "
-                 "VALUES ('t1', ?, 'resume', 'running', '2026-10-05T00:00:00', '2026-10-05T00:00:01')", (URLS[0],))
+                 "VALUES ('t1', ?, 'rescore', 'running', '2026-10-05T00:00:00', '2026-10-05T00:00:01')", (URLS[0],))
     conn.commit()
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
         task = c.get("/app/api/tasks/t1").json()
@@ -154,7 +145,7 @@ def test_queued_tasks_survive_a_restart(db_path, gen):
     init_db(db_path)
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
     with TestClient(create_app(db=db_path, run_tasks=False), headers=HEADERS) as c:
-        task_id = _generate(c, URLS[0]).json()["id"]
+        task_id = _queue(c, URLS[0]).json()["id"]
         assert c.get(f"/app/api/tasks/{task_id}").json()["state"] == "queued"
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
         assert wait_for(c, task_id)["state"] == "done"
@@ -162,149 +153,23 @@ def test_queued_tasks_survive_a_restart(db_path, gen):
 
 def test_a_waiting_duplicate_is_not_queued_twice(db_path):
     init_db(db_path)
-    add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
+    conn = get_connection(db_path)
+    add_job(conn, URLS[0], job_key=job_key(URLS[0]))
     with TestClient(create_app(db=db_path, run_tasks=False), headers=HEADERS) as c:
-        a = _generate(c, URLS[0]).json()["id"]
-        b = _generate(c, URLS[0]).json()["id"]
-        cover = _generate(c, URLS[0], resume=False, cover=True).json()["id"]
+        a = _queue(c, URLS[0]).json()["id"]
+        b = _queue(c, URLS[0]).json()["id"]
+        intake = tasks.enqueue(conn, URLS[0], "intake")["id"]
         listed = c.get(f"/app/api/jobs/{job_key(URLS[0])}/tasks").json()
-    assert a == b != cover
-    assert [t["id"] for t in listed] == [cover, a]
+    assert a == b != intake
+    assert {t["id"] for t in listed} == {intake, a}
 
 
 def test_errors_and_csrf(tclient, app):
     assert tclient.get("/app/api/tasks/nope").status_code == 404
-    assert tclient.post("/app/api/jobs/nope/generate", json={}).status_code == 404
+    assert tclient.post("/app/api/jobs/nope/rescore").status_code == 404
     assert tclient.get("/app/api/jobs/nope/tasks").status_code == 404
     with TestClient(app) as bare:
-        assert bare.post(f"/app/api/jobs/{job_key(URLS[0])}/generate", json={}).status_code == 403
-
-
-# --- generate_for_job: the real task body, with fake stages and a fake Drive ---------------------------
-
-
-@pytest.fixture
-def default_db(tmp_path, monkeypatch):
-    """generate_for_job uses the configured DB; point the default at a temp SQLite file."""
-    path = tmp_path / "default.db"
-    monkeypatch.setattr(database, "DB_PATH", path)
-    init_db()
-    yield path
-    database.close_connection()
-
-
-@pytest.fixture
-def fake_stages(tmp_path, monkeypatch):
-    """run_tailoring / run_cover_letters stand-ins that write PDFs and record the paths, like the real ones."""
-    from strelitzia.scoring import cover_letter, tailor
-
-    calls = []
-
-    def fake_tailor(urls, **kw):
-        calls.append(("tailor", urls, kw))
-        pdf = tmp_path / "resume.pdf"
-        pdf.write_bytes(b"%PDF resume")
-        pdf.with_suffix(".json").write_text("{}")  # the content-library sidecar cover letters cite
-        conn = get_connection()
-        conn.execute("UPDATE jobs SET tailored_resume_path = ?, tailored_at = '2026-10-05T12:00:00' WHERE url = ?",
-                     (str(pdf), urls[0]))
-        conn.commit()
-        return {"approved": 1, "failed": 0, "errors": 0}
-
-    def fake_cover(urls, **kw):
-        calls.append(("cover", urls, kw))
-        txt = tmp_path / "resume_CL.txt"
-        txt.write_text("Dear team")
-        txt.with_suffix(".pdf").write_bytes(b"%PDF letter")
-        conn = get_connection()
-        conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = '2026-10-05T12:00:00' WHERE url = ?",
-                     (str(txt), urls[0]))
-        conn.commit()
-        return {"generated": 1, "errors": 0}
-
-    monkeypatch.setattr(tailor, "run_tailoring", fake_tailor)
-    monkeypatch.setattr(cover_letter, "run_cover_letters", fake_cover)
-    return calls
-
-
-@pytest.fixture
-def drive(monkeypatch):
-    from strelitzia.storage.drive import DriveClient
-
-    fake = FakeDrive()
-    monkeypatch.setattr(tasks, "_drive_configured", lambda: True)
-    monkeypatch.setattr(DriveClient, "from_credentials", classmethod(lambda cls: DriveClient(fake, fake_media)))
-    return fake
-
-
-def test_generate_end_to_end_sets_drive_links(default_db, fake_stages, drive):
-    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]))
-    with TestClient(create_app(), headers=HEADERS) as c:  # db=None: the same configured DB as the stages
-        task = wait_for(c, _generate(c, url, resume=True, cover=True).json()["id"])
-        assert task["state"] == "done", task
-        detail = c.get(f"/app/api/jobs/{job_key(url)}").json()
-    assert [call[0] for call in fake_stages] == ["tailor", "cover"]
-    assert fake_stages[0][1] == fake_stages[1][1] == [url]
-    assert detail["status"] == "in_progress"
-    assert detail["links"]["resume"].startswith("https://")
-    assert detail["links"]["cover_letter"].startswith("https://")
-    assert detail["links"]["drive_folder"].startswith("https://drive.google.com/drive/folders/")
-
-
-@pytest.fixture
-def library(tmp_path, monkeypatch):
-    from strelitzia import config
-
-    path = tmp_path / "content_library.md"
-    path.write_text("# library")
-    monkeypatch.setattr(config, "CONTENT_LIBRARY_PATH", path)
-    return path
-
-
-def test_cover_only_tailors_the_resume_first(default_db, fake_stages, library, monkeypatch):
-    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
-    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]))
-    tasks.generate_for_job(url, "cover")
-    assert [c[0] for c in fake_stages] == ["tailor", "cover"]
-    assert fake_stages[0][2]["source"] == "content-library"
-
-
-def test_cover_only_reuses_a_content_library_resume(default_db, fake_stages, library, monkeypatch, tmp_path):
-    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
-    resume = tmp_path / "old.pdf"
-    resume.with_suffix(".json").write_text("{}")
-    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]), tailored_resume_path=str(resume))
-    tasks.generate_for_job(url, "cover")
-    assert [c[0] for c in fake_stages] == ["cover"]
-
-
-def test_cover_only_retailors_a_resume_without_sidecar(default_db, fake_stages, library, monkeypatch, tmp_path):
-    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
-    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]),
-                  tailored_resume_path=str(tmp_path / "legacy.txt"))  # a resume.txt rewrite: nothing to cite
-    tasks.generate_for_job(url, "cover")
-    assert [c[0] for c in fake_stages] == ["tailor", "cover"]
-
-
-def test_generate_without_drive_keeps_local_pdfs(default_db, fake_stages, monkeypatch, tmp_path):
-    monkeypatch.setattr(tasks, "_drive_configured", lambda: False)
-    url = add_job(get_connection(), URLS[0], job_key=job_key(URLS[0]))
-    tasks.generate_for_job(url, "resume")
-    assert (tmp_path / "resume.pdf").exists()
-    assert [c[0] for c in fake_stages] == ["tailor"]
-
-
-@pytest.mark.parametrize("stats,message", [
-    ({"approved": 0, "errors": 1}, "The resume failed with an error (see the server log)."),
-    ({"approved": 0, "failed": 1}, "The resume didn't pass validation; try again."),
-    ({"approved": 0}, "No resume was generated (the job has no description)."),
-])
-def test_generate_failure_messages(default_db, monkeypatch, stats, message):
-    from strelitzia.scoring import tailor
-
-    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: stats)
-    with pytest.raises(tasks.GenerationFailed, match=message.replace("(", r"\(").replace(")", r"\)")):
-        tasks.generate_for_job(URLS[0], "resume")
+        assert bare.post(f"/app/api/jobs/{job_key(URLS[0])}/rescore").status_code == 403
 
 
 @pytest.mark.parametrize("reason", ["overloaded", "auth"])
@@ -313,27 +178,18 @@ def test_stop_error_messages(db_path, reason):
     add_job(get_connection(db_path), URLS[0], job_key=job_key(URLS[0]))
     gen = FakeGenerate(fail={URLS[0]: LLMStopRun(reason)})
     with TestClient(create_app(db=db_path, generate=gen), headers=HEADERS) as c:
-        task = wait_for(c, _generate(c, URLS[0]).json()["id"])
+        task = wait_for(c, _queue(c, URLS[0]).json()["id"])
     assert task["error"] == STOP_MESSAGES[reason]
 
 
-def test_generate_budget_stop_raises(default_db, monkeypatch):
-    from strelitzia.scoring import cover_letter, tailor
-
-    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 1})
-    monkeypatch.setattr(cover_letter, "run_cover_letters", lambda **kw: {"generated": 0, "stopped": "budget"})
-    with pytest.raises(LLMStopRun) as e:
-        tasks.generate_for_job(URLS[0], "both")
-    assert e.value.reason == "budget"
-
-
-def test_generate_overload_stop_raises(default_db, monkeypatch):
-    from strelitzia.scoring import tailor
-
-    monkeypatch.setattr(tailor, "run_tailoring", lambda **kw: {"approved": 0, "stopped": "overloaded"})
-    with pytest.raises(LLMStopRun) as e:
-        tasks.generate_for_job(URLS[0], "resume")
-    assert e.value.reason == "overloaded"
+def test_generate_for_job_dispatches(monkeypatch):
+    calls = []
+    monkeypatch.setattr("strelitzia.intake.run_intake", lambda url: calls.append(("intake", url)))
+    monkeypatch.setattr(tasks, "assess_task", lambda url, kind: calls.append((kind, url)))
+    tasks.generate_for_job(URLS[0], "intake")
+    tasks.generate_for_job(URLS[1], "rescore")
+    tasks.generate_for_job(None, "reassess_all")
+    assert calls == [("intake", URLS[0]), ("rescore", URLS[1]), ("reassess_all", None)]
 
 
 def test_runner_stops_cleanly(db_path):
