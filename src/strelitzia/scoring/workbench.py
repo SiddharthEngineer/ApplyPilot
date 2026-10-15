@@ -534,7 +534,7 @@ def _coverage_warnings(resume: TailoredResume, ev: EvidenceMap) -> list[str]:
 
 
 def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None = None,
-                  out_dir: Path | None = None) -> ImportOutcome:
+                  out_dir: Path | None = None, cover_dir: Path | None = None) -> ImportOutcome:
     """Check a pasted reply; on success render the files and record a new draft version.
 
     On any error nothing is saved, and the outcome carries a `fix_prompt` to paste back into the chat.
@@ -548,11 +548,13 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
     if errors:
         return ImportOutcome(ok=False, errors=errors, warnings=warnings, fix_prompt=fix_prompt(errors))
 
-    out_dir = Path(out_dir) if out_dir else config.TAILORED_DIR
+    if out_dir is None:
+        out_dir, cover_dir = config.TAILORED_DIR, cover_dir or config.COVER_LETTER_DIR
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = output_prefix(job)
     try:
-        files, render_warnings = render_outputs(resume, data, job, inputs, out_dir, prefix)
+        files, render_warnings = render_outputs(resume, data, job, inputs, out_dir, prefix, cover_dir)
     except RenderRejected as e:
         return ImportOutcome(ok=False, errors=e.errors, warnings=warnings, fix_prompt=fix_prompt(e.errors))
     warnings += render_warnings
@@ -572,30 +574,40 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
     (out_dir / f"{prefix}_REPORT.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out_dir / f"{prefix}.txt").write_text(resume_to_text(resume, inputs.profile, inputs.fixed), encoding="utf-8")
 
-    cover_path = files.get("cover_letter")
     conn.execute(
         "UPDATE jobs SET tailored_resume_path = ?, tailored_at = ?, draft_version = ?, draft_rules_version = ?, "
-        "tailor_report = ?, resume_docx_path = ?, cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
-        (files["resume"], now, version, RULES_VERSION, json.dumps(report), files.get("resume_docx"),
-         cover_path, now if cover_path else None, job["url"]),
+        "tailor_report = ?, resume_docx_path = ? WHERE url = ?",
+        (files["resume"], now, version, RULES_VERSION, json.dumps(report), files["resume_docx"], job["url"]),
     )
+    if files.get("cover_letter"):  # a resume-only draft keeps the last letter
+        conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
+                     (files["cover_letter"], now, job["url"]))
     conn.commit()
     return ImportOutcome(ok=True, warnings=warnings, draft_version=version, coverage=cov.to_dict(), unmet=unmet,
                          files=files)
 
 
 def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs, out_dir: Path,
-                   prefix: str) -> tuple[dict[str, str], list[str]]:
-    """Render the resume PDF (fit to one page). Returns ({kind: path}, warnings).
+                   prefix: str, cover_dir: Path | None = None) -> tuple[dict[str, str], list[str]]:
+    """Render the resume PDF (fit to one page), its DOCX and the cover-letter PDF.
+
+    Returns ({"resume", "resume_docx", "cover_letter"?: path}, warnings).
 
     Raises:
         RenderRejected: still longer than one page after trimming to the bullet minimums, or hidden text.
     """
+    from strelitzia.scoring import cover_letter
+    from strelitzia.scoring.docx_export import to_docx
     from strelitzia.scoring.tailor import _role_slots, fit_to_one_page
 
     base = parse_base_resume(inputs.base_resume_text, inputs.library) if inputs.base_resume_text.strip() else None
+    cover_dir = cover_dir or out_dir
+    letter = data.get("cover_letter")
     # Render into staging files so a rejected paste never replaces the last accepted draft's files.
-    staged = {"resume": out_dir / f"{prefix}.staging.pdf"}
+    staged = {"resume": out_dir / f"{prefix}.staging.pdf", "resume_docx": out_dir / f"{prefix}.staging.docx"}
+    if letter:
+        cover_dir.mkdir(parents=True, exist_ok=True)
+        staged["cover_letter"] = cover_dir / f"{prefix}_CL.staging.pdf"
     try:
         info, dropped = fit_to_one_page(resume, inputs.profile, inputs.fixed, _role_slots(inputs.library, base),
                                         staged["resume"])
@@ -604,8 +616,14 @@ def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs
                                   "Shorten the bullets (aim for one printed line each) and the Skills lines."])
         html = render_resume(resume, inputs.profile, fixed=inputs.fixed)
         problems = validate_visible(html) + validate_pdf_text(staged["resume"], html)
+        if letter:
+            letter_html = cover_letter.letter_html(letter["paragraphs"], inputs.profile, job)
+            cover_letter.render_pdf(letter["paragraphs"], inputs.profile, job, staged["cover_letter"])
+            problems += [f"Cover letter: {p}" for p in
+                         validate_visible(letter_html) + validate_pdf_text(staged["cover_letter"], letter_html)]
         if problems:
             raise RenderRejected(problems)
+        to_docx(resume, staged["resume_docx"], inputs.profile, inputs.fixed)
     except BaseException:
         for path in staged.values():
             path.unlink(missing_ok=True)
@@ -615,6 +633,9 @@ def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs
         final = path.with_name(path.name.replace(".staging", ""))
         path.replace(final)
         files[kind] = str(final)
+    if letter:
+        Path(files["cover_letter"]).with_suffix(".txt").write_text(
+            cover_letter.letter_text(letter["paragraphs"], inputs.profile), encoding="utf-8")
     return files, [f"Dropped to fit one page: '{t}'" for t in dropped]
 
 
