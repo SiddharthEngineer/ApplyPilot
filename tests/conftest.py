@@ -48,15 +48,24 @@ def _make_guard(original):
     return guarded
 
 
-def pytest_configure(config: pytest.Config) -> None:
+def _isolate_app_dir() -> None:
     """Point STRELITZIA_DIR at a session temp dir before strelitzia.config is imported.
 
-    APP_DIR is computed at import time (src/strelitzia/config.py), so this must run
-    before any test module imports strelitzia.
+    APP_DIR is computed at import time (src/strelitzia/config.py), so this runs when this conftest is imported:
+    pytest imports a subdirectory's conftest (tests/web/conftest.py imports the app) before pytest_configure
+    when a path under it is the first argument.
     """
     global _ISOLATED_APP_DIR
-    _ISOLATED_APP_DIR = tempfile.mkdtemp(prefix="strelitzia-test-")
-    os.environ["STRELITZIA_DIR"] = _ISOLATED_APP_DIR
+    if _ISOLATED_APP_DIR is None:
+        _ISOLATED_APP_DIR = tempfile.mkdtemp(prefix="strelitzia-test-")
+        os.environ["STRELITZIA_DIR"] = _ISOLATED_APP_DIR
+
+
+_isolate_app_dir()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    _isolate_app_dir()
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

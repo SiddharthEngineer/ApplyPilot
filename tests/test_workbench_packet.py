@@ -4,7 +4,7 @@ import copy
 import json
 
 from strelitzia.scoring import workbench as wb
-from workbench_helpers import BASE_RESUME, good_result, job, library
+from workbench_helpers import BASE_RESUME, good_result, inputs, job, library
 
 
 def test_schema_accepts_a_sample_result():
@@ -92,3 +92,11 @@ def test_packet_includes_current_draft():
 def test_packet_without_posting_details():
     p = wb.job_packet(job(details_json=None), library(), "")
     assert "None listed in the posting." in p.text
+
+
+def test_packet_for_uses_resume_fixed_role_facts():
+    ins = inputs()
+    ins.fixed = {**ins.fixed, "roles": {"data-engineer-acme": {"title": "Senior Data Engineer", "company": "Acme Corp",
+                                                                "dates": "2021 – 2024"}}}
+    p = wb.packet_for(job(), ins, inline=True)
+    assert "data-engineer-acme: Senior Data Engineer at Acme Corp (2021 – 2024)" in p.text

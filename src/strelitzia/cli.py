@@ -320,12 +320,10 @@ def _workbench_inputs():
 @workbench_app.command("packet")
 def workbench_packet(key: str = typer.Argument(..., help="The job's key (from its dashboard URL).")) -> None:
     """Print the job's full packet (posting, qualifications, rules, content library) to paste into Claude."""
-    from strelitzia.scoring.workbench import current_result, job_packet
+    from strelitzia.scoring.workbench import packet_for
 
     _, job = _workbench_job(key)
-    inputs = _workbench_inputs()
-    packet = job_packet(job, inputs.library, inputs.base_resume_text, current_result(job), inline=True)
-    typer.echo(packet.prompt)
+    typer.echo(packet_for(job, _workbench_inputs(), inline=True).prompt)
 
 
 @workbench_app.command("import")

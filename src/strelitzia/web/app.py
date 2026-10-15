@@ -248,19 +248,18 @@ def post_packet(key: str, request: Request) -> dict:
     conn = db_conn(request)
     job = job_by_key(conn, key)
     inputs = _workbench_inputs()
-    current = workbench.current_result(job)
     drive_error = None
     try:
         client = _drive_client()
         if client is not None:
             workbench.publish_static_docs(client, conn, inputs)
             _, url = workbench.publish_packet(client, conn, job, inputs)
-            packet = workbench.job_packet(job, inputs.library, inputs.base_resume_text, current, inline=False)
+            packet = workbench.packet_for(job, inputs, inline=False)
             return {"prompt": packet.prompt, "doc_url": url, "inline": False, "rules_version": workbench.RULES_VERSION}
     except Exception as e:  # noqa: BLE001 -- Drive trouble shouldn't block the clipboard flow
         log.warning("Drive packet failed for %s: %s", key, e)
         drive_error = f"Couldn't write the packet to Drive ({e}); the full packet was copied instead."
-    packet = workbench.job_packet(job, inputs.library, inputs.base_resume_text, current, inline=True)
+    packet = workbench.packet_for(job, inputs, inline=True)
     return {"prompt": packet.prompt, "doc_url": None, "inline": True, "rules_version": workbench.RULES_VERSION,
             "drive_error": drive_error}
 

@@ -74,10 +74,11 @@ export default function WorkbenchPanel({ job, onSaved }: Props) {
     }
   }
 
+  // A PDF still on the server is the newest draft (a successful Drive upload removes it), so it wins over Drive.
   const files: [string, string | null | undefined][] = [
-    ['Resume PDF', job.links.resume || job.links.resume_pdf],
+    ['Resume PDF', job.links.resume_pdf || job.links.resume],
     ['Resume DOCX', job.links.resume_docx],
-    ['Cover letter PDF', job.links.cover_letter || job.links.cover_letter_pdf],
+    ['Cover letter PDF', job.links.cover_letter_pdf || job.links.cover_letter],
   ];
   const shownFiles = files.filter(([, href]) => href);
   const history = job.draft_history ?? [];

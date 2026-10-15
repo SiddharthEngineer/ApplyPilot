@@ -110,15 +110,23 @@ def assess_task(url: str | None, kind: str) -> None:
         raise GenerationFailed("The job can't be assessed until its posting has been extracted.")
 
 
+# Kinds queued by older versions (resume / cover-letter generation), still in the table after an upgrade.
+RETIRED_KINDS = ("resume", "cover", "both")
+
+
 def generate_for_job(url: str | None, kind: str) -> None:
     """The real work for one task, against the configured database: `intake` goes to `intake.run_intake`,
-    the assessment kinds to `assess_task`."""
+    the assessment kinds to `assess_task`. Any other kind fails without running anything."""
     if kind == "intake":
         from strelitzia.intake import run_intake
 
         run_intake(url)
-        return
-    assess_task(url, kind)
+    elif kind in ("rescore", "reassess_all"):
+        assess_task(url, kind)
+    elif kind in RETIRED_KINDS:
+        raise GenerationFailed("Resumes are written in Claude now: use Open in Claude on the job page.")
+    else:
+        raise GenerationFailed(f"Unknown task kind {kind!r}.")
 
 
 class TaskRunner:
