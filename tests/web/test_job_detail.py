@@ -51,7 +51,7 @@ def test_detail_shape(client, job):
     assert d["events"] == []
     assert d["links"] == {
         "posting": URL, "apply": "https://apply.example.com/42", "drive_folder": None,
-        "resume": "https://drive.google.com/file/d/r/view", "cover_letter": None,
+        "resume": "https://drive.google.com/file/d/r/view", "cover_letter": None, "packet": None,
     }
 
 

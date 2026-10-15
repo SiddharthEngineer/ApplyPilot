@@ -154,7 +154,7 @@ writes "<Company> – <Role> – Claude packet" into the job's folder (`drive_la
   "Not on your resume" (unmet, report-only). Draft history: version, date, rules version.
 - `/claude-setup` page (nav): step-by-step: create a Claude Project "Strelitzia Resumes", attach the two Docs (links), paste these project instructions (copy button). It also shows when the rules Doc last changed.
 **Validate:** `pytest tests/web -q` (packet inline vs Drive, result 422 with fix_prompt, result 200 bumps the version); `cd dashboard && npm test -- --run` (copy flow, error list, coverage panel, setup page); `scripts/validate.sh --full` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-15 (this commit)
 
 ### Task 7: Remove the API writer
 **Runs:** unattended

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addJob, ApiError, generate, jobsQueryString, linkContact, listJobs, putDescription, rescore, savePreferences, setStatus,
+  addJob, ApiError, jobsQueryString, linkContact, listJobs, openPacket, pasteResult, putDescription, rescore, savePreferences,
+  setStatus,
 } from '../api';
 import type { Preferences } from '../types';
 
@@ -40,11 +41,41 @@ describe('api', () => {
   });
 
   it('throws ApiError with the server detail', async () => {
-    mockFetch(422, { detail: 'Choose a resume, a cover letter, or both' });
-    const err = await generate('abc', { resume: false, cover: false }).catch((e) => e);
+    mockFetch(422, { detail: "submitted_at can't be cleared; set a status instead" });
+    const err = await setStatus('abc', 'submitted').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(422);
-    expect(err.message).toBe('Choose a resume, a cover letter, or both');
+    expect(err.message).toBe("submitted_at can't be cleared; set a status instead");
+  });
+
+  it('POSTs the packet request with the CSRF header', async () => {
+    const fetch = mockFetch(200, { prompt: 'p', doc_url: null, inline: true, rules_version: 'abcd1234' });
+    expect((await openPacket('k1')).inline).toBe(true);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/jobs/k1/packet');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-Strelitzia']).toBe('1');
+  });
+
+  it('returns a failed paste as errors and a fix message instead of throwing', async () => {
+    const fetch = mockFetch(422, { detail: 'bad', errors: ['bad', 'worse'], warnings: [], fix_prompt: 'These problems…' });
+    const out = await pasteResult('k1', 'reply text');
+    expect(out).toEqual({ ok: false, errors: ['bad', 'worse'], warnings: [], fix_prompt: 'These problems…' });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/jobs/k1/result');
+    expect(init.headers['X-Strelitzia']).toBe('1');
+    expect(JSON.parse(init.body)).toEqual({ text: 'reply text' });
+  });
+
+  it('returns a saved paste with the job, and throws other errors', async () => {
+    mockFetch(200, { outcome: { draft_version: 2, warnings: [], coverage: null, unmet: [] }, job: { key: 'k1' } });
+    const out = await pasteResult('k1', 'reply');
+    expect(out.ok && out.outcome.draft_version).toBe(2);
+
+    mockFetch(409, { detail: 'No content library' });
+    const err = await pasteResult('k1', 'reply').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe('No content library');
   });
 
   it('reads the message of a structured error (the 402 budget stop)', async () => {

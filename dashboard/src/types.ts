@@ -156,6 +156,60 @@ export interface JobLinks {
   drive_folder: string | null;
   resume: string | null;
   cover_letter: string | null;
+  packet?: string | null;
+  // Local draft files served by the API (left out once the PDF has moved to Drive).
+  resume_pdf?: string;
+  resume_docx?: string;
+  cover_letter_pdf?: string;
+}
+
+export interface Coverage {
+  covered: string[];
+  missing: string[];
+  pct_required: number | null; // null when the posting lists no required qualifications
+  pct_preferred: number | null;
+}
+
+export interface DraftHistoryEntry {
+  version: number;
+  at: string;
+  rules_version: string;
+}
+
+/** POST /jobs/{key}/packet */
+export interface PacketResult {
+  prompt: string;
+  doc_url: string | null;
+  inline: boolean; // no Drive: the prompt carries the whole packet
+  rules_version: string;
+  drive_error?: string | null;
+}
+
+/** POST /jobs/{key}/result on success */
+export interface ImportResult {
+  outcome: { draft_version: number; warnings: string[]; coverage: Coverage; unmet: string[] };
+  job: JobDetail;
+}
+
+export type PasteOutcome =
+  | ({ ok: true } & ImportResult)
+  | { ok: false; errors: string[]; warnings: string[]; fix_prompt: string };
+
+export interface ClaudeDoc {
+  kind: 'rules' | 'library';
+  name: string;
+  url: string | null;
+  changed_at: string | null;
+}
+
+/** GET /claude/setup */
+export interface ClaudeSetup {
+  drive: boolean;
+  drive_detail: string;
+  rules_version: string;
+  docs: ClaudeDoc[];
+  project_name: string;
+  project_instructions: string;
 }
 
 export interface JobDetail {
@@ -191,6 +245,16 @@ export interface JobDetail {
   flag_reasons: string[];
   assessment_stale: boolean;
   fit_assessment: FitAssessment | null;
+  draft_version?: number | null;
+  draft_rules_version?: string | null;
+  submitted_draft_version?: number | null;
+  submitted_rules_version?: string | null;
+  coverage?: Coverage | null;
+  unmet?: string[];
+  warnings?: string[];
+  notes_for_user?: string;
+  draft_history?: DraftHistoryEntry[];
+  packet_doc_url?: string | null;
 }
 
 export interface Criterion<V = unknown> {

@@ -337,3 +337,12 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 @keyframes sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(2.5deg); } 75% { transform: rotate(-2.5deg); } }
 @keyframes glow { 0%, 100% { transform: scale(1); opacity: 0.3; } 50% { transform: scale(1.12); opacity: 0.5; } }
 @keyframes bloom { 0%, 100% { transform: scale(0.35) rotate(-18deg); opacity: 0.5; } 50% { transform: none; opacity: 1; } }
+
+/* Claude workbench (job page) and the Claude setup page */
+.workbench { display: flex; flex-direction: column; gap: 8px; }
+.workbench textarea { width: 100%; font-family: var(--mono); font-size: 12px; }
+.check-errors { padding: 8px 12px; border-radius: var(--radius); background: var(--badge-red-bg); color: var(--badge-red-fg); }
+.check-errors ol { margin: 4px 0 8px; }
+.coverage h3, .coverage h4 { margin: 0 0 6px; }
+.setup-steps { display: flex; flex-direction: column; gap: 14px; }
+.setup-steps li { line-height: 1.5; }
