@@ -15,6 +15,7 @@ import html as html_mod
 import json
 import logging
 import re
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -588,6 +589,13 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
         "UPDATE jobs SET tailored_resume_path = ?, tailored_at = ?, draft_version = ?, draft_rules_version = ?, "
         "tailor_report = ?, resume_docx_path = ? WHERE url = ?",
         (files["resume"], now, version, RULES_VERSION, json.dumps(report), files["resume_docx"], job["url"]),
+    )
+    conn.execute(
+        "INSERT INTO drafts (id, job_url, version, rules_version, resume_json, resume_text, cover_json, "
+        "coverage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (uuid.uuid4().hex, job["url"], version, RULES_VERSION, json.dumps(resume.to_dict(), ensure_ascii=False),
+         resume_to_text(resume, inputs.profile, inputs.fixed), json.dumps(data.get("cover_letter")),
+         json.dumps(cov.to_dict()), now),
     )
     if files.get("cover_letter"):  # a resume-only draft keeps the last letter
         conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
