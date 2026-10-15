@@ -63,13 +63,14 @@ def test_upsert_doc_prefers_the_known_id_and_skips_trashed(drive, client):
 
 def test_static_docs_are_written_once_and_skip_unchanged(drive, client, conn):
     urls = wb.publish_static_docs(client, conn, inputs())
-    assert set(urls) == {"rules", "library"} and all(urls.values())
+    assert set(urls) == {"rules", "library", "panel_rubric"} and all(urls.values())
     docs = {d["name"]: d for d in _docs(drive)}
-    assert set(docs) == {"Strelitzia rules", "Strelitzia content library"}
+    assert set(docs) == {"Strelitzia rules", "Strelitzia content library", "Strelitzia panel rubric"}
     for d in docs.values():
         assert drive.path_of(d["id"]) == ["Strelitzia", "_Claude", d["name"]]
     assert b"notes_for_user" in docs["Strelitzia rules"]["content"]  # the schema is in the rules Doc
     assert b"orders-pipeline" in docs["Strelitzia content library"]["content"]
+    assert b"not_met" in docs["Strelitzia panel rubric"]["content"]
 
     calls = dict(drive.calls)
     assert wb.publish_static_docs(client, conn, inputs()) == urls
@@ -84,12 +85,12 @@ def test_static_docs_update_only_the_changed_one(drive, client, conn):
     changed = inputs()
     changed.base_resume_text += "\nCertifications: none\n"
     wb.publish_static_docs(client, conn, changed)
-    assert drive.calls["update"] == 1 and len(_docs(drive)) == 2
+    assert drive.calls["update"] == 1 and len(_docs(drive)) == 3
     lib = next(d for d in _docs(drive) if d["name"] == "Strelitzia content library")
     assert b"Certifications" in lib["content"]
 
     wb.publish_static_docs(client, conn, changed, force=True)
-    assert drive.calls["update"] == 3 and len(_docs(drive)) == 2
+    assert drive.calls["update"] == 4 and len(_docs(drive)) == 3
 
 
 def test_publish_packet_writes_the_job_folder_and_records_the_doc(drive, client, conn):

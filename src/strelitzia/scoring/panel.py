@@ -15,9 +15,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from strelitzia.database import Connection, job_company
+from strelitzia.scoring.targets import targets
+from strelitzia.scoring.workbench import _Doc, _obj, extract_json, posting_of, schema_errors
 
 MODES = ("latest_vs_previous", "rules_a_vs_b")
 DEFAULT_ITEMS = 5
+PANEL_VERSION = 1
+MODELS = ("sonnet", "opus")
+GRADERS = (*MODELS, "you")
+# Which packet each model grades: Sonnet gets packet 1 (the stored order), Opus packet 2 (swapped).
+GRADER_PACKET = {"sonnet": 1, "opus": 2}
+GRADES = ("A", "B", "C", "D")
+WINNERS = ("first", "second", "tie")
 
 
 @dataclass
@@ -133,6 +142,9 @@ def create_run(conn: Connection, n: int = DEFAULT_ITEMS, mode: str = "latest_vs_
             "VALUES (?, ?, ?, ?, ?, ?)",
             (run_id, no, item.job_url, item.draft_a["id"], item.draft_b["id"], rng.choice("ab")),
         )
+    run = get_run(conn, run_id)
+    conn.execute("UPDATE panel_runs SET packet_text = ?, packet_text_swapped = ? WHERE id = ?",
+                 (panel_packet(conn, run).text, panel_packet(conn, run, swapped=True).text, run_id))
     conn.commit()
     return run_id
 
@@ -170,8 +182,252 @@ def list_runs(conn: Connection) -> list[dict]:
                        "ORDER BY created_at DESC")
 
 
-def json_loads(text: str | None, default=None):
+def _json(text: str | None, default=None):
     try:
         return json.loads(text) if text else default
     except ValueError:
         return default
+
+
+# ── Rubric ────────────────────────────────────────────────────────────────
+
+PROJECT_NAME = "Strelitzia Panel"
+PROJECT_INSTRUCTIONS = (
+    "You are a strict resume screener. Each chat brings a blind panel packet: several jobs, each with two versions "
+    "of a resume called First and Second. Grade them with the \"Strelitzia panel rubric\" document, which is "
+    "binding. Quote evidence verbatim from the resume, never infer experience that isn't written down, and end "
+    "every reply with exactly one ```json block in the rubric's format."
+)
+
+_QUAL = _obj({"text": {"type": "string"}, "kind": {"type": "string", "enum": ["required", "preferred"]},
+              "status": {"type": "string", "enum": ["met", "partial", "not_met"]},
+              "evidence": {"type": "string"}})
+_VERSION = _obj({"qualifications": {"type": "array", "items": _QUAL},
+                 "overall": {"type": "string", "enum": list(GRADES)},
+                 "clarity": {"type": "integer", "enum": [1, 2, 3, 4, 5]},
+                 "red_flags": {"type": "array", "items": {"type": "string"}}})
+REPLY_SCHEMA = _obj({
+    "panel": {"type": "integer", "enum": [PANEL_VERSION]},
+    "items": {"type": "array", "items": _obj({"item": {"type": "integer"}, "first": _VERSION, "second": _VERSION,
+                                              "winner": {"type": "string", "enum": list(WINNERS)},
+                                              "why": {"type": "string"}})},
+})
+
+EXAMPLE_REPLY = {
+    "panel": PANEL_VERSION,
+    "items": [{
+        "item": 1,
+        "first": {
+            "qualifications": [
+                {"text": "Airflow", "kind": "required", "status": "met",
+                 "evidence": "Migrated the nightly orders pipeline from cron to Airflow"},
+                {"text": "Terraform", "kind": "preferred", "status": "not_met", "evidence": ""},
+            ],
+            "overall": "B", "clarity": 4,
+            "red_flags": ["Vague bullet: 'Worked on various data projects'"],
+        },
+        "second": {"qualifications": ["<same list, graded for the second version>"], "overall": "A", "clarity": 5,
+                   "red_flags": []},
+        "winner": "second",
+        "why": "Second shows every required qualification with a concrete result in the first role.",
+    }],
+}
+
+
+def _rubric() -> _Doc:
+    d = _Doc("Strelitzia panel rubric")
+    d.p("You grade resumes the way an applicant-tracking screener and a busy recruiter would. Each packet holds "
+        "numbered items. Each item is one job (title, company, required and preferred qualifications) and two "
+        "versions of my resume for it, called First and Second. Nothing says which version is newer; don't guess.")
+    d.h("For each item, grade each version on its own first")
+    d.ul([
+        "1. Qualifications: for every required and every preferred qualification listed for the job, give "
+        "met, partial or not_met. As evidence, quote the resume verbatim (the shortest phrase that shows it). "
+        "Leave evidence empty when not_met. Only what is written counts: don't infer.",
+        "2. Overall grade A-D. A: every required qualification met, plus most preferred ones. B: every required "
+        "qualification met. C: most required qualifications met. D: otherwise. Partial counts as not met here.",
+        "3. Clarity 1-5: can a recruiter see the fit for this job in 10 seconds? 5 = immediately, 1 = not at all.",
+        "4. Red flags, each a short phrase: claims that look unsupported or inflated, keyword stuffing (skills "
+        "listed with no work behind them), vague bullets with no action or result.",
+    ])
+    d.h("Then compare")
+    d.ul(["5. Winner: first, second or tie, with one sentence on why. Judge the versions as a hiring screen "
+          "would: qualifications met first, then clarity, then red flags. Length and position don't matter."])
+    d.h("Output")
+    d.p("Write a short comment per item if you like, then end your reply with exactly one ```json block in this "
+        "format, with one entry per item in the packet, in order. Keep the qualification texts as the packet "
+        "lists them. Use only the keys shown.")
+    d.pre(json.dumps(EXAMPLE_REPLY, indent=2))
+    return d
+
+
+def rubric_doc() -> str:
+    """The rubric as HTML (the Google Doc in the Strelitzia Panel project)."""
+    return _rubric().html()
+
+
+def rubric_text() -> str:
+    return _rubric().text()
+
+
+# ── Packets ───────────────────────────────────────────────────────────────
+
+@dataclass
+class Packet:
+    text: str
+    prompt: str
+
+
+def _order(item: dict, swapped: bool) -> tuple[str, str]:
+    """The sides ("a"/"b") shown first and second in packet 1 (swapped=False) or packet 2."""
+    first = item["shown_first"]
+    second = "b" if first == "a" else "a"
+    return (second, first) if swapped else (first, second)
+
+
+def panel_packet(conn: Connection, run: dict, swapped: bool = False) -> Packet:
+    """Packet 1 (the stored order) or packet 2 (swapped): per item the job, its qualifications and both resumes.
+
+    Nothing in it tells the versions apart except their text: no version numbers, rules versions or dates.
+    """
+    items = run_items(conn, run["id"])
+    d = _Doc("Strelitzia resume panel")
+    d.p(f"{len(items)} items. Grade each with the Strelitzia panel rubric, then end with the JSON block.")
+    for item in items:
+        job = item["job"]
+        d.h(f"Item {item['item_no']}: {job.get('title') or 'Untitled role'} at {job_company(job)}")
+        posting_targets = targets(posting_of(job))
+        for kind, label in (("required", "Required qualifications"), ("preferred", "Preferred qualifications")):
+            listed = [t.text for t in posting_targets if t.kind == kind]
+            if listed:
+                d.p(label + ":").ul(listed)
+            else:
+                d.p(f"{label}: none listed.")
+        for label, side in zip(("First", "Second"), _order(item, swapped), strict=True):
+            d.p(f"Item {item['item_no']}, {label} resume:")
+            d.pre((item[f"draft_{side}"].get("resume_text") or "").strip())
+    text = d.text()
+    return Packet(text=text, prompt=_prompt(text))
+
+
+def _prompt(packet_text: str) -> str:
+    return ("Grade this blind resume panel with the \"Strelitzia panel rubric\" document in this project. "
+            "Grade each version on its own first, then pick a winner. End your reply with the JSON block.\n\n"
+            + packet_text)
+
+
+def run_packets(run: dict) -> list[dict]:
+    """The two stored packets with their prompts, for the page."""
+    out = []
+    for no, (model, key) in enumerate((("sonnet", "packet_text"), ("opus", "packet_text_swapped")), 1):
+        text = run.get(key) or ""
+        out.append({"packet": no, "model": model, "text": text, "prompt": _prompt(text)})
+    return out
+
+
+# ── Import ────────────────────────────────────────────────────────────────
+
+@dataclass
+class ImportOutcome:
+    ok: bool
+    errors: list[str]
+    graded: int = 0
+
+    def to_dict(self) -> dict:
+        return {"ok": self.ok, "errors": self.errors, "graded": self.graded}
+
+
+def _to_packet1(winner: str, swapped: bool) -> str:
+    if not swapped or winner == "tie":
+        return winner
+    return "second" if winner == "first" else "first"
+
+
+def _side_of(winner: str, item: dict) -> str:
+    """'a', 'b' or 'tie' for a winner in packet 1's order."""
+    if winner == "tie":
+        return "tie"
+    first, second = _order(item, swapped=False)
+    return first if winner == "first" else second
+
+
+def import_grades(conn: Connection, run_id: str, grader: str, text: str) -> ImportOutcome:
+    """Store a model's pasted reply for the run (replacing that model's earlier grades).
+
+    The reply's first/second are in the order of the packet that model graded; each version's grade is stored
+    under its draft side ("a"/"b"), and the winner in packet 1's order.
+    """
+    if grader not in MODELS:
+        return ImportOutcome(False, [f"Unknown grader {grader!r} (use one of: {', '.join(MODELS)})"])
+    try:
+        get_run(conn, run_id)
+    except KeyError:
+        return ImportOutcome(False, ["No such panel run."])
+    try:
+        data, where = extract_json(text)
+    except ValueError as e:
+        return ImportOutcome(False, [str(e)])
+    errors = schema_errors(data, REPLY_SCHEMA)
+    if errors:
+        return ImportOutcome(False, [f"{where} doesn't match the panel format: " + "; ".join(errors[:8])])
+    items = run_items(conn, run_id)
+    graded = data["items"]
+    if len(graded) != len(items):
+        return ImportOutcome(False, [f"The reply grades {len(graded)} items, but this panel has {len(items)}. "
+                                     "Ask Claude to grade every item in the packet."])
+    numbers = sorted(g["item"] for g in graded)
+    expected = [i["item_no"] for i in items]
+    if numbers != expected:
+        return ImportOutcome(False, [f"The reply grades items {numbers}, but this panel has items {expected}."])
+    swapped = GRADER_PACKET[grader] == 2
+    by_no = {i["item_no"]: i for i in items}
+    now = datetime.now(UTC).isoformat()
+    conn.execute("DELETE FROM panel_grades WHERE run_id = ? AND grader = ?", (run_id, grader))
+    for g in graded:
+        item = by_no[g["item"]]
+        first_side, second_side = _order(item, swapped)
+        detail = {first_side: g["first"], second_side: g["second"], "why": g.get("why", "")}
+        conn.execute(
+            "INSERT INTO panel_grades (run_id, item_no, grader, winner, detail_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, g["item"], grader, _to_packet1(g["winner"], swapped), json.dumps(detail), now),
+        )
+    _update_status(conn, run_id)
+    conn.commit()
+    return ImportOutcome(True, [], graded=len(graded))
+
+
+def record_pick(conn: Connection, run_id: str, item_no: int, winner: str) -> None:
+    """Your blind pick for one item (first | second | tie, in packet 1's order).
+
+    Raises:
+        KeyError: no such run or item. ValueError: an unknown winner.
+    """
+    if winner not in WINNERS:
+        raise ValueError(f"Unknown pick {winner!r} (use one of: {', '.join(WINNERS)})")
+    if conn.execute("SELECT 1 FROM panel_items WHERE run_id = ? AND item_no = ?", (run_id, item_no)).fetchone() is None:
+        raise KeyError(f"{run_id}/{item_no}")
+    conn.execute("DELETE FROM panel_grades WHERE run_id = ? AND item_no = ? AND grader = 'you'", (run_id, item_no))
+    conn.execute(
+        "INSERT INTO panel_grades (run_id, item_no, grader, winner, detail_json, created_at) "
+        "VALUES (?, ?, 'you', ?, '{}', ?)",
+        (run_id, item_no, winner, datetime.now(UTC).isoformat()),
+    )
+    _update_status(conn, run_id)
+    conn.commit()
+
+
+def grades(conn: Connection, run_id: str) -> dict[str, dict[int, dict]]:
+    """{grader: {item_no: {"winner", "detail"}}}."""
+    out: dict[str, dict[int, dict]] = {}
+    for g in _rows(conn, "SELECT * FROM panel_grades WHERE run_id = ?", (run_id,)):
+        out.setdefault(g["grader"], {})[g["item_no"]] = {"winner": g["winner"], "detail": _json(g["detail_json"], {})}
+    return out
+
+
+def _update_status(conn: Connection, run_id: str) -> None:
+    """A run is complete once you picked every item and at least one model graded it."""
+    total = conn.execute("SELECT COUNT(*) FROM panel_items WHERE run_id = ?", (run_id,)).fetchone()[0]
+    done = {g: len(items) == total for g, items in grades(conn, run_id).items()}
+    complete = done.get("you", False) and any(done.get(m, False) for m in MODELS)
+    conn.execute("UPDATE panel_runs SET status = ? WHERE id = ?", ("complete" if complete else "open", run_id))
