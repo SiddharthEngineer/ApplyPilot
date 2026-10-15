@@ -7,6 +7,12 @@ import JobsTable from '../components/JobsTable';
 import type { Facets, JobList, JobQuery } from '../types';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
 
+const CLEAR_ALL_SOURCES: Partial<JobQuery> = {
+  status: undefined, role: undefined, work_mode: undefined, location: undefined, found_from: undefined,
+  found_to: undefined, due_from: undefined, due_to: undefined, score_min: undefined, score_max: undefined,
+  q: undefined, hide_flagged: undefined, source: [],
+};
+
 export default function JobsPage() {
   const [query, update] = useQueryState();
   const [data, setData] = useState<JobList | null>(null);
@@ -61,7 +67,9 @@ export default function JobsPage() {
           </span>
         )}
       </div>
-      <Filters query={shown} facets={facets} onChange={update} />
+      <Filters query={shown} facets={facets}
+        // Clear filters shows every source, or the "Added by me" default would come straight back.
+        onChange={(patch) => update(patch === null && hasManual ? CLEAR_ALL_SOURCES : patch)} />
       {error ? (
         <p className="notice error" role="alert">Couldn't load jobs: {error}</p>
       ) : !data && loading ? (

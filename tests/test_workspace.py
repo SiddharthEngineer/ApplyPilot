@@ -41,6 +41,7 @@ def test_contact_crud_and_search(db_target):
     assert [c["name"] for c in ws.search_contacts(conn, "ana@")] == ["Ana Ruiz"]
     assert [c["name"] for c in ws.search_contacts(conn, None)] == ["Ana Ruiz", "Bo Chen"]
     assert ws.search_contacts(conn, "", limit=1)[0]["job_count"] == 0
+    assert ws.search_contacts(conn, "a_r") == [] and ws.search_contacts(conn, "%") == []  # no LIKE wildcards
 
     updated = ws.update_contact(conn, ana["id"], phone="+1 555 0100")
     assert updated["phone"] == "+1 555 0100" and updated["email"] == "ana@acme.com"

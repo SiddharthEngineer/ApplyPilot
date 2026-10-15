@@ -51,7 +51,9 @@ export default function Filters({ query, facets, onChange }: Props) {
   const current: StatusFilter = query.status?.[0] ?? 'all';
   const roles = Object.keys(ROLE_LABELS);
   const selectedRoles = query.role ?? [];
-  const hasFilters = Object.keys(query).some((k) => k !== 'sort' && k !== 'page');
+  // source=[] is "All sources", the same as no source filter.
+  const hasFilters = Object.entries(query).some(([k, v]) =>
+    k !== 'sort' && k !== 'page' && !(k === 'source' && Array.isArray(v) && v.length === 0));
   const sourceCounts = new Map(facets?.source?.map((s) => [s.value, s.count]));
   const source = query.source?.length === 1 ? query.source[0] : 'all';
 

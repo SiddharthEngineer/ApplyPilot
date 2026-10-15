@@ -97,6 +97,10 @@ describe('Add job', () => {
     expect(api.addJob).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByText('No link? Paste the description'));
+    await user.type(within(dialog).getByLabelText('Description'), 'Too short');
+    await user.click(within(dialog).getByRole('button', { name: 'Add job' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('at least 200');
+    expect(api.addJob).not.toHaveBeenCalled();
     await user.type(within(dialog).getByLabelText('Title'), 'Analyst');
     await user.type(within(dialog).getByLabelText('Company'), 'Globex');
     fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: LONG } });
@@ -252,6 +256,12 @@ describe('Jobs list: source and next interview', () => {
 
     await user.click(within(group).getByRole('button', { name: /Discovered/ }));
     expect(screen.getByTestId('location')).toHaveTextContent('/?source=discovered');
+
+    // Clear filters shows every source rather than falling back to the "Added by me" default.
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('/?source=all');
+    expect(within(group).getByRole('button', { name: 'All sources' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeDisabled();
   });
 
   it('no manual jobs: no default source', async () => {

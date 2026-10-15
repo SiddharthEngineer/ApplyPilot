@@ -214,6 +214,9 @@ def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
         "role_category": counts("role_category"),
         "work_mode": counts("work_mode"),
         "location": locations,
-        "flagged": conn.execute(f"SELECT COUNT(*) FROM jobs WHERE NOT ({UNFLAGGED_WHERE})").fetchone()[0],
+        # Flagged jobs that hide_flagged hides (never the ones the user added).
+        "flagged": conn.execute(
+            f"SELECT COUNT(*) FROM jobs WHERE NOT ({UNFLAGGED_WHERE}) AND (source IS NULL OR NOT {MANUAL_WHERE})"
+        ).fetchone()[0],
         "source": [{"value": "manual", "count": manual}, {"value": "discovered", "count": total - manual}],
     }
