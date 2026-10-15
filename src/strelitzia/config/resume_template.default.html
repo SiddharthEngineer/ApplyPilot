@@ -7,11 +7,14 @@
   Copy to ~/.strelitzia/resume_template.html and edit to match your own resume.
   Variables:
     name       full name (profile.json)
+    headline   one truthful line under the name, may be empty (custom templates opt in by using it)
     contact    [{text, href}] (profile.json)
     roles      [{title, company, dates, tagline, bullets: [{text, project_ids}]}]
     skills     [(category, items)]
     education  [{heading, dates, bullets}] (resume_fixed.yaml)
   Keep the @page margins at 0.35in 0.5in: one-page overflow detection assumes them.
+  ATS-safe on purpose: one column, no tables, text boxes, header/footer regions, images or icon text, dates
+  inline after the company, and a font stack with metric-compatible fallbacks. Never hide text.
 #}
 <style>
 @page {
@@ -24,7 +27,7 @@
     box-sizing: border-box;
 }
 body {
-    font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+    font-family: Calibri, Carlito, Arial, sans-serif;
     font-size: 10pt;
     line-height: 1.35;
     color: #1a1a1a;
@@ -40,6 +43,11 @@ body {
     font-weight: 700;
     color: #1a3a5c;
     letter-spacing: 0.5px;
+}
+.headline {
+    font-size: 10pt;
+    color: #1a3a5c;
+    margin-top: 1px;
 }
 .contact {
     font-size: 9pt;
@@ -77,8 +85,6 @@ body {
     break-inside: avoid;
 }
 .entry-head {
-    display: flex;
-    justify-content: space-between;
     font-weight: 600;
     font-size: 10pt;
     color: #1a3a5c;
@@ -86,7 +92,6 @@ body {
 .entry-dates {
     font-weight: 400;
     white-space: nowrap;
-    margin-left: 12px;
 }
 .entry-subtitle {
     font-size: 9pt;
@@ -108,6 +113,7 @@ li {
 <body>
 <div class="header" id="resume-header">
     <div class="name">{{ name }}</div>
+    {% if headline %}<div class="headline">{{ headline }}</div>{% endif %}
     <div class="contact">
     {%- for c in contact -%}
         {%- if not loop.first %} &nbsp;|&nbsp; {% endif -%}
@@ -120,7 +126,7 @@ li {
     <div class="section-title">Work Experience</div>
     {% for role in roles %}
     <div class="entry">
-        <div class="entry-head"><span>{{ role.title }}{% if role.company %} at {{ role.company }}{% endif %}</span><span class="entry-dates">{{ role.dates }}</span></div>
+        <div class="entry-head">{{ role.title }}{% if role.company %} at {{ role.company }}{% endif %}{% if role.dates %} · <span class="entry-dates">{{ role.dates }}</span>{% endif %}</div>
         {% if role.tagline %}<div class="entry-subtitle">{{ role.tagline }}</div>{% endif %}
         {% if role.bullets %}
         <ul>
@@ -136,7 +142,7 @@ li {
     <div class="section-title">Education</div>
     {% for e in education %}
     <div class="entry">
-        <div class="entry-head"><span>{{ e.heading }}</span><span class="entry-dates">{{ e.dates }}</span></div>
+        <div class="entry-head">{{ e.heading }}{% if e.dates %} · <span class="entry-dates">{{ e.dates }}</span>{% endif %}</div>
         {% if e.bullets %}
         <ul>
             {% for b in e.bullets %}<li>{{ b }}</li>

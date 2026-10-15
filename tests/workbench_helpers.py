@@ -139,10 +139,13 @@ def add_job_row(conn, **overrides) -> dict:
 
 
 def fake_render_pdf(html, output_path):
-    """Stand-in for pdf.render_pdf: writes the HTML as the 'PDF' and reports one page."""
-    from pathlib import Path
+    """Stand-in for pdf.render_pdf (no Chromium): writes a blank one-page PDF and reports one page."""
+    from pypdf import PdfWriter
 
-    Path(output_path).write_text(html, encoding="utf-8")
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    with open(output_path, "wb") as f:
+        writer.write(f)
     return {"overflow": False, "content_height_pt": 500.0, "usable_height_pt": 741.6, "pages": 1}
 
 
