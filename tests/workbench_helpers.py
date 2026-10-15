@@ -121,3 +121,31 @@ def good_result(**resume_overrides) -> dict:
         },
         "notes_for_user": "Kubernetes and Terraform are not in your library, so I left them out.",
     }
+
+
+def inputs():
+    from strelitzia.scoring.workbench import Inputs
+
+    return Inputs(library=library(), base_resume_text=BASE_RESUME, profile=PROFILE, fixed=FIXED)
+
+
+def add_job_row(conn, **overrides) -> dict:
+    """Insert job() into the jobs table and return the row as a dict."""
+    row = {k: v for k, v in job(**overrides).items()}
+    names = ", ".join(row)
+    conn.execute(f"INSERT INTO jobs ({names}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM jobs WHERE url = ?", (row["url"],)).fetchone())
+
+
+def fake_render_pdf(html, output_path):
+    """Stand-in for pdf.render_pdf: writes the HTML as the 'PDF' and reports one page."""
+    from pathlib import Path
+
+    Path(output_path).write_text(html, encoding="utf-8")
+    return {"overflow": False, "content_height_pt": 500.0, "usable_height_pt": 741.6, "pages": 1}
+
+
+def reply(data: dict, prose: str = "Here is the tailored resume and letter.") -> str:
+    """A chat reply as Claude writes it: prose, then the fenced JSON block."""
+    return f"{prose}\n\n```json\n{json.dumps(data, indent=2)}\n```\n"

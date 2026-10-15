@@ -35,6 +35,7 @@ class TailoredResume:
     roles: list[RoleEntry] = field(default_factory=list)
     skills: dict[str, str] = field(default_factory=dict)  # ordered category -> items
     dropped_roles: list[str] = field(default_factory=list)
+    headline: str = ""  # one line under the name; empty = none
 
     @classmethod
     def from_llm_json(
@@ -110,7 +111,8 @@ class TailoredResume:
             if library.role_by_key(key) is None:
                 raise ValueError(f"unknown role_key {key!r} in dropped_roles")
 
-        return cls(roles=roles, skills=skills, dropped_roles=dropped)
+        headline = " ".join(str(data.get("headline") or "").split())
+        return cls(roles=roles, skills=skills, dropped_roles=dropped, headline=headline)
 
     def to_dict(self) -> dict:
         """Plain-dict form in the same shape from_llm_json reads (skills as an ordered list)."""
@@ -118,6 +120,7 @@ class TailoredResume:
             "roles": [asdict(r) for r in self.roles],
             "skills": [{"category": k, "items": v} for k, v in self.skills.items()],
             "dropped_roles": list(self.dropped_roles),
+            "headline": self.headline,
         }
 
     def to_json(self, **extra) -> str:

@@ -348,6 +348,15 @@ _ALL_COLUMNS: dict[str, str] = {
     "cover_letter_path": "TEXT",
     "cover_letter_at": "TEXT",
     "cover_attempts": "INTEGER DEFAULT 0",
+    # Claude workbench (strelitzia.scoring.workbench): one accepted paste = one draft version
+    "draft_version": "INTEGER",
+    "draft_rules_version": "TEXT",
+    "tailor_report": "TEXT",  # JSON: coverage, unmet, warnings
+    "resume_docx_path": "TEXT",
+    "submitted_draft_version": "INTEGER",  # copied from draft_version when the job is marked Submitted
+    "submitted_rules_version": "TEXT",
+    "packet_doc_id": "TEXT",
+    "packet_doc_url": "TEXT",
     # Google Drive (the PDFs are moved there; see strelitzia.storage)
     "resume_drive_id": "TEXT",
     "resume_drive_url": "TEXT",
