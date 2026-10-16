@@ -48,7 +48,7 @@ Rules (from #46 and the user, 2026-10-16):
 experience criteria. Table-driven tests: HS vs bachelors is a dealbreaker; associate vs bachelors scores 0.4;
 masters vs phd scores 0.4; 3 of 4 years scores 0.4; 6 of 8 years scores 0.4; 2 of 5 years is a dealbreaker; unknown scores 0.5.
 **Validate:** `pytest tests/test_preferences.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: fixed weights, red-flag picks, removed rows
 **Runs:** unattended

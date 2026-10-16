@@ -1,5 +1,7 @@
 """Preference layer of the fit score: criteria compared to extracted posting fields in code (synthetic data only)."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from strelitzia.database import init_db
@@ -11,6 +13,7 @@ from strelitzia.scoring.preferences import (
     load_preferences,
     save_preferences,
     score_preferences,
+    score_qualifications,
     travel_percent,
 )
 
@@ -90,17 +93,42 @@ def test_remote_not_ok_needs_a_place():
     ("travel", 10, JobPosting(travel="Up to 25% travel"), 0.0),
     ("travel", 30, JobPosting(travel="Up to 25% travel"), 1.0),
     ("travel", 10, JobPosting(travel="Occasional"), 0.5),
-    ("education", "bachelors", JobPosting(education_level="masters"), 0.0),
-    ("education", "masters", JobPosting(education_level="bachelors"), 1.0),
-    ("experience", 3, JobPosting(years_experience_min=4), 0.5),
-    ("experience", 3, JobPosting(years_experience_min=8), 0.0),
-    ("experience", 3, JobPosting(), 0.5),
     ("company_blocklist", ["Initech"], JobPosting(company="initech"), 0.0),
     ("company_blocklist", ["Initech"], JobPosting(company="Acme"), 1.0),
     ("seniority", ["senior"], JobPosting(seniority="unknown"), 0.5),
 ])
 def test_other_criteria(key, value, posting, score):
     assert _component(_prefs(**{key: ("important", value)}), posting, key).score == score
+
+
+@pytest.mark.parametrize(("key", "have", "posting", "score", "hit"), [
+    ("education", "high_school", JobPosting(education_level="bachelors"), 0.0, True),
+    ("education", "associate", JobPosting(education_level="bachelors"), 0.4, False),
+    ("education", "masters", JobPosting(education_level="phd"), 0.4, False),
+    ("education", "masters", JobPosting(education_level="bachelors"), 1.0, False),
+    ("education", "bachelors", JobPosting(education_level="bachelors"), 1.0, False),
+    ("education", "none", JobPosting(education_level="none"), 1.0, False),
+    ("education", "bachelors", JobPosting(education_level="unknown"), 0.5, False),
+    ("education", None, JobPosting(education_level="phd"), 0.5, False),
+    ("experience", 3, JobPosting(years_experience_min=4), 0.4, False),
+    ("experience", 6, JobPosting(years_experience_min=8), 0.4, False),
+    ("experience", 2, JobPosting(years_experience_min=5), 0.0, True),
+    ("experience", 5, JobPosting(years_experience_min=5), 1.0, False),
+    ("experience", 0, JobPosting(years_experience_min=1), 0.4, False),
+    ("experience", 3, JobPosting(), 0.5, False),
+    ("experience", None, JobPosting(years_experience_min=10), 0.5, False),
+])
+def test_qualifications(key, have, posting, score, hit):
+    profile = SimpleNamespace(education_level=have if key == "education" else None,
+                              years_experience=have if key == "experience" else None)
+    c = next(c for c in score_qualifications(profile, posting) if c.key == key)
+    assert (c.score, c.dealbreaker_hit, c.importance) == (score, hit, "very_important")
+
+
+def test_qualifications_without_a_profile_are_unknown():
+    comps = score_qualifications(None, JobPosting(education_level="phd", years_experience_min=10))
+    assert [(c.key, c.score, c.dealbreaker_hit) for c in comps] == [("education", 0.5, False),
+                                                                   ("experience", 0.5, False)]
 
 
 def test_company_falls_back_to_the_job_row():
@@ -154,8 +182,8 @@ def test_from_dict_is_lenient():
     prefs = Preferences.from_dict({
         "salary": {"importance": "huge", "value": {"min": "120,000", "period": "fortnight"}},
         "work_mode": {"importance": "nice", "value": ["remote", "moon"]},
-        "experience": {"importance": "nice", "value": "lots"},
-        "education": {"value": "wizard"},
+        "experience": {"importance": "nice", "value": 3},
+        "education": {"value": "masters"},
         "skills_want": ["Python", "", None, "Python", 3],
         "nonsense": 1,
         "locations": "Chicago",
@@ -163,7 +191,7 @@ def test_from_dict_is_lenient():
     assert prefs.salary.importance == "important"
     assert prefs.salary.value == {"min": 120000.0, "currency": "USD", "period": "year"}
     assert prefs.work_mode.value == ["remote"] and prefs.work_mode.importance == "nice"
-    assert prefs.experience.value is None and prefs.education.value is None
+    assert not hasattr(prefs, "experience") and not hasattr(prefs, "education")
     assert prefs.skills_want == ["Python", "3"]
     assert prefs.locations.value == {"places": [], "remote_ok": True}
     assert Preferences.from_dict(None) == Preferences()

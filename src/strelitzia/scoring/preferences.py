@@ -32,6 +32,8 @@ IMPORTANCES: tuple[str, ...] = ("dont_care", "nice", "important", "very_importan
 WEIGHTS: dict[str, int] = {"dont_care": 0, "nice": 1, "important": 2, "very_important": 4, "dealbreaker": 4}
 
 UNKNOWN = 0.5  # score of a criterion the posting doesn't say anything about
+QUALIFICATION_CLOSE = 0.4  # education or experience just short of the requirement
+QUALIFICATION_IMPORTANCE = "very_important"
 SALARY_PERIODS_PER_YEAR = {"year": 1, "month": 12, "hour": 2080}
 # Required education, lowest first ("unknown" is not ranked).
 _EDUCATION_RANK = {level: i for i, level in enumerate(EDUCATION_LEVELS) if level != "unknown"}
@@ -59,8 +61,6 @@ class Preferences:
     visa: Criterion = _criterion("dont_care", False)  # value: I need sponsorship
     clearance: Criterion = _criterion("dont_care", False)  # value: I hold a clearance
     travel: Criterion = _criterion("dont_care", None)  # value: max travel %
-    education: Criterion = _criterion("dont_care", None)  # value: my education level
-    experience: Criterion = _criterion("dont_care", None)  # value: my years of experience
     company_blocklist: Criterion = _criterion("dont_care", list)
     # Assessment layer importances (scored by Claude, see scoring/assessment.py); their value is unused.
     skills_match: Criterion = _criterion("very_important", None)
@@ -123,7 +123,6 @@ OPTIONS = {
     "role_category": list(ROLE_CATEGORIES),
     "seniority": [s for s in SENIORITIES if s != "unknown"],
     "employment_type": [t for t in EMPLOYMENT_TYPES if t != "unknown"],
-    "education": [e for e in EDUCATION_LEVELS if e != "unknown"],
     "salary_period": list(SALARY_PERIODS_PER_YEAR),
     "importance": list(IMPORTANCES),
 }
@@ -177,10 +176,6 @@ def _locations(value, default):
     return {"places": _str_list(value.get("places")), "remote_ok": bool(value.get("remote_ok", True))}
 
 
-def _education(value, _default):
-    return value if value in _EDUCATION_RANK else None
-
-
 _VALUE_COERCE = {
     "salary": _salary,
     "locations": _locations,
@@ -191,8 +186,6 @@ _VALUE_COERCE = {
     "visa": lambda v, _d: bool(v),
     "clearance": lambda v, _d: bool(v),
     "travel": lambda v, _d: _number(v),
-    "education": _education,
-    "experience": lambda v, _d: _number(v),
     "company_blocklist": lambda v, _d: _str_list(v),
     **{name: (lambda v, _d: None) for name in LLM_CRITERIA},
 }
@@ -340,27 +333,50 @@ def _score_travel(crit: Criterion, p: JobPosting) -> tuple[float | None, str]:
     return 0.0, f"{pct:.0f}% travel is above your {crit.value:.0f}%"
 
 
-def _score_education(crit: Criterion, p: JobPosting) -> tuple[float | None, str]:
-    if crit.value is None:
-        return None, ""
+def _score_education(have: str | None, p: JobPosting) -> tuple[float, bool, str]:
     needed = _EDUCATION_RANK.get(p.education_level)
     if needed is None:
-        return UNKNOWN, "education not stated"
+        return UNKNOWN, False, "education not stated"
     shown = p.education_level.replace("_", " ")
-    return (1.0, f"asks for {shown}") if needed <= _EDUCATION_RANK[crit.value] else (0.0, f"asks for {shown}")
-
-
-def _score_experience(crit: Criterion, p: JobPosting) -> tuple[float | None, str]:
-    mine = crit.value
+    mine = _EDUCATION_RANK.get(have)
     if mine is None:
-        return None, ""
+        return UNKNOWN, False, f"asks for {shown}; add your education to your Profile"
+    if mine >= needed:
+        return 1.0, False, f"asks for {shown}"
+    if needed - mine == 1:
+        return QUALIFICATION_CLOSE, False, f"asks for {shown}, one step above yours"
+    return 0.0, True, f"asks for {shown}"
+
+
+def _score_experience(have: float | None, p: JobPosting) -> tuple[float, bool, str]:
     need = p.years_experience_min
     if need is None:
-        return UNKNOWN, "years of experience not stated"
+        return UNKNOWN, False, "years of experience not stated"
     note = f"asks for {need:g}+ years"
-    if need <= mine:
-        return 1.0, note
-    return (0.5, note) if need <= mine + 2 else (0.0, note)
+    if have is None:
+        return UNKNOWN, False, f"{note}; add your years of experience to your Profile"
+    if have >= need:
+        return 1.0, False, note
+    if need - have <= 1 or have >= 0.75 * need:
+        return QUALIFICATION_CLOSE, False, f"{note}, you have {have:g}"
+    return 0.0, True, f"{note}, you have {have:g}"
+
+
+def score_qualifications(profile, posting: JobPosting) -> list[Component]:
+    """Education and experience: the user's Profile (`education_level`, `years_experience`; None for no profile)
+    against what the posting asks for, by fixed rules at Very important weight.
+
+    Meeting the requirement scores 1.0, falling just short (one education step, or within a year or 75% of the
+    years) 0.4, and anything further a dealbreaker. Unknown on either side scores 0.5 and never breaks.
+    """
+    out = []
+    for key, scorer, have in (
+        ("education", _score_education, getattr(profile, "education_level", None)),
+        ("experience", _score_experience, getattr(profile, "years_experience", None)),
+    ):
+        score, hit, note = scorer(have, posting)
+        out.append(Component(key, LABELS[key], score, QUALIFICATION_IMPORTANCE, hit, note))
+    return out
 
 
 def _score_company(crit: Criterion, company: str | None) -> tuple[float | None, str]:
@@ -391,8 +407,6 @@ def score_preferences(prefs: Preferences, posting: JobPosting, company: str | No
         "visa": lambda c: _score_visa(c, posting),
         "clearance": lambda c: _score_clearance(c, posting),
         "travel": lambda c: _score_travel(c, posting),
-        "education": lambda c: _score_education(c, posting),
-        "experience": lambda c: _score_experience(c, posting),
         "company_blocklist": lambda c: _score_company(c, posting.company or company),
     }
     out = []
