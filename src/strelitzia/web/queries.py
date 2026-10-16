@@ -65,10 +65,10 @@ def _in(column: str, values: list[str], params: list) -> str:
     return f"{column} IN ({', '.join('?' * len(values))})"
 
 
-def where_clause(f: JobFilters, today: date) -> tuple[str, list]:
-    """The WHERE condition and its parameters for a set of filters."""
-    conds: list[str] = []
-    params: list = []
+def where_clause(f: JobFilters, today: date, user_id: str) -> tuple[str, list]:
+    """The WHERE condition and its parameters for a set of filters over the user's jobs."""
+    conds: list[str] = ["jobs.user_id = ?"]
+    params: list = [user_id]
     status_expr = status_sql(today.isoformat())
 
     statuses = [s for s in f.status if s != "all"]
@@ -118,7 +118,7 @@ def where_clause(f: JobFilters, today: date) -> tuple[str, list]:
         cols = ("title", "company", "site")
         conds.append("(" + " OR ".join(f"LOWER(COALESCE({c}, '')) LIKE ? ESCAPE '!'" for c in cols) + ")")
         params.extend([_like(f.q.strip())] * len(cols))
-    return (" AND ".join(conds) or "1=1"), params
+    return " AND ".join(conds), params
 
 
 def order_clause(sort: str) -> str:
@@ -175,9 +175,9 @@ def list_item(row: dict, today: date, current_key: str | None = None) -> dict:
     }
 
 
-def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered_at", page: int = 1,
+def list_jobs(conn: Connection, user_id: str, filters: JobFilters, *, sort: str = "-discovered_at", page: int = 1,
               page_size: int = 50, today: date, current_key: str | None = None) -> dict:
-    where, params = where_clause(filters, today)
+    where, params = where_clause(filters, today, user_id)
     total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {where}", params).fetchone()[0]
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
     rows = conn.execute(
@@ -188,26 +188,29 @@ def list_jobs(conn: Connection, filters: JobFilters, *, sort: str = "-discovered
             "items": [list_item(dict(r), today, current_key) for r in rows]}
 
 
-def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
-    """Counts for the filter dropdowns: per status (plus no_response), role_category, work_mode, source; top locations."""
+def facets(conn: Connection, user_id: str, today: date, top_locations: int = 30) -> dict:
+    """Counts over the user's jobs for the filter dropdowns: per status (plus no_response), role_category,
+    work_mode, source; top locations."""
     status_expr = status_sql(today.isoformat())
+    mine = (user_id,)
     by_status = {s: 0 for s in STATUSES}
-    for st, n in conn.execute(f"SELECT {status_expr} AS st, COUNT(*) FROM jobs GROUP BY st").fetchall():
+    for st, n in conn.execute(f"SELECT {status_expr} AS st, COUNT(*) FROM jobs WHERE user_id = ? GROUP BY st",
+                              mine).fetchall():
         by_status[st] = n
     by_status["no_response"] = conn.execute(
-        f"SELECT COUNT(*) FROM jobs WHERE {status_expr} = 'submitted' AND responded_at IS NULL"
+        f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND {status_expr} = 'submitted' AND responded_at IS NULL", mine
     ).fetchone()[0]
 
     def counts(column: str) -> list[dict]:
         rows = conn.execute(
-            f"SELECT {column}, COUNT(*) AS n FROM jobs WHERE {column} IS NOT NULL AND {column} != '' "
-            f"GROUP BY {column} ORDER BY n DESC, {column}"
+            f"SELECT {column}, COUNT(*) AS n FROM jobs WHERE user_id = ? AND {column} IS NOT NULL AND {column} != '' "
+            f"GROUP BY {column} ORDER BY n DESC, {column}", mine
         ).fetchall()
         return [{"value": r[0], "count": r[1]} for r in rows]
 
     locations = counts("location")[:top_locations]
-    total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    manual = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {MANUAL_WHERE}").fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ?", mine).fetchone()[0]
+    manual = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND {MANUAL_WHERE}", mine).fetchone()[0]
     return {
         "total": total,
         "status": [{"value": s, "count": by_status[s], "color": COLORS.get(s)} for s in (*STATUSES, "no_response")],
@@ -216,7 +219,8 @@ def facets(conn: Connection, today: date, top_locations: int = 30) -> dict:
         "location": locations,
         # Flagged jobs that hide_flagged hides (never the ones the user added).
         "flagged": conn.execute(
-            f"SELECT COUNT(*) FROM jobs WHERE NOT ({UNFLAGGED_WHERE}) AND (source IS NULL OR NOT {MANUAL_WHERE})"
+            f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND NOT ({UNFLAGGED_WHERE}) "
+            f"AND (source IS NULL OR NOT {MANUAL_WHERE})", mine
         ).fetchone()[0],
         "source": [{"value": "manual", "count": manual}, {"value": "discovered", "count": total - manual}],
     }

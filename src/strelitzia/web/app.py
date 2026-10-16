@@ -82,19 +82,20 @@ def list_jobs(
     page_size: Annotated[int, Query(ge=1, le=queries.MAX_PAGE_SIZE)] = 50,
 ) -> dict:
     conn = db_conn(request)
+    user = current_user(request)
     backfill_job_keys(conn)
     filters = queries.JobFilters(
         status=list(status), role=role, work_mode=work_mode, location=location,
         found_from=found_from, found_to=found_to, due_from=due_from, due_to=due_to,
         score_min=score_min, score_max=score_max, q=q, hide_flagged=hide_flagged, source=list(source),
     )
-    return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today(),
-                             current_key=current_assessment_key(conn, user_id=current_user(request).id))
+    return queries.list_jobs(conn, user.id, filters, sort=sort, page=page, page_size=page_size, today=today(),
+                             current_key=current_assessment_key(conn, user_id=user.id))
 
 
 @api.get("/facets")
 def facets(request: Request) -> dict:
-    return queries.facets(db_conn(request), today())
+    return queries.facets(db_conn(request), current_user(request).id, today())
 
 
 # Large raw columns left out of the detail response (the description comes back once, as description_text).

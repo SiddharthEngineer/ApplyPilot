@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from web_helpers import add_job
+from web_helpers import act_as, add_job, second_user
 
 from strelitzia import users
 from strelitzia.scoring import panel
@@ -107,4 +107,17 @@ def test_reply_with_the_wrong_item_count_is_an_error(client, conn, run):
     assert client.post(url, json={"grader": "you", "item": 9, "winner": "tie"}).status_code == 404
     assert client.post(url, json={"grader": "gpt", "text": "x"}).status_code == 422
     assert client.post("/app/api/panel/runs/nope/grades", json={"grader": "sonnet", "text": "x"}).status_code == 404
+    assert panel.grades(conn, users.owner(conn).id, run["id"]) == {}
+
+
+def test_another_users_panel_run_is_404(client, conn, monkeypatch):
+    _seed(conn)
+    run = client.post("/app/api/panel/runs", json={"n": N}).json()
+    act_as(monkeypatch, second_user(conn))
+    assert client.get(f"/app/api/panel/runs/{run['id']}").status_code == 404
+    res = client.post(f"/app/api/panel/runs/{run['id']}/grades", json={"grader": "you", "item": 1, "winner": "tie"})
+    assert res.status_code == 404
+    page = client.get("/app/api/panel").json()
+    assert page["runs"] == [] and page["comparable"] == {"latest_vs_previous": 0, "rules_a_vs_b": 0}
+    assert client.post("/app/api/panel/runs", json={"n": N}).status_code == 409
     assert panel.grades(conn, users.owner(conn).id, run["id"]) == {}

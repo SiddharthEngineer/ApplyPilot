@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from web_helpers import add_job
+from web_helpers import act_as, add_job, second_user
 
+from strelitzia import users
 from strelitzia.database import job_key
 from strelitzia.web.app import create_app
 
@@ -181,6 +182,47 @@ def test_interviews_crud(client, conn):
     assert client.delete(f"/app/api/interviews/{iv['id']}").json() == {"ok": True}
     assert client.delete(f"/app/api/interviews/{iv['id']}").status_code == 404
     assert client.get(f"/app/api/jobs/{k1}").json()["interviews"] == []
+
+
+def test_another_users_job_contacts_and_interviews_are_404(client, conn, monkeypatch):
+    url = "https://x/1"
+    add_job(conn, url, title="Mine", location="Lisbon")
+    key = job_key(url)
+    ana = client.post(f"/app/api/jobs/{key}/contacts", json={"contact": {"name": "Ana"}, "relation": "recruiter"}
+                      ).json()["contacts"][0]
+    iv = client.post(f"/app/api/jobs/{key}/interviews", json={"stage": "phone"}).json()
+    client.post(f"/app/api/jobs/{key}/status", json={"status": "in_progress"})
+
+    bo = second_user(conn)
+    act_as(monkeypatch, bo)
+    assert client.get(f"/app/api/jobs/{key}").status_code == 404
+    assert client.post(f"/app/api/jobs/{key}/status", json={"status": "submitted"}).status_code == 404
+    assert client.patch(f"/app/api/jobs/{key}", json={"notes": "x"}).status_code == 404
+    assert client.post(f"/app/api/jobs/{key}/interviews", json={}).status_code == 404
+    assert client.get(f"/app/api/contacts/{ana['id']}").status_code == 404
+    assert client.patch(f"/app/api/contacts/{ana['id']}", json={"name": "Mine"}).status_code == 404
+    assert client.delete(f"/app/api/contacts/{ana['id']}").status_code == 404
+    assert client.patch(f"/app/api/interviews/{iv['id']}", json={"outcome": "rejected"}).status_code == 404
+    assert client.delete(f"/app/api/interviews/{iv['id']}").status_code == 404
+    assert client.get("/app/api/contacts").json() == []
+    assert _list(client) == []
+    facets = client.get("/app/api/facets").json()
+    assert facets["total"] == 0 and facets["location"] == []
+
+    # Bo's own row for the same posting shares the key but none of the workspace, and can't take Ana.
+    add_job(conn, url, title="Theirs", user_id=bo.id)
+    job = client.get(f"/app/api/jobs/{key}").json()
+    assert (job["title"], job["contacts"], job["interviews"], job["events"]) == ("Theirs", [], [], [])
+    assert client.post(f"/app/api/jobs/{key}/contacts",
+                       json={"contact_id": ana["id"], "relation": "referral"}).status_code == 404
+    assert client.delete(f"/app/api/jobs/{key}/contacts/{ana['id']}").status_code == 200
+    assert [j["title"] for j in _list(client)] == ["Theirs"]
+
+    act_as(monkeypatch, users.owner(conn))
+    job = client.get(f"/app/api/jobs/{key}").json()
+    assert job["title"] == "Mine" and job["status"] == "in_progress"
+    assert [c["name"] for c in job["contacts"]] == ["Ana"] and [i["id"] for i in job["interviews"]] == [iv["id"]]
+    assert client.get("/app/api/facets").json()["total"] == 1
 
 
 def test_writes_need_the_csrf_header(db_path, conn):
