@@ -278,7 +278,7 @@ export default function JobPage() {
           <DetailSections d={d} />
         ) : (
           <Section title="Description">
-            <p className="muted">Not extracted yet. Run <code>strelitzia run extract</code> to fill these sections.</p>
+            <p className="muted">Not extracted yet: these sections fill in once extraction runs.</p>
             <p className="pre">{job.description_text || 'No description was scraped for this job.'}</p>
           </Section>
         )}

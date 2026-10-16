@@ -36,7 +36,9 @@ using `users.py`. Output is a Rich table.
 Keep library modules the dashboard uses (pipeline stage functions, scorer, intake). `doctor` checks the DB, the env keys
 for auth/Drive/Claude, and drops the profile.json check.
 **Validate:** `scripts/validate.sh` → green; `strelitzia --help` lists only serve, init, doctor, db, users.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 2 commit). Also removed `discover`, `status`, `classify`, `template` and `drive links`
+so the help lists only the five admin commands. Kept `storage/sync.py` and `tests/test_drive_sync.py`: the dashboard's
+paste-a-draft endpoint uploads with `sync.sync_job` and the pdf stage reads `moved_pdf_paths`.
 
 ### Task 3: docs
 **Runs:** unattended

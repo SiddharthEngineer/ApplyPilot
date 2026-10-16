@@ -129,19 +129,6 @@ class TestDiscoveryOffByDefault:
 
         assert _resolve_stages(["enrich", "discover"]) == ["discover", "enrich"]
 
-    def test_cli_passes_with_discover(self):
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        with mock.patch("strelitzia.cli._bootstrap"), \
-                mock.patch("strelitzia.config.check_tier"), \
-                mock.patch("strelitzia.pipeline.run_pipeline", return_value={"errors": {}}) as rp:
-            assert CliRunner().invoke(app, ["run", "--dry-run"]).exit_code == 0
-            assert rp.call_args.kwargs["with_discover"] is False
-            assert CliRunner().invoke(app, ["run", "--with-discover", "--dry-run"]).exit_code == 0
-            assert rp.call_args.kwargs["with_discover"] is True
-
     def test_dry_run_header_says_discovery_is_off(self, tmp_path, monkeypatch):
         from strelitzia import pipeline
 

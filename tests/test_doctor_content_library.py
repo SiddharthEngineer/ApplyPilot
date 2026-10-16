@@ -1,155 +1,9 @@
-"""Tests for doctor command content library validation."""
+"""Tests for `strelitzia doctor`: the server checks (database, sign-in and Drive keys, Claude)."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
-@pytest.fixture
-def valid_content_library(tmp_path: Path) -> Path:
-    """Create a valid content library file."""
-    lib = tmp_path / "content_library.md"
-    lib.write_text(
-        "# Content Library\n\n"
-        "## CURRENT ROLE — Data Science Associate, AIR (Sep 2025–Present)\n\n"
-        "### PatentsView Data Pipeline Lead (Nov 2025–present)\n\n"
-        "- **Context:** Led migration of legacy pipeline\n"
-        "- **Scope/Scale:** 1M+ records\n"
-        "- **Tools & Actions:** Python, Docker, Airflow\n"
-        "- **Outcome/Metrics:** 99.9% uptime\n"
-        "- **Angles:** DEVOPS, PIPELINE\n\n"
-        "### Another Project (Jan 2025–May 2025)\n\n"
-        "- **Context:** Built data dashboard\n"
-        "- **Scope/Scale:** 10k users\n"
-        "- **Tools & Actions:** React, D3.js\n"
-        "- **Outcome/Metrics:** 50% faster reporting\n"
-        "- **Angles:** FRONTEND, DATA-VISUALIZATION\n\n"
-        "## PRIOR ROLE — Software Engineer, Acme Corp (Jun 2023–Aug 2025)\n\n"
-        "### Legacy Migration (Jun 2023–Dec 2023)\n\n"
-        "- **Context:** Migrated monolith to microservices\n"
-        "- **Scope/Scale:** 500k requests/day\n"
-        "- **Tools & Actions:** Go, Kubernetes, Terraform\n"
-        "- **Outcome/Metrics:** 99.95% uptime\n"
-        "- **Angles:** DEVOPS, MICROSERVICES\n",
-        encoding="utf-8",
-    )
-    return lib
-
-
-@pytest.fixture
-def malformed_content_library(tmp_path: Path) -> Path:
-    """Create a malformed content library file."""
-    lib = tmp_path / "bad_library.md"
-    lib.write_text(
-        "# Bad Library\n\n"
-        "This is not a valid content library format.\n",
-        encoding="utf-8",
-    )
-    return lib
-
-
-class TestDoctorContentLibraryCheck:
-    """Tests for content library check in doctor command."""
-
-    def test_content_library_present_and_valid(self, valid_content_library: Path) -> None:
-        """When content library exists and parses OK, doctor shows OK with stats."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        runner = CliRunner()
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", valid_content_library):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "content_library.md" in result.output
-        assert "OK" in result.output
-        assert "parsed:" in result.output
-        assert "project" in result.output
-        assert "angle tag" in result.output
-
-    def test_content_library_missing(self, tmp_path: Path) -> None:
-        """When content library is missing, doctor shows WARN."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        runner = CliRunner()
-        missing_path = tmp_path / "nonexistent" / "content_library.md"
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", missing_path):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "content_library.md" in result.output
-        assert "WARN" in result.output
-
-    def test_content_library_malformed(self, malformed_content_library: Path) -> None:
-        """When content library exists but has no role sections, parses but returns empty."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        runner = CliRunner()
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", malformed_content_library):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "content_library.md" in result.output
-        assert "OK" in result.output
-        assert "parsed:" in result.output
-
-    def test_content_library_parse_error(self, tmp_path: Path) -> None:
-        """When content library file exists but parse raises, doctor shows ERROR."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        bad_file = tmp_path / "content_library.md"
-        bad_file.write_text("data", encoding="utf-8")
-
-        runner = CliRunner()
-        with (
-            patch("strelitzia.config.CONTENT_LIBRARY_PATH", bad_file),
-            patch("strelitzia.scoring.content_library.parse_content_library", side_effect=RuntimeError("bad file")),
-        ):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "content_library.md" in result.output
-        assert "ERROR" in result.output
-        assert "bad file" in result.output
-
-    def test_tier_summary_shows_content_library_hint(self, valid_content_library: Path) -> None:
-        """When content library is present, tier summary shows usage hint."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        runner = CliRunner()
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", valid_content_library):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "Open in Claude" in result.output and "claude-setup" in result.output
-        assert "--source" not in result.output
-        assert "strelitzia template init" in result.output
-
-    def test_tier_summary_no_hint_when_missing(self, tmp_path: Path) -> None:
-        """When content library is missing, no usage hint in tier summary."""
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        runner = CliRunner()
-        missing_path = tmp_path / "nonexistent" / "content_library.md"
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", missing_path):
-            result = runner.invoke(app, ["doctor"])
-
-        assert result.exit_code == 0
-        assert "Content library mode is the default" not in result.output
 
 
 class TestDoctorClaude:
@@ -160,15 +14,16 @@ class TestDoctorClaude:
 
         from strelitzia.cli import app
 
-        for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "LLM_MONTHLY_BUDGET_USD", *(f"LLM_{p}_{k}" for p in
+        for key in ("ANTHROPIC_API_KEY", *(f"{prefix}_{name}" for prefix in ("STRELITZIA", "APPLYPILOT") for name in
+                    ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "OWNER_EMAIL", "PUBLIC_URL",
+                     "TOKEN_KEY")), "GEMINI_API_KEY", "LLM_MONTHLY_BUDGET_USD", *(f"LLM_{p}_{k}" for p in
                     ("DISCOVERY", "EXTRACT", "SCORING", "TAILOR", "COVER") for k in ("MODEL", "EFFORT"))):
             monkeypatch.delenv(key, raising=False)
         for key, val in env.items():
             monkeypatch.setenv(key, val)
         db = tmp_path / "doctor.db"
         runner = CliRunner()
-        with patch("strelitzia.config.CONTENT_LIBRARY_PATH", tmp_path / "missing" / "content_library.md"), \
-                patch("strelitzia.config.DB_PATH", db), patch("strelitzia.database.DB_PATH", db), \
+        with patch("strelitzia.config.DB_PATH", db), patch("strelitzia.database.DB_PATH", db), \
                 patch("strelitzia.config.load_env", lambda: None):
             return runner.invoke(app, ["doctor"])
 
@@ -211,3 +66,38 @@ class TestDoctorClaude:
         assert result.exit_code == 0, result.output
         assert "$0.00 this month, no budget" in result.output
         assert "Open batches" in result.output
+
+    def test_no_profile_files_checked(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k"})
+        assert result.exit_code == 0, result.output
+        for name in ("profile.json", "resume.txt", "content_library.md", "searches.yaml", "Current tier"):
+            assert name not in result.output
+
+    def test_sign_in_off(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"ANTHROPIC_API_KEY": "k"})
+        out = " ".join(result.output.split())
+        assert "Google sign-in WARN Off: set STRELITZIA_GOOGLE_CLIENT_ID" in out
+        assert "Drive connect WARN Needs Google sign-in" in out
+
+    def test_sign_in_missing_keys(self, tmp_path, monkeypatch) -> None:
+        result = self._invoke(tmp_path, monkeypatch, {"STRELITZIA_GOOGLE_CLIENT_ID": "cid",
+                                                      "STRELITZIA_OWNER_EMAIL": "boss@example.com"})
+        out = " ".join(result.output.split())
+        assert "Google sign-in MISSING" in out
+        assert "STRELITZIA_GOOGLE_CLIENT_SECRET, STRELITZIA_SESSION_SECRET is not" in out
+        assert "cid" not in out.replace("CLIENT_ID", "")
+
+    def test_sign_in_and_drive_ready(self, tmp_path, monkeypatch) -> None:
+        from strelitzia.storage import drive
+
+        monkeypatch.setattr(drive, "drive_libraries_installed", lambda: True)
+        result = self._invoke(tmp_path, monkeypatch, {
+            "STRELITZIA_GOOGLE_CLIENT_ID": "cid", "STRELITZIA_GOOGLE_CLIENT_SECRET": "client-secret-value",
+            "STRELITZIA_SESSION_SECRET": "session-secret-value", "STRELITZIA_OWNER_EMAIL": "Boss@Example.com",
+            "STRELITZIA_PUBLIC_URL": "https://jobs.example.com", "STRELITZIA_TOKEN_KEY": "token-key-value"})
+        assert result.exit_code == 0, result.output
+        out = " ".join(result.output.split())
+        assert "Google sign-in OK On, owner boss@example.com" in out
+        assert "Drive connect OK" in out and "Public URL" not in out
+        for secret in ("client-secret-value", "session-secret-value", "token-key-value"):
+            assert secret not in out

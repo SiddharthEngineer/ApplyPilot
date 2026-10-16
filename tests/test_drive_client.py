@@ -123,7 +123,7 @@ def test_missing_token(monkeypatch, tmp_path):
     pytest.importorskip("googleapiclient")
     from strelitzia import config
     monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", tmp_path / "none.json")
-    with pytest.raises(DriveNotConfigured, match="drive auth"):
+    with pytest.raises(DriveNotConfigured, match="Connect Google Drive"):
         load_credentials()
 
 

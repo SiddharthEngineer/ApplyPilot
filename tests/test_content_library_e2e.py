@@ -1,23 +1,6 @@
-"""Content-library flows that outlive the API tailor: cover-letter evidence and the run command's options."""
+"""Content-library flows that outlive the API tailor: cover-letter evidence."""
 
 import json
-import re
-
-
-def _plain(text: str) -> str:
-    """Strip ANSI styling (rich colors help output when CI forces a terminal)."""
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
-
-
-class TestRunLimit:
-    def test_run_help_lists_limit(self):
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        out = _plain(CliRunner().invoke(app, ["run", "--help"], env={"COLUMNS": "200"}).output)
-        assert "--limit" in out
-        assert "--validation" not in out and "--source" not in out  # the API tailor's options are gone
 
 
 class TestCoverLetterEvidence:

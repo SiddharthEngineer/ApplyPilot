@@ -635,33 +635,3 @@ class TestProbeAts:
             mod.probe_boards(["indeed"])
         fetch.assert_not_called()
 
-
-class TestDiscoverProbeCli:
-    """`strelitzia discover --probe` prints one row per configured board."""
-
-    def test_cli_probe_uses_config_sites(self):
-        from unittest import mock
-
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-        from strelitzia.discovery.jobspy import BoardHealth
-
-        health = [BoardHealth("indeed", "ok", 3, 0.9), BoardHealth("zip_recruiter", "blocked", 0, 0.4, "status code 403")]
-        with mock.patch("strelitzia.config.load_env"), \
-                mock.patch("strelitzia.config.load_search_config",
-                           return_value={"sites": ["indeed", "zip_recruiter"]}), \
-                mock.patch("strelitzia.discovery.jobspy.probe_boards", return_value=health) as probe:
-            result = CliRunner().invoke(app, ["discover", "--probe"])
-        assert result.exit_code == 0, result.output
-        assert probe.call_args.args[0] == ["indeed", "zip_recruiter"]
-        assert probe.call_args.kwargs["include_ats"] is True
-        assert "indeed" in result.output and "blocked" in result.output
-
-    def test_cli_discover_without_probe_exits_nonzero(self):
-        from typer.testing import CliRunner
-
-        from strelitzia.cli import app
-
-        result = CliRunner().invoke(app, ["discover"])
-        assert result.exit_code == 1
