@@ -1,5 +1,5 @@
 # Plan: Claude workbench: tailor resumes and cover letters in Claude Pro via Drive packets and paste-back
-**Status:** ✅ Tasks 0-7 done 2026-10-15 (PR open, branch agent/claude-workbench); you: end-to-end run (M22)
+**Status:** ✅ Tasks 0-7 done, archived 2026-10-16 (#50). The end-to-end run is ROADMAP manual step M22.
 **Risk:** review (removes the API writer, changes the template, PDF output, Drive client, DB columns, web routes and the job page; adds deps)
 
 ## Goal

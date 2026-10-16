@@ -7,20 +7,16 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 ## Active
 
+None. R18 and R20-R24 are merged and archived (2026-10-16); what is left of them is manual steps M17, M18 and M20-M24.
+
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| R18 | Strelitzia pivot: rename, drop auto-apply, bird-of-paradise theme (v0.4.0) | [strelitzia-pivot](plans/strelitzia-pivot.md) | review | 🟡 merged (#33); live on strelitzia.engineerfamily.net; you: M17 | M14 |
-| R20 | Claude API as the only LLM provider (Batch API, spend ledger, monthly budget); Gemini removed | [claude-llm-provider](plans/claude-llm-provider.md) | review | ✅ Tasks 1-6 merged (#39), extraction schema fix (#43), Task 7 live run passed (M19) | M18 |
-| R21 | Preferences page + two-layer fit score (code-scored preferences, Claude rubric, rescore cost confirm, Haiku/Sonnet eval) | [fit-preferences](plans/fit-preferences.md) | review | ✅ Tasks 0-4 merged (#40); Task 5 eval script in review; you: labels + eval run (M20) | R20 |
-| R22 | Workspace intake: Add job by link (scrape, paste fallback), shared contacts, interviews, discovery off by default | [workspace-intake](plans/workspace-intake.md) | review | 🟡 Tasks 1-5 done (PR open, branch agent/workspace-intake); you: live check (M21) | R20 |
-| R23 | Claude workbench: tailor resume + cover in Claude Pro via Drive packets and paste-back; ATS-safe PDF/DOCX; API writer removed | [claude-workbench](plans/claude-workbench.md) | review | 🟡 Tasks 0-7 done (PR open, branch agent/claude-workbench); you: end-to-end (M22) | R22 (M8 only for real Drive use) |
-| R24 | Resume panel: blind A/B grading in Claude Pro with a rubric, your picks, "panel due" reminders | [resume-panel](plans/resume-panel.md) | review | 🟡 Tasks 0-4 done (PR open, branch agent/resume-panel); you: first panel (M23) | R23 |
 
 ## Manual steps (you)
 
 | ID | Step | Done |
 |---|---|---|
-| M2 | Decide whether to pay for a residential proxy. Without one, Glassdoor and ZipRecruiter stay disabled (Cloudflare 403). | ☐ |
+| M2 | Obsolete (2026-10-16): discovery is off by default (R22) and jobs come in by manual upload. Decide whether to pay for a residential proxy. Without one, Glassdoor and ZipRecruiter stay disabled (Cloudflare 403). | ☑ |
 | M3 | Obsolete: replaced by M19, and the backlog was pruned on 2026-10-15. `strelitzia run score --reset-errors`, then `strelitzia run score`, to re-score jobs stuck at 0 (may take more than one day on the free tier). | ☑ |
 | M5 | Obsolete: R18 removed auto-apply (applications are tracked by hand in the dashboard). | ☑ |
 | M8 | Google Cloud OAuth desktop client with the Drive API, saved to `~/.applypilot/google_client_secret.json`, then `strelitzia drive auth --no-browser`, `strelitzia drive sync` and `DRIVE_SYNC=1` (R6 code is done and archived; checklist in `plans/done/google-drive-file-library.md` Task 8). | ☐ |
@@ -33,10 +29,11 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 | M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/done/llm-limits-config.md), "After merge"). Done 2026-10-12: engineerfamily v1.0.3 (PR #25) dropped the `/app/.env` mount, the OAuth token left `~/.applypilot/.env`, ApplyPilot prod at f5fae69. | ☑ |
 | M18 | Before R20 runs: Anthropic Console account + API key, set a monthly spend limit in the Console, put `ANTHROPIC_API_KEY` and `LLM_MONTHLY_BUDGET_USD` in `~/.strelitzia/.env` on the VPS. **Never** in `~/.config/strelitzia-agent/env`: `claude -p` would bill the API instead of the subscription. 2026-10-13: key added (Default Workspace); still to do: Console spend limit, `LLM_MONTHLY_BUDGET_USD`. | ☐ |
 | M19 | After R20 merges: delete `GEMINI_API_KEY` and the `LLM_*_MODEL` lines from `~/.strelitzia/.env`. Run the skipped interactive Task 7 (`pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py`, ~$0.05), then `strelitzia doctor` and `strelitzia run extract` to clear the backlog. Deploy prod when happy. Replaces M3 and M11. Done 2026-10-15: `.env` cleaned (backup `.env.bak-20261015-m19`). Task 7: 6/7 passed; extraction hit the 16-union schema limit, fixed in #43 and passed on rerun. `doctor` OK. Instead of a full backlog extract, 3,126 discovered jobs were deleted (dump in `~/backups/applypilot-before-prune-20261015.dump`) and 10 of the 21 kept jobs extracted as a sample ($0.005). Prod not deployed. | ☑ |
-| M20 | After R21 Task 5 (the eval script) merges: label ~30 jobs with `scripts/eval_fit.py sample`, run `scripts/eval_fit.py run` (~$1 of API), pick the scoring model in `llm_models.yaml`, and record the numbers in the plan's Decisions. | ☐ |
-| M21 | After R22 merges: live check on real postings. Add one link each from Greenhouse, Lever, Ashby, a Workday portal, a company careers page, LinkedIn and Indeed; note `intake_status`, seconds until scored, and whether the paste fallback appeared. Greenhouse/Lever/Ashby should reach `ok`; LinkedIn/Indeed reach `ok` or show the paste panel, never a stuck spinner. | ☐ |
-| M22 | After R23 merges (and M8 for Drive): open `/claude-setup`, create the "Strelitzia Resumes" Claude Project and attach the Docs. On three jobs: Open in Claude, iterate once, paste the result, paste one bad result to see the fix message, then check the PDF, DOCX and cover PDF in Drive. | ☐ |
-| M23 | After R24 merges and a handful of R23 drafts exist: create the "Strelitzia Panel" project with the rubric Doc, run one 5-item panel on Sonnet and Opus, make your picks, and add a ROADMAP decision line with the verdict. | ☐ |
+| M20 | Deferred until about 30 extracted jobs exist (the 2026-10-15 prune left about 10; `sample` only picks extracted jobs). Scoring stays on Haiku until then. R21 Task 5 merged (#52): label ~30 jobs with `scripts/eval_fit.py sample`, run `scripts/eval_fit.py run` (~$1 of API), pick the scoring model in `llm_models.yaml`, and record the numbers in the plan's Decisions. | ☐ |
+| M21 | R22 merged (#44). Live check on real postings. Add one link each from Greenhouse, Lever, Ashby, a Workday portal, a company careers page, LinkedIn and Indeed; note `intake_status`, seconds until scored, and whether the paste fallback appeared. Greenhouse/Lever/Ashby should reach `ok`; LinkedIn/Indeed reach `ok` or show the paste panel, never a stuck spinner. | ☐ |
+| M22 | R23 merged (#50). With M8 done for Drive (without it the packet goes to the clipboard): open `/claude-setup`, create the "Strelitzia Resumes" Claude Project and attach the Docs. On three jobs: Open in Claude, iterate once, paste the result, paste one bad result to see the fix message, then check the PDF, DOCX and cover PDF in Drive. | ☐ |
+| M23 | R24 merged (#51). After M22, once 5 jobs have two drafts each: create the "Strelitzia Panel" project with the rubric Doc, run one 5-item panel on Sonnet and Opus, make your picks, and add a ROADMAP decision line with the verdict. | ☐ |
+| M24 | Deploy prod: `make -C ~/src/engineerfamily strelitzia-deploy`, then the prod checks in `DEPLOY.md`. On 2026-10-16 prod was still at d05aecb (R18), 49 commits behind trunk, so R20-R24 were on preprod only. Prod reads `~/.strelitzia/.env`, which M19 already moved to Claude, so (per M19) the old Gemini code on prod has no LLM key. Do M18 first. | ☐ |
 
 ## Decisions (current)
 - 2026-10-15 (user): Jobs come in by manual upload (R22 Add job) from now on, not bulk discovery. The discovered backlog was pruned to the 21 jobs with activity or the best fit scores; don't run full-backlog extract or score jobs.
@@ -54,9 +51,7 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 - 2026-10-01: Pipeline LLM calls stay on the Gemini free tier. `applypilot apply` keeps the user in the loop.
 
 ## Backlog (not yet planned)
-- Pipeline cron on the VPS (`discover → enrich → extract → score`).
 - "Posting closed" liveness check, so jobs without a stated deadline can turn Inactive.
 - Nightly `pg_dump` of the `applypilot` DB to `/srv/backups`.
-- Resume and cover letter quality pass on Claude (Sonnet 5.5; Opus 5.5 per document as an option): prompts, evidence use, an eval like R21 Task 5.
-- Split the god-files (`smartextract.py`, `scoring/tailor.py`, `cli.py`); review risk.
+- Split the god-files (`smartextract.py`, `cli.py`; `scoring/tailor.py` shrank to 69 lines in R23); review risk.
 - Runner: let the agent address review comments on its own PRs (re-queue on a "changes requested" review).

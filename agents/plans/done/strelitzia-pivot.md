@@ -1,5 +1,5 @@
 # Plan: Strelitzia pivot (rename, drop auto-apply, bird-of-paradise theme)
-**Status:** 🟡 Code done 2026-10-12 (#33; `.github/` edits in #34 and #36); left for the user: preprod check, then M15/M16
+**Status:** ✅ Done, archived 2026-10-16. Code in #33 (`.github/` in #34, #36); cutover M15/M16 done 2026-10-13, live on strelitzia.engineerfamily.net. Left as ROADMAP manual step M17 (OAuth consent branding, USPTO search).
 **Risk:** review (renames the package, CLI, env vars and data dir, deletes the apply stage, and redesigns the dashboard)
 
 ## Goal
@@ -68,7 +68,7 @@ the CLI help no longer lists `apply`.
 `applypilot-agent` path. ntfy title is "Strelitzia agent". Delete `publish.yml` (no PyPI publishing).
 Don't hardcode `/home/dev/src/ApplyPilot` anywhere. Derive the repo root from the script location.
 **Validate:** `bash -n scripts/agent/*.sh`; `python3 scripts/agent/buildqueue.py list` works with only the old dirs present;
-`python3 scripts/agent/gate.py agents/plans/strelitzia-pivot.md --plan` runs.
+`python3 scripts/agent/gate.py agents/plans/done/strelitzia-pivot.md --plan` runs.
 **Status:** ✅ 2026-10-12 (this commit): runner, inbox, usage, preprod, validate.sh and `.claude/commands` renamed with legacy fallbacks (inbox also still recognises the old comment marker). The `.github/` part (outside the agent's permissions) was done interactively: `ci.yml` points at `src/strelitzia/web/static` (#34), `publish.yml` deleted (#36). No script referenced `/var/log/applypilot-agent`; the migration script prints its `sudo` move.
 
 ### Task 4: Sunrise theme and animated Strelitzia flower
@@ -136,7 +136,7 @@ Tests run the script against a fake `HOME` in `tmp_path`: the dry run changes no
 - Preprod (deployed by the runner into the unchanged engineerfamily stack) is healthy at `/app/api/health`.
 
 ## Human test steps (preprod)
-1. Open `https://applypilot-preprod.engineerfamily.net/app/` (the URL changes after M16) and log in with the preprod credentials.
+1. Open `https://strelitzia-preprod.engineerfamily.net/app/` (or prod, where this has been live since 2026-10-13) and log in with the preprod credentials.
 2. The top bar shows the flower mark and "Strelitzia". The jobs page hero shows the flower unfolding, then swaying, with the tagline and counts.
 3. Switch the OS between light and dark mode: cream/orange becomes indigo night/orange, and badges stay readable.
 4. Reload with a slow network (DevTools → Slow 3G): a blooming flower appears while loading. Filter to no results: a seedling appears.
