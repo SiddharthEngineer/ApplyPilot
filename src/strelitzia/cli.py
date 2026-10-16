@@ -295,12 +295,14 @@ app.add_typer(workbench_app, name="workbench")
 
 
 def _workbench_job(key: str) -> tuple:
+    from strelitzia import users
     from strelitzia.database import backfill_job_keys, get_connection
 
     _bootstrap()
     conn = get_connection()
     backfill_job_keys(conn)
-    row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+    # The CLI acts as the owner: every user's row for a posting shares its key.
+    row = conn.execute("SELECT * FROM jobs WHERE user_id = ? AND job_key = ?", (users.owner(conn).id, key)).fetchone()
     if row is None:
         console.print(f"[red]No job with key {key}.[/red] The key is the last part of the job's dashboard URL.")
         raise typer.Exit(code=1)
@@ -351,7 +353,8 @@ def workbench_import(
             from strelitzia.storage.drive import DriveClient
             from strelitzia.storage.sync import sync_job
 
-            row = conn.execute("SELECT * FROM jobs WHERE url = ?", (job["url"],)).fetchone()
+            row = conn.execute("SELECT * FROM jobs WHERE user_id = ? AND url = ?",
+                               (job["user_id"], job["url"])).fetchone()
             sync_job(conn, DriveClient.from_credentials(), dict(row))
             console.print("  Moved the PDFs to Google Drive.")
         except Exception as e:  # noqa: BLE001 -- the files are saved locally; `strelitzia drive sync` retries

@@ -3,6 +3,7 @@
 import pytest
 from fake_drive import FakeDrive, fake_media
 
+from strelitzia import users
 from strelitzia.database import init_db
 from strelitzia.storage.drive import DriveClient
 from strelitzia.storage.sync import ensure_local_pdf, local_pdf, run_drive_sync
@@ -59,6 +60,17 @@ def test_sync_moves_pdfs_and_saves_links(conn, client, drive, tmp_path):
     assert stem.with_suffix(".json").exists()  # working files stay
     assert (tmp_path / "1_CL.txt").exists()
     assert drive.path_of(row["resume_drive_id"])[:4] == ["Strelitzia", "Acme", "Data Engineer", "2026-09-30"]
+
+
+def test_sync_writes_only_the_jobs_users_row(conn, client, tmp_path):
+    _add_job(conn, tmp_path)
+    other = users.invite(conn, "b@example.com").id
+    conn.execute("INSERT INTO jobs (user_id, url, title) VALUES (?, ?, 'Theirs')", (other, "https://example.com/jobs/1"))
+    conn.commit()
+    run_drive_sync(conn, client)
+    rows = {r["user_id"]: dict(r) for r in conn.execute("SELECT * FROM jobs").fetchall()}
+    assert rows[users.owner(conn).id]["resume_drive_id"] and rows[users.owner(conn).id]["drive_folder_id"]
+    assert rows[other]["resume_drive_id"] is None and rows[other]["drive_folder_id"] is None
 
 
 def test_sync_saves_the_job_folder(conn, client, drive, tmp_path):
