@@ -1,5 +1,5 @@
 # Plan: Preferences page and two-layer fit score (code-scored preferences + LLM rubric)
-**Status:** 🟡 Tasks 0-4 done (#40); Task 5 (eval script) queued; labelling and the paid eval run are M20
+**Status:** ✅ Tasks 0-5 done (Tasks 0-4 in #40); labelling and the paid eval run are M20
 **Risk:** review (new DB tables, web API and dashboard page; changes what `fit_score` means)
 **Depends on:** [claude-llm-provider](claude-llm-provider.md) (Claude client, batch runner, `estimate_cost`, `llm_usage`)
 
