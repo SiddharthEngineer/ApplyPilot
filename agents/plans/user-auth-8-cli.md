@@ -1,5 +1,5 @@
 # Plan: User accounts, part 8: admin-only CLI
-**Status:** ❌ Not started
+**Status:** 🚧 In progress
 **Risk:** review (removes CLI commands)
 **Issue:** #47
 **Depends on:** user-auth-7-dashboard
@@ -27,7 +27,7 @@ per-user action now happens there under a signed-in user.
 **What:** `strelitzia users list`, `users invite <email> [--cap 5]`, `users disable <email>`, `users cap <email> <usd>`,
 using `users.py`. Output is a Rich table.
 **Validate:** `pytest tests/test_cli_users.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 1 commit)
 
 ### Task 2: remove per-user commands
 **Runs:** unattended
