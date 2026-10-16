@@ -1,5 +1,5 @@
 # Plan: User accounts, part 3: per-user preferences, scoring and spend caps
-**Status:** 🔄 In progress
+**Status:** ✅ Done (2026-10-16)
 **Risk:** review (scoring and the LLM budget gate)
 **Issue:** #47
 **Depends on:** user-auth-2-intake

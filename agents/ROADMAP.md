@@ -13,7 +13,7 @@ R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a t
 |---|---|---|---|---|---|
 | R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | ✅ PR open | - |
 | R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | ✅ PR open | R25 |
-| R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ⏳ | R26 |
+| R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ✅ PR open | R26 |
 | R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | ⏳ | R27 |
 | R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | ⏳ | R28 |
 | R30 | Users 6: connect Drive per user (#47) | [user-auth-6-drive](plans/user-auth-6-drive.md) | review | ⏳ | R29 |
