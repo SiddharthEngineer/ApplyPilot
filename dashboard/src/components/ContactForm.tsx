@@ -10,10 +10,11 @@ export function contactProblem(fields: NewContact): string | null {
   if (fields.email && !fields.email.includes('@')) return 'Email must contain @.';
   if (fields.linkedin_url) {
     let ok = false;
-    try {
+    try { // the shape check keeps the browser's URL parser and the API's urlparse on the same host
       const url = new URL(fields.linkedin_url);
       const host = url.hostname.toLowerCase();
-      ok = ['http:', 'https:'].includes(url.protocol) && (host === 'linkedin.com' || host.endsWith('.linkedin.com'));
+      ok = /^https?:\/\/[^\\\s]+$/i.test(fields.linkedin_url)
+        && (host === 'linkedin.com' || host.endsWith('.linkedin.com'));
     } catch {
       ok = false;
     }
@@ -50,7 +51,7 @@ export default function ContactForm({ initial = {}, submitLabel = 'Save contact'
     try {
       await onSubmit(fields);
     } catch (err) {
-      setError((err instanceof Error ? err.message : String(err)).replace(/Value error, /g, ''));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }

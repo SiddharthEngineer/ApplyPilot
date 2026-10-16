@@ -114,7 +114,8 @@ export default function ContactsPage() {
               const created = await api.createContact(fields);
               setCreating(false);
               setSelected(created.id);
-              load();
+              if (q.trim()) setQ(''); // so the new contact shows in the list; the search effect reloads it
+              else load();
             }} />
         </div>
       )}
