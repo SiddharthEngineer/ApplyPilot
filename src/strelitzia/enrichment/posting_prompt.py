@@ -30,9 +30,28 @@ _ROLE_HINTS = {
     "quant_finance": "quantitative researcher/developer/analyst, trading",
     "hardware_electrical": "hardware, electrical, chip/ASIC/FPGA, photonics, embedded/firmware, RF, "
                            "semiconductor fab/process/yield/metrology engineering",
-    "it_infra_devops": "DevOps, SRE, cloud/infra/platform/network/security engineer, sysadmin, IT",
-    "other": "sales, customer success, operations, consultants, implementation/delivery managers, "
-             "non-technical, anything else",
+    "it_infra_devops": "DevOps, SRE, cloud/infra/platform/network engineer, sysadmin, IT support",
+    "cybersecurity": "security engineer/analyst, SOC, penetration tester, AppSec, GRC, identity/access",
+    "design_ux": "product/UX/UI/visual/graphic designer, UX researcher, design systems",
+    "marketing": "marketing, growth, brand, SEO/SEM, product marketing, communications, social media",
+    "sales": "account executive, SDR/BDR, sales manager, business development, sales engineer",
+    "customer_success": "customer success/support/experience, account manager, implementation specialist",
+    "operations": "business/strategy/revenue operations, office manager, chief of staff, admin assistant",
+    "finance_accounting": "accountant, financial analyst, FP&A, controller, auditor, tax, banking, insurance",
+    "consulting": "management/strategy/technology consultant, advisory, implementation/delivery consultant",
+    "legal": "lawyer, attorney, counsel, paralegal, compliance, contracts",
+    "hr_recruiting": "recruiter, talent acquisition, HR business partner, people operations, payroll",
+    "healthcare_clinical": "nurse, physician, therapist, pharmacist, medical assistant, clinical roles",
+    "education_teaching": "teacher, professor, lecturer, tutor, instructional designer, school staff",
+    "science_lab": "lab technician, chemist, biologist, clinical research, lab scientist (non-research-track)",
+    "mechanical_civil_engineering": "mechanical, civil, structural, aerospace, chemical, industrial engineer",
+    "manufacturing": "production, process/quality/manufacturing engineer or technician, plant roles",
+    "supply_chain_logistics": "supply chain, logistics, procurement, purchasing, warehouse, inventory",
+    "writing_content": "technical writer, copywriter, editor, content strategist, journalist",
+    "government_public_policy": "policy analyst, public administration, nonprofit program roles",
+    "trades_skilled": "electrician, plumber, HVAC, mechanic, welder, carpenter, field technician",
+    "hospitality_retail": "retail, store manager, restaurant, hotel, food service, cashier",
+    "other": "anything that fits none of the above",
 }
 
 
