@@ -25,6 +25,7 @@ from strelitzia.enrichment.posting_model import (
     SENIORITIES,
     WORK_MODES,
     JobPosting,
+    role_map,
 )
 
 Importance = Literal["dont_care", "nice", "important", "very_important", "dealbreaker"]
@@ -147,6 +148,8 @@ OPTIONS = {
     "importance": list(IMPORTANCES),
     "red_flags": [{"value": f, "label": f.replace("_", " ").capitalize(), "help": RED_FLAG_HELP[f]}
                   for f in RED_FLAGS_PICKABLE],
+    # Common role titles per job field, to pick target_roles from (custom titles are allowed too).
+    "roles_by_field": role_map(),
 }
 
 

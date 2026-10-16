@@ -293,8 +293,9 @@ export interface RedFlagOption {
 
 export interface PreferencesResponse {
   prefs: Preferences;
-  // Value lists by key; red_flags lists the pickable flags with a label and a one-line explanation.
-  options: Record<string, string[] | RedFlagOption[]>;
+  // Value lists by key; red_flags lists the pickable flags with a label and a one-line explanation;
+  // roles_by_field maps each job field (role_category) to common role titles for target_roles.
+  options: Record<string, string[] | RedFlagOption[] | Record<string, string[]>>;
   labels: Record<string, string>;
 }
 

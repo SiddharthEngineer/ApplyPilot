@@ -81,6 +81,18 @@ def test_get_defaults_and_options(client):
     assert body["labels"]["role_category"] == "Job field"
 
 
+def test_roles_by_field_and_custom_target_roles(client):
+    options = client.get("/app/api/preferences").json()["options"]
+    roles = options["roles_by_field"]
+    assert set(roles) == set(options["role_category"]) - {"other"}
+    assert "marketing" in options["role_category"] and "Data Scientist" in roles["data_science"]
+    # target_roles stays a plain list: titles from the map and custom ones are both kept.
+    prefs = client.get("/app/api/preferences").json()["prefs"]
+    prefs["target_roles"] = ["Data Scientist", "Chief Vibes Officer"]
+    assert client.put("/app/api/preferences", json={"prefs": prefs}).status_code == 200
+    assert client.get("/app/api/preferences").json()["prefs"]["target_roles"] == ["Data Scientist", "Chief Vibes Officer"]
+
+
 def test_preview_salary_change_needs_no_reassessment(client, conn):
     r = client.post("/app/api/preferences/preview", json={"prefs": _prefs(client, salary=SALARY_DEALBREAKER)})
     assert r.json() == {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}

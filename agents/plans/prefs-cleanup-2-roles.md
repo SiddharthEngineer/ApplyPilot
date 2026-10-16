@@ -36,7 +36,7 @@ A test checks every category except "other" has roles and that the JSON has no u
 **What:** `GET /preferences` adds `options.roles_by_field` from roles.json and labels for the new categories. `target_roles`
 stays a list of strings (picked or custom).
 **Validate:** `pytest tests/web/test_preferences_api.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
