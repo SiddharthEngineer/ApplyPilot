@@ -487,6 +487,96 @@ def db_verify(
     console.print("[green]All counts match.[/green]")
 
 
+users_app = typer.Typer(help="User accounts: invite emails, set monthly Claude caps, disable access.", no_args_is_help=True)
+app.add_typer(users_app, name="users")
+
+
+def _users_conn():
+    _bootstrap()
+    from strelitzia import users
+    from strelitzia.database import get_connection
+
+    conn = get_connection()
+    users.owner(conn)  # created on first use, so the list always shows it
+    return conn
+
+
+def _users_table(conn, accounts) -> Table:
+    from strelitzia.llm import user_month_spend
+
+    table = Table(title="Users")
+    for name in ("Email", "Name", "Role", "Status", "Cap (USD/month)", "Spent this month", "Last sign-in"):
+        table.add_column(name)
+    for u in accounts:
+        cap = "none" if u.monthly_cap_usd is None else f"${u.monthly_cap_usd:.2f}"
+        table.add_row(u.email, u.name or "", u.role, u.status, cap, f"${user_month_spend(conn, u.id):.2f}",
+                      (u.last_login_at or "")[:16].replace("T", " "))
+    return table
+
+
+def _account(conn, email: str):
+    from strelitzia import users
+
+    user = users.by_email(conn, email)
+    if user is None:
+        console.print(f"[red]No account for {email}.[/red] Invite it with `strelitzia users invite {email}`.")
+        raise typer.Exit(code=1)
+    return user
+
+
+@users_app.command("list")
+def users_list() -> None:
+    """Every account: the owner first, then invited users by email."""
+    from strelitzia import users
+
+    conn = _users_conn()
+    console.print(_users_table(conn, users.list_users(conn)))
+
+
+@users_app.command("invite")
+def users_invite(
+    email: str = typer.Argument(..., help="Google account email to let in."),
+    cap: float = typer.Option(5.0, "--cap", min=0, help="Monthly Claude spend cap in USD."),
+) -> None:
+    """Let an email sign in to the dashboard (the account turns active on its first sign-in)."""
+    from strelitzia import users
+
+    conn = _users_conn()
+    if users.by_email(conn, email) is not None:
+        console.print(f"[red]{email} already has an account.[/red]")
+        raise typer.Exit(code=1)
+    console.print(_users_table(conn, [users.invite(conn, email, cap)]))
+
+
+@users_app.command("disable")
+def users_disable(email: str = typer.Argument(..., help="The account's email.")) -> None:
+    """Stop an account from signing in (its data stays)."""
+    from strelitzia import users
+
+    conn = _users_conn()
+    user = _account(conn, email)
+    if user.role == "owner":
+        console.print("[red]You can't disable the owner account.[/red]")
+        raise typer.Exit(code=1)
+    console.print(_users_table(conn, [users.set_status(conn, user.id, "disabled")]))
+
+
+@users_app.command("cap")
+def users_cap(
+    email: str = typer.Argument(..., help="The account's email."),
+    usd: float = typer.Argument(..., min=0, help="Monthly Claude spend cap in USD."),
+) -> None:
+    """Change an account's monthly Claude spend cap."""
+    from strelitzia import users
+
+    conn = _users_conn()
+    user = _account(conn, email)
+    if user.role == "owner":
+        console.print("[red]The owner has no cap[/red] (LLM_MONTHLY_BUDGET_USD limits the whole server).")
+        raise typer.Exit(code=1)
+    console.print(_users_table(conn, [users.set_cap(conn, user.id, usd)]))
+
+
 drive_app = typer.Typer(help="Google Drive: move tailored resumes and cover letters there and list their links.",
                         no_args_is_help=True)
 app.add_typer(drive_app, name="drive")
