@@ -20,10 +20,12 @@ from strelitzia.tracking import _now
 
 log = logging.getLogger(__name__)
 
-# rescore: assess one job now (sync). reassess_all: re-assess every stale job in a batch (url is NULL); only
+# rescore: assess one job now (sync). reassess_all: re-assess every stale job in a batch (url is NULL). rescore_all:
+# re-assess every job that isn't rejected, current assessments included, in a batch (url is NULL). Both are only
 # queued after the user confirmed the cost estimate. intake: read, extract and score a job the user added
 # (strelitzia.intake).
-KINDS = ("rescore", "reassess_all", "intake")
+KINDS = ("rescore", "reassess_all", "rescore_all", "intake")
+ALL_JOBS_KINDS = ("reassess_all", "rescore_all")  # url is NULL
 STATES = ("queued", "running", "done", "error")
 # What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
 STOP_MESSAGES = {
@@ -34,7 +36,7 @@ STOP_MESSAGES = {
 }
 
 # generate(user_id, url, kind) does the work for one of the user's tasks and raises on failure (url is None for
-# reassess_all).
+# ALL_JOBS_KINDS).
 Generator = Callable[[str, str | None, str], None]
 
 
@@ -65,7 +67,7 @@ def enqueue(conn: Connection, user_id: str, url: str | None, kind: str) -> dict:
     """Queue a task for the user (or return the identical one already waiting for them)."""
     if kind not in KINDS:
         raise ValueError(f"Unknown task kind {kind!r}")
-    if (url is None) != (kind == "reassess_all"):
+    if (url is None) != (kind in ALL_JOBS_KINDS):
         raise ValueError(f"Task kind {kind!r} {'takes no' if url is None else 'needs a'} job")
     if url is None:
         row = conn.execute(
@@ -99,11 +101,14 @@ def recover_interrupted(conn: Connection) -> int:
 
 
 def assess_task(user_id: str, url: str | None, kind: str) -> None:
-    """rescore: assess one job now. reassess_all: re-assess every stale job in a Message Batch (can take an hour)."""
+    """rescore: assess one job now. reassess_all / rescore_all: re-assess every stale / non-rejected job in a
+    Message Batch (can take an hour)."""
     from strelitzia.scoring.scorer import run_scoring
 
     if kind == "rescore":
         stats = run_scoring(urls=[url], mode="sync", prefilter=False, user_id=user_id)
+    elif kind == "rescore_all":
+        stats = run_scoring(mode="batch", scope="active", user_id=user_id)
     else:
         stats = run_scoring(mode="batch", reassess=True, user_id=user_id)
     if stats.get("stopped") in STOP_MESSAGES:
@@ -134,7 +139,7 @@ def _generate(user_id: str, url: str | None, kind: str) -> None:
         from strelitzia.intake import run_intake
 
         run_intake(user_id, url)
-    elif kind in ("rescore", "reassess_all"):
+    elif kind in ("rescore", *ALL_JOBS_KINDS):
         assess_task(user_id, url, kind)
     elif kind in RETIRED_KINDS:
         raise GenerationFailed("Resumes are written in Claude now: use Open in Claude on the job page.")

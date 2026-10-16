@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 import anthropic
@@ -29,6 +29,7 @@ from strelitzia.scoring.assessment import (
     recompute_fit,
 )
 from strelitzia.scoring.preferences import Preferences, load_preferences
+from strelitzia.tracking import status_sql
 
 log = logging.getLogger(__name__)
 
@@ -281,13 +282,23 @@ def _collect_open_batches(conn, user_id: str, poll_seconds: float, wait: bool, k
 
 
 _EXTRACTED = "full_description IS NOT NULL AND details_json IS NOT NULL"
+Scope = Literal["stale", "active"]
+
+
+def _not_rejected() -> str:
+    """Jobs whose effective status isn't rejected: the "active" scope of a Rescore all."""
+    return f"{status_sql(date.today().isoformat())} != 'rejected'"
 
 
 def _select_jobs(conn, user_id: str, key: str, limit: int, rescore: bool, reassess: bool,
-                 urls: list[str] | None) -> list[dict]:
-    """The user's jobs this run assesses."""
+                 urls: list[str] | None, scope: Scope = "stale") -> list[dict]:
+    """The user's jobs this run assesses. `scope="active"` (Rescore all) is every extracted job that isn't rejected,
+    whatever its assessment."""
     mine = f"user_id = ? AND {_EXTRACTED}"
-    if urls is not None:
+    if scope == "active" and urls is None:
+        rows = conn.execute(f"SELECT * FROM jobs WHERE {mine} AND {_not_rejected()} "
+                            "ORDER BY fit_score DESC NULLS LAST, url", (user_id,)).fetchall()
+    elif urls is not None:
         if not urls:
             return []
         rows = conn.execute(f"SELECT * FROM jobs WHERE {mine} AND url IN ({', '.join('?' * len(urls))})",
@@ -351,17 +362,45 @@ def reassess_preview(conn, user_id: str, new_prefs: Preferences) -> dict:
         return {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
     jobs = _select_jobs(conn, user_id, new_key, 0, rescore=False, reassess=True, urls=None)
     jobs, _ = prefilter_jobs(jobs, load_target_tokens(new_prefs))  # skipped for free by the run
-    estimate = 0.0
-    if jobs:
-        sample = jobs[::max(1, len(jobs) // _PREVIEW_SAMPLE)][:_PREVIEW_SAMPLE]
-        requests = [params for _, params in assessment_requests(new_prefs, resume_text, sample)]
-        estimate = estimate_cost("scoring", requests, batch=True) * len(jobs) / len(sample)
-    return {"reassess_needed": bool(jobs), "jobs_to_reassess": len(jobs), "estimated_usd": round(estimate, 4)}
+    estimate = _batch_estimate(new_prefs, resume_text, jobs)
+    return {"reassess_needed": bool(jobs), "jobs_to_reassess": len(jobs), "estimated_usd": estimate}
+
+
+def _batch_estimate(prefs: Preferences, resume_text: str, jobs: list[dict]) -> float:
+    """The Batch cost of assessing `jobs`, from a sample of their requests."""
+    if not jobs:
+        return 0.0
+    sample = jobs[::max(1, len(jobs) // _PREVIEW_SAMPLE)][:_PREVIEW_SAMPLE]
+    requests = [params for _, params in assessment_requests(prefs, resume_text, sample)]
+    return round(estimate_cost("scoring", requests, batch=True) * len(jobs) / len(sample), 4)
+
+
+def rescore_preview(conn, user_id: str, scope: Scope = "active", prefs: Preferences | None = None) -> dict:
+    """What re-assessing the user's jobs in `scope` with `prefs` (default: their saved preferences) and the current
+    resume would cost.
+
+    "active" is every job that isn't rejected, current assessments included; "stale" only the ones whose assessment
+    is out of date or missing. Jobs that aren't rejected but weren't extracted yet can't be assessed and are counted
+    apart; titles the prefilter flags for free are left out, as in the run.
+
+    Returns:
+        {"jobs", "skipped_unextracted", "estimated_usd"}.
+    """
+    prefs = prefs or load_preferences(conn, user_id)
+    resume_text = load_resume_text()
+    key = assessment_key(prefs, resume_text)
+    jobs = _select_jobs(conn, user_id, key, 0, rescore=False, reassess=True, urls=None, scope=scope)
+    jobs, _ = prefilter_jobs(jobs, load_target_tokens(prefs))
+    skipped = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND NOT ({_EXTRACTED}) AND {_not_rejected()}",
+                           (user_id,)).fetchone()[0]
+    return {"jobs": len(jobs), "skipped_unextracted": skipped,
+            "estimated_usd": _batch_estimate(prefs, resume_text, jobs)}
 
 
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
                 mode: Literal["batch", "sync"] = "batch", poll_seconds: float = 30,
-                urls: list[str] | None = None, reassess: bool = False, user_id: str | None = None) -> dict:
+                urls: list[str] | None = None, reassess: bool = False, user_id: str | None = None,
+                scope: Scope = "stale") -> dict:
     """Assess the user's pending jobs with Claude, then recompute their fit scores from the assessments and the
     user's preferences.
 
@@ -382,6 +421,8 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
         reassess: Also re-assess jobs whose assessment is stale (the resume or assessment inputs changed since).
             Only after the user confirmed the cost.
         user_id: Whose jobs to assess, with whose preferences (default: the owner).
+        scope: "active" re-assesses every extracted job that isn't rejected, current assessments included (the
+            dashboard's Rescore all). Only after the user confirmed the cost.
 
     Returns:
         {"scored", "errors", "parse_errors", "prefiltered", "elapsed", "distribution", "mode"}, plus
@@ -390,11 +431,11 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
     conn = get_connection()
     user_id = user_id or users.owner(conn).id
     with acting_for(user_id):  # every Claude call of the run is billed to the user and held to their cap
-        return _run_scoring(conn, user_id, limit, rescore, prefilter, mode, poll_seconds, urls, reassess)
+        return _run_scoring(conn, user_id, limit, rescore, prefilter, mode, poll_seconds, urls, reassess, scope)
 
 
 def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool, mode: Literal["batch", "sync"],
-                 poll_seconds: float, urls: list[str] | None, reassess: bool) -> dict:
+                 poll_seconds: float, urls: list[str] | None, reassess: bool, scope: Scope = "stale") -> dict:
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
     prefs = load_preferences(conn, user_id)
     key = assessment_key(prefs, resume_text)
@@ -409,7 +450,7 @@ def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool,
         log.warning("Scoring stopped: could not collect open batches (%s).", e)
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": e.reason}
 
-    jobs = _select_jobs(conn, user_id, key, limit, rescore, reassess, urls)
+    jobs = _select_jobs(conn, user_id, key, limit, rescore, reassess, urls, scope)
     if not jobs:
         log.info("No extracted jobs waiting for an assessment.")
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": []}
