@@ -119,19 +119,16 @@ def assessment_key(prefs: Preferences, resume_text: str) -> str:
     return f"{ASSESS_VERSION}:{assessment_input_hash(prefs, resume_text)}"
 
 
-def load_resume_text() -> str:
-    """The resume file's text ("" when there is none yet)."""
-    from strelitzia import config
+def load_resume_text(conn, user_id: str | None = None) -> str:
+    """The user's resume text from their profile (the owner's by default; "" when there is none yet)."""
+    from strelitzia.profile import resume_text
 
-    try:
-        return config.RESUME_PATH.read_text(encoding="utf-8")
-    except OSError:
-        return ""
+    return resume_text(conn, user_id)
 
 
 def current_assessment_key(conn, prefs: Preferences | None = None, user_id: str | None = None) -> str:
     """The key of an up-to-date assessment for the user (the owner by default)."""
-    return assessment_key(prefs or load_preferences(conn, user_id), load_resume_text())
+    return assessment_key(prefs or load_preferences(conn, user_id), load_resume_text(conn, user_id))
 
 
 # ── Request and reply ─────────────────────────────────────────────────────

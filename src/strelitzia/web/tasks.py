@@ -33,6 +33,7 @@ STOP_MESSAGES = {
               "wait for next month or ask the owner to raise it.",
     "auth": "The Claude API key is missing or was rejected; check ANTHROPIC_API_KEY.",
     "overloaded": "The Claude API is overloaded right now; try again in a few minutes.",
+    "no_resume": "Add your resume on the Profile page first: jobs are assessed against it.",
 }
 
 # generate(user_id, url, kind) does the work for one of the user's tasks and raises on failure (url is None for

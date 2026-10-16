@@ -16,10 +16,11 @@ from typing import Literal
 import anthropic
 
 from strelitzia import users
-from strelitzia.config import RESUME_PATH, load_profile, load_search_config
+from strelitzia.config import load_search_config
 from strelitzia.database import MAX_SCORE_ATTEMPTS, get_connection, get_jobs_by_stage, job_key
 from strelitzia.llm import LLMStopRun, acting_for, check_budget, estimate_cost, get_client
 from strelitzia.llm_batch import resume_open_batches, run_batch
+from strelitzia.profile import UserProfile, load_profile
 from strelitzia.scoring.assessment import (
     ASSESS_SCHEMA,
     assess_messages,
@@ -98,19 +99,17 @@ def _title_tokens(text: str) -> set[str]:
     return {w.rstrip(".") for w in words if w.rstrip(".") and w.rstrip(".") not in _TITLE_STOPWORDS}
 
 
-def load_target_tokens(prefs: Preferences | None = None) -> set[str]:
-    """Words from searches.yaml queries, the profile's target role(s) and the Preferences page's target roles."""
+def load_target_tokens(prefs: Preferences | None = None, profile: UserProfile | None = None) -> set[str]:
+    """Words from searches.yaml queries, the user's profile target role(s) and the Preferences page's target roles."""
     titles: list[str] = list(prefs.target_roles) if prefs else []
     try:
         titles += [q.get("query", "") for q in load_search_config().get("queries", []) if isinstance(q, dict)]
     except Exception as e:  # noqa: BLE001 - a missing/broken config just disables the filter
         log.debug("prefilter: no search queries (%s)", e)
-    try:
-        exp = load_profile().get("experience", {})
-        titles += re.split(r"[,;/|]", exp.get("target_role", "") or "")
-        titles += exp.get("target_titles", []) or []
-    except Exception as e:  # noqa: BLE001
-        log.debug("prefilter: no profile target role (%s)", e)
+    if profile is not None:
+        exp = profile.as_profile_json().get("experience") or {}
+        titles += re.split(r"[,;/|]", str(exp.get("target_role") or ""))
+        titles += [str(t) for t in exp.get("target_titles") or [] if t]
     tokens: set[str] = set()
     for t in titles:
         tokens |= _title_tokens(t)
@@ -324,7 +323,7 @@ def _select_jobs(conn, user_id: str, key: str, limit: int, rescore: bool, reasse
 def _prefilter(conn, user_id: str, jobs: list[dict], key: str, prefs: Preferences) -> tuple[list[dict], int]:
     """Flag jobs whose title matches no target ("prefilter", fit_score 0) without an LLM call."""
     total = len(jobs)
-    jobs, skipped = prefilter_jobs(jobs, load_target_tokens(prefs))
+    jobs, skipped = prefilter_jobs(jobs, load_target_tokens(prefs, load_profile(conn, user_id)))
     now = datetime.now(UTC).isoformat()
     conn.executemany(
         "UPDATE jobs SET fit_assessment = ?, assessment_hash = ?, assessed_at = ?, scored_at = ?, "
@@ -353,7 +352,7 @@ def reassess_preview(conn, user_id: str, new_prefs: Preferences) -> dict:
         {"reassess_needed", "jobs_to_reassess", "estimated_usd"}: the jobs a confirmed re-assessment sends to Claude
         (never-assessed ones included, prefiltered titles left out) and their estimated Batch cost.
     """
-    resume_text = load_resume_text()
+    resume_text = load_resume_text(conn, user_id)
     new_key = assessment_key(new_prefs, resume_text)
     stale = conn.execute(
         f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND {_EXTRACTED} AND assessment_hash IS NOT NULL "
@@ -362,7 +361,7 @@ def reassess_preview(conn, user_id: str, new_prefs: Preferences) -> dict:
     if not stale:
         return {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
     jobs = _select_jobs(conn, user_id, new_key, 0, rescore=False, reassess=True, urls=None)
-    jobs, _ = prefilter_jobs(jobs, load_target_tokens(new_prefs))  # skipped for free by the run
+    jobs, _ = prefilter_jobs(jobs, load_target_tokens(new_prefs, load_profile(conn, user_id)))  # skipped for free by the run
     estimate = _batch_estimate(new_prefs, resume_text, jobs)
     return {"reassess_needed": bool(jobs), "jobs_to_reassess": len(jobs), "estimated_usd": estimate}
 
@@ -388,10 +387,10 @@ def rescore_preview(conn, user_id: str, scope: Scope = "active", prefs: Preferen
         {"jobs", "skipped_unextracted", "estimated_usd"}.
     """
     prefs = prefs or load_preferences(conn, user_id)
-    resume_text = load_resume_text()
+    resume_text = load_resume_text(conn, user_id)
     key = assessment_key(prefs, resume_text)
     jobs = _select_jobs(conn, user_id, key, 0, rescore=False, reassess=True, urls=None, scope=scope)
-    jobs, _ = prefilter_jobs(jobs, load_target_tokens(prefs))
+    jobs, _ = prefilter_jobs(jobs, load_target_tokens(prefs, load_profile(conn, user_id)))
     skipped = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND NOT ({_EXTRACTED}) AND {_not_rejected()}",
                            (user_id,)).fetchone()[0]
     return {"jobs": len(jobs), "skipped_unextracted": skipped,
@@ -437,7 +436,10 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
 
 def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool, mode: Literal["batch", "sync"],
                  poll_seconds: float, urls: list[str] | None, reassess: bool, scope: Scope = "stale") -> dict:
-    resume_text = RESUME_PATH.read_text(encoding="utf-8")
+    resume_text = load_resume_text(conn, user_id)
+    if not resume_text.strip():
+        log.warning("Scoring stopped: there is no resume text in the profile to assess jobs against.")
+        return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": "no_resume"}
     prefs = load_preferences(conn, user_id)
     key = assessment_key(prefs, resume_text)
     extra: dict = {}

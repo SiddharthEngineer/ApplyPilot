@@ -63,7 +63,7 @@ def test_unparseable_score_is_counted(tmp_path):
     client = MagicMock()
     client.chat.return_value = "no idea"
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client):
         stats = scorer.run_scoring(prefilter=False)
     assert stats["parse_errors"] == 1
