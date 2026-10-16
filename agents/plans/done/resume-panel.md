@@ -1,5 +1,5 @@
 # Plan: Resume panel: blind A/B grading in Claude Pro with a rubric, plus your own picks
-**Status:** ✅ Tasks 0-4 done (2026-10-15); the first real panel is M23
+**Status:** ✅ Tasks 0-4 done, archived 2026-10-16 (#51). The first real panel is ROADMAP manual step M23.
 **Risk:** review (new table, web routes and dashboard page)
 
 ## Goal

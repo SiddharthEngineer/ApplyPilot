@@ -1,5 +1,5 @@
 # Plan: Workspace intake: Add job by link, contacts, interviews
-**Status:** ✅ Tasks 1-5 done 2026-10-15 (live check is ROADMAP M21)
+**Status:** ✅ Tasks 1-5 done, archived 2026-10-16 (#44). The live check on real postings is ROADMAP manual step M21.
 **Risk:** review (new tables, new API routes and dashboard pages; `database.py`, `web/*` and `dashboard/*` are high-risk paths)
 
 ## Goal

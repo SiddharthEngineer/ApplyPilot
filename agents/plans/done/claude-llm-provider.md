@@ -1,5 +1,5 @@
 # Plan: Claude API as the only LLM provider (Batch API for bulk stages, spend tracking)
-**Status:** 🟡 Tasks 1-6 done (2026-10-13); Task 7 (interactive, paid live run) left for the user
+**Status:** ✅ Tasks 1-7 done, archived 2026-10-16. Code in #39; Task 7 passed on the VPS 2026-10-15 (M19) after the schema fix in #43. Left as ROADMAP manual step M18 (Console spend limit, `LLM_MONTHLY_BUDGET_USD`).
 **Risk:** review (replaces `llm.py`, touches `pyproject.toml`, `config.py`, `database.py`, the CLI and every LLM call site)
 
 ## Goal
@@ -176,7 +176,7 @@ src/strelitzia/scoring/cover_letter.py (modify), tests/test_scoring_errors.py (m
 **What:** Point the `llm` tier at Claude. Run one sync extraction, one score, one 2-job batch, and one cover letter,
 checking `cache_read_input_tokens > 0` on the second same-purpose call.
 **Validate:** `pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py -q` → pass; `llm_usage` has rows.
-**Status:** ⏸ 2026-10-13: tests rewritten for Claude (this commit, collected and skipped without a key); the paid run is left for the user (interactive).
+**Status:** ✅ 2026-10-15 (M19): 6/7 passed, extraction hit the 16-union schema limit, fixed in #43 and passed on rerun.
 
 ## Validation
 - `scripts/validate.sh --full` passes.
@@ -185,6 +185,9 @@ checking `cache_read_input_tokens > 0` on the second same-purpose call.
 - Task 7 passes on the VPS.
 
 ## Human test steps (preprod)
+2026-10-16: steps 1-3 were covered by M19. Steps 4-5 are obsolete: jobs come in by manual upload and the backlog was pruned (2026-10-15).
+Step 6 is obsolete: R23 removed the API resume and cover-letter writer (M22 covers the Claude Pro flow).
+
 1. Put `ANTHROPIC_API_KEY` and `LLM_MONTHLY_BUDGET_USD` in the preprod `.env` (not the runner env), then deploy preprod.
 2. `strelitzia doctor` → Claude models per purpose, spend $0.00 of budget.
 3. `strelitzia run extract --limit 3 --sync` → 3 extracted; the dashboard job page shows the new fields.
