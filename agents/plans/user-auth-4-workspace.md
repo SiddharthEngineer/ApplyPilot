@@ -25,7 +25,7 @@ user's rows: a request for someone else's contact, interview or panel run is a 4
 **What:** Every function takes `user_id` right after `conn`; `_row`/`_update`/delete filter on it and raise `NotFound`
 for other users' ids; inserts set it.
 **Validate:** `pytest tests/test_workspace.py -q` → passes, with cross-user reads, updates, links and deletes raising NotFound.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (also checks the job is the user's for links and new interviews; the app.py workspace calls moved with it to keep the suite green)
 
 ### Task 2: tracking, workbench and panel per user
 **Runs:** unattended

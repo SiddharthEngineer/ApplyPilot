@@ -134,8 +134,8 @@ def job_detail(conn: Connection, job: dict) -> dict:
         submitted_date=tracking.submitted_date(job),
         events=tracking.status_events(conn, job["url"]),
         source=job.get("source") or "discovered",
-        contacts=workspace.job_contacts(conn, job["url"]),
-        interviews=workspace.job_interviews(conn, job["url"]),
+        contacts=workspace.job_contacts(conn, job["user_id"], job["url"]),
+        interviews=workspace.job_interviews(conn, job["user_id"], job["url"]),
         links={
             "posting": job["url"],
             "apply": job.get("application_url"),
@@ -593,34 +593,36 @@ def _workspace_call(fn, *args, **kwargs):
 @api.get("/contacts")
 def list_contacts(request: Request, q: str | None = None,
                   limit: Annotated[int, Query(ge=1, le=500)] = 200) -> list[dict]:
-    return workspace.search_contacts(db_conn(request), q, limit=limit)
+    return workspace.search_contacts(db_conn(request), current_user(request).id, q, limit=limit)
 
 
 @api.post("/contacts", status_code=201)
 def create_contact(body: ContactCreate, request: Request) -> dict:
-    return _workspace_call(workspace.create_contact, db_conn(request), **body.model_dump(exclude_unset=True))
+    return _workspace_call(workspace.create_contact, db_conn(request), current_user(request).id,
+                           **body.model_dump(exclude_unset=True))
 
 
-def _contact_out(conn: Connection, contact_id: str) -> dict:
-    contact = _workspace_call(workspace.get_contact, conn, contact_id)
-    return {**contact, "jobs": workspace.contact_jobs(conn, contact_id)}
+def _contact_out(conn: Connection, user_id: str, contact_id: str) -> dict:
+    contact = _workspace_call(workspace.get_contact, conn, user_id, contact_id)
+    return {**contact, "jobs": workspace.contact_jobs(conn, user_id, contact_id)}
 
 
 @api.get("/contacts/{contact_id}")
 def get_contact(contact_id: str, request: Request) -> dict:
-    return _contact_out(db_conn(request), contact_id)
+    return _contact_out(db_conn(request), current_user(request).id, contact_id)
 
 
 @api.patch("/contacts/{contact_id}")
 def patch_contact(contact_id: str, body: ContactPatch, request: Request) -> dict:
     conn = db_conn(request)
-    _workspace_call(workspace.update_contact, conn, contact_id, **body.model_dump(exclude_unset=True))
-    return _contact_out(conn, contact_id)
+    user = current_user(request)
+    _workspace_call(workspace.update_contact, conn, user.id, contact_id, **body.model_dump(exclude_unset=True))
+    return _contact_out(conn, user.id, contact_id)
 
 
 @api.delete("/contacts/{contact_id}")
 def delete_contact(contact_id: str, request: Request) -> dict:
-    _workspace_call(workspace.delete_contact, db_conn(request), contact_id)
+    _workspace_call(workspace.delete_contact, db_conn(request), current_user(request).id, contact_id)
     return {"ok": True}
 
 
@@ -633,13 +635,14 @@ def link_job_contact(key: str, body: JobContactLink, request: Request) -> dict:
     if (body.contact_id is None) == (body.contact is None):
         raise HTTPException(status_code=422, detail="Give either contact_id or a new contact")
     if body.contact is None:
-        _workspace_call(workspace.link_contact, conn, job["url"], body.contact_id, body.relation)
+        _workspace_call(workspace.link_contact, conn, user.id, job["url"], body.contact_id, body.relation)
     else:
-        contact_id = _workspace_call(workspace.create_contact, conn, **body.contact.model_dump(exclude_unset=True))["id"]
+        new = body.contact.model_dump(exclude_unset=True)
+        contact_id = _workspace_call(workspace.create_contact, conn, user.id, **new)["id"]
         try:
-            workspace.link_contact(conn, job["url"], contact_id, body.relation)
+            workspace.link_contact(conn, user.id, job["url"], contact_id, body.relation)
         except Exception:
-            workspace.delete_contact(conn, contact_id)  # don't leave a contact behind that the user never saw
+            workspace.delete_contact(conn, user.id, contact_id)  # don't leave a contact behind that the user never saw
             raise
     return job_detail(conn, job_by_key(conn, user.id, key))
 
@@ -649,7 +652,7 @@ def unlink_job_contact(key: str, contact_id: str, request: Request) -> dict:
     conn = db_conn(request)
     user = current_user(request)
     job = job_by_key(conn, user.id, key)
-    workspace.unlink_contact(conn, job["url"], contact_id)
+    workspace.unlink_contact(conn, user.id, job["url"], contact_id)
     return job_detail(conn, job_by_key(conn, user.id, key))
 
 
@@ -658,18 +661,18 @@ def create_interview(key: str, body: InterviewPatch, request: Request) -> dict:
     conn = db_conn(request)
     user = current_user(request)
     job = job_by_key(conn, user.id, key)
-    return _workspace_call(workspace.create_interview, conn, job["url"], **body.model_dump(exclude_unset=True))
+    return _workspace_call(workspace.create_interview, conn, user.id, job["url"], **body.model_dump(exclude_unset=True))
 
 
 @api.patch("/interviews/{interview_id}")
 def patch_interview(interview_id: str, body: InterviewPatch, request: Request) -> dict:
-    return _workspace_call(workspace.update_interview, db_conn(request), interview_id,
+    return _workspace_call(workspace.update_interview, db_conn(request), current_user(request).id, interview_id,
                            **body.model_dump(exclude_unset=True))
 
 
 @api.delete("/interviews/{interview_id}")
 def delete_interview(interview_id: str, request: Request) -> dict:
-    _workspace_call(workspace.delete_interview, db_conn(request), interview_id)
+    _workspace_call(workspace.delete_interview, db_conn(request), current_user(request).id, interview_id)
     return {"ok": True}
 
 
