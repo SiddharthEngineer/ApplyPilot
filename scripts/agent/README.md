@@ -21,6 +21,7 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
 - Merge policy: by default (`AGENT_MERGE_POLICY=gate`) only `low` plans that pass `gate.py` merge after green CI; the rest wait for preprod and you.
   `AGENT_MERGE_POLICY=all` merges every ready PR after green CI, also merges PRs already waiting for review once their CI is green,
   and redeploys preprod from trunk after each merge (`preprod.sh release`). A PR with red CI stays open and you get a notice.
+- After each run the Docker build cache is pruned down to `AGENT_BUILD_CACHE_KEEP` (default `3GB`), so a long chain can't fill the disk.
 - Each run is killed after `AGENT_MAX_RUNTIME` (3h). A `flock` allows one run at a time.
 - Context cap: runs auto-compact at 200k tokens (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`; override with `AGENT_COMPACT_WINDOW`).
   Opus's 1M window otherwise lets a long run re-send 250–380k tokens every turn.
