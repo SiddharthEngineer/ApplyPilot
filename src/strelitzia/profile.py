@@ -163,6 +163,25 @@ def save_profile(conn, user_id: str | None, profile: UserProfile, with_resume: b
     conn.commit()
 
 
+def adopt_old_qualifications(conn, user_id: str | None, old_prefs: dict) -> bool:
+    """Move the education and years of experience the Preferences page used to hold into the profile, where the
+    profile's field is still empty. Returns whether the profile changed."""
+    def value(key):
+        crit = old_prefs.get(key)
+        return crit.get("value") if isinstance(crit, dict) else None
+
+    profile = load_profile(conn, user_id)
+    education, years = value("education"), _number(value("experience"))
+    changed = False
+    if profile.education_level is None and education in PROFILE_EDUCATION_LEVELS:
+        profile.education_level, changed = education, True
+    if profile.years_experience is None and years is not None:
+        profile.years_experience, changed = years, True
+    if changed:
+        save_profile(conn, user_id, profile, with_resume=False)
+    return changed
+
+
 def save_resume_file(conn, user_id: str | None, name: str, mime: str, data: bytes, text: str) -> None:
     """Store an uploaded resume file and the text taken from it (which scoring reads)."""
     conn.execute(

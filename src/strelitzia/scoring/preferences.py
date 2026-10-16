@@ -3,7 +3,8 @@
 Each preference is a `Criterion`: a value (salary floor, accepted work modes, ...) and an importance from Don't care
 to Dealbreaker. `score_preferences` compares the criteria to the fields extraction stored for a posting (no LLM
 call), and `combine` folds those components plus the assessment layer's (`scoring/assessment.py`) into one 0-100
-fit score. A posting value that is unknown scores 0.5 and never triggers a dealbreaker.
+fit score. A posting value that is unknown scores 0.5 and never triggers a dealbreaker. `score_qualifications`
+applies fixed rules to the education and years of experience on the user's Profile.
 
 Preferences live in the `user_preferences` table (one row per user; the owner's until the other parts thread a user).
 """
@@ -440,16 +441,30 @@ def _user(conn, user_id: str | None) -> str:
     return user_id or users.owner(conn).id
 
 
+_MOVED_TO_PROFILE = {"education", "experience"}
+
+
 def load_preferences(conn, user_id: str | None = None) -> Preferences:
-    """The user's saved preferences (the owner's by default), or the defaults."""
-    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?",
-                       (_user(conn, user_id),)).fetchone()
+    """The user's saved preferences (the owner's by default), or the defaults.
+
+    Preferences saved before education and experience moved to the Profile hand those values to the profile (where
+    it has none yet) and are saved again without them, once.
+    """
+    user_id = _user(conn, user_id)
+    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
     if row is None or not row[0]:
         return Preferences()
     try:
-        return Preferences.from_dict(json.loads(row[0]))
+        data = json.loads(row[0])
     except ValueError:
         return Preferences()
+    prefs = Preferences.from_dict(data)
+    if isinstance(data, dict) and _MOVED_TO_PROFILE & data.keys():
+        from strelitzia.profile import adopt_old_qualifications
+
+        adopt_old_qualifications(conn, user_id, data)
+        save_preferences(conn, prefs, user_id)
+    return prefs
 
 
 def save_preferences(conn, prefs: Preferences, user_id: str | None = None) -> None:

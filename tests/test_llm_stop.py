@@ -9,7 +9,7 @@ from strelitzia.database import init_db
 from strelitzia.discovery import smartextract
 from strelitzia.llm import LLMStopRun
 from strelitzia.scoring import scorer
-from fit_helpers import add_extracted_job, reply
+from fit_helpers import add_extracted_job, default_fit, reply
 
 URLS = [f"https://example.com/job/{i}" for i in range(3)]
 STOP = LLMStopRun("budget", "monthly LLM budget used up")
@@ -58,7 +58,7 @@ def test_scoring_keeps_scores_before_the_stop(conn, resume):
     assert client.chat.call_count == 2
     assert stats["scored"] == 1 and stats["stopped"] == "budget"
     scores = sorted(r[0] for r in _rows(conn, "fit_score") if r[0] is not None)
-    assert scores == [75]
+    assert scores == [default_fit(4)]
     assert [r[0] for r in _rows(conn, "score_attempts")] == [0, 0, 0]
 
 

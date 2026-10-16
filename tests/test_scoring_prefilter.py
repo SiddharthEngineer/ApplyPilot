@@ -8,7 +8,7 @@ from strelitzia.database import init_db
 from strelitzia.scoring import scorer
 from strelitzia.scoring.preferences import Preferences, save_preferences
 from strelitzia.profile import UserProfile
-from fit_helpers import add_extracted_job, reply
+from fit_helpers import add_extracted_job, default_fit, reply
 
 JOBS = {
     "https://example.com/de": "Senior Data Engineer",
@@ -52,7 +52,7 @@ def test_relevant_title_passes_and_nurse_is_filtered(conn, tmp_path, caplog):
     with caplog.at_level("INFO", logger="strelitzia.scoring.scorer"):
         stats, client = _run(conn, tmp_path)
     assert client.chat.call_count == 1  # only the Data Engineer job reached the LLM
-    assert _score(conn, "https://example.com/de")[0] == 75
+    assert _score(conn, "https://example.com/de")[0] == default_fit(4)
     assert _score(conn, "https://example.com/rn") == (0, scorer.PREFILTER_REASONING, '["prefilter"]')
     assert stats["prefiltered"] == 1 and stats["scored"] == 1
     assert "prefilter skipped 1/2 jobs" in caplog.text
@@ -61,7 +61,7 @@ def test_relevant_title_passes_and_nurse_is_filtered(conn, tmp_path, caplog):
 def test_no_prefilter_scores_both(conn, tmp_path):
     stats, client = _run(conn, tmp_path, prefilter=False)
     assert client.chat.call_count == 2
-    assert _score(conn, "https://example.com/rn")[:3:2] == (75, None)
+    assert _score(conn, "https://example.com/rn")[:3:2] == (default_fit(4), None)
     assert stats["prefiltered"] == 0
 
 

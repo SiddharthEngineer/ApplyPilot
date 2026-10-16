@@ -63,7 +63,7 @@ masters vs phd scores 0.4; 3 of 4 years scores 0.4; 6 of 8 years scores 0.4; 2 o
 **What:** `recompute_fit` gets the profile; `PUT /profile` calls it when education or years change; the one-time move of
 old preference values into the profile happens in `load_preferences` (or at startup).
 **Validate:** `pytest tests/web -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

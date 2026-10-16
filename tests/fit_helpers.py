@@ -33,3 +33,9 @@ def add_extracted_job(conn, url: str, title: str = "Data Engineer", posting: dic
     conn.execute(f"INSERT INTO jobs ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
     conn.commit()
     return url
+
+
+def default_fit(skills: int, experience: int = 3) -> int:
+    """The fit score with default preferences and no profile: skills x4, experience match x2, no red flags (1.0) x2,
+    and education and experience unknown (0.5) at x4 each."""
+    return round(100 * (4 * (skills - 1) / 4 + 2 * (experience - 1) / 4 + 2 + 4 * 0.5 + 4 * 0.5) / 16)
