@@ -4,13 +4,17 @@
   /app/...       the built UI (index.html + assets), with unknown paths falling back to index.html
 
 Mutating requests need the header `X-Strelitzia: 1`. nginx puts basic auth in front, and browsers resend
-basic-auth credentials on cross-site form posts, but a cross-site form can't set a custom header.
+basic-auth credentials (and the session cookie) on cross-site form posts, but a cross-site form can't set a custom header.
+
+With Google sign-in on (STRELITZIA_GOOGLE_CLIENT_ID set, see web/auth.py) every /app/api route except health and
+auth/* needs a session; the UI routes stay public so the SPA can show its login screen.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -19,8 +23,10 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
+from starlette.concurrency import run_in_threadpool
+from starlette.middleware.sessions import SessionMiddleware
 
-from strelitzia import __version__, intake, tracking, users, workspace
+from strelitzia import __version__, intake, tracking, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend, user_month_spend
@@ -28,7 +34,7 @@ from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
 from strelitzia.scoring import workbench
 from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
-from strelitzia.web import queries, tasks
+from strelitzia.web import auth, queries, tasks
 
 PREFIX = "/app"
 CSRF_HEADER = "X-Strelitzia"
@@ -44,9 +50,7 @@ def db_conn(request: Request) -> Connection:
     return get_connection(request.app.state.db)
 
 
-def current_user(request: Request) -> users.User:
-    """The signed-in user. Until login exists every request acts as the owner."""
-    return users.owner(db_conn(request))
+current_user = auth.current_user
 
 
 @api.get("/health")
@@ -764,6 +768,17 @@ def _default_static_dir() -> Path | None:
     return PACKAGED_STATIC_DIR if (PACKAGED_STATIC_DIR / "index.html").is_file() else None
 
 
+def _session_secret() -> str:
+    """STRELITZIA_SESSION_SECRET; with login off and no secret, a per-process one (sessions then hold nothing)."""
+    secret = env("SESSION_SECRET")
+    if secret:
+        return secret
+    if auth.auth_enabled():
+        raise RuntimeError("STRELITZIA_GOOGLE_CLIENT_ID is set but STRELITZIA_SESSION_SECRET is not; "
+                           "set it to a long random string")
+    return secrets.token_urlsafe(32)
+
+
 def create_app(static_dir: Path | str | None = None, db: Path | str | None = None,
                generate: tasks.Generator | None = None, run_tasks: bool = True) -> FastAPI:
     """The dashboard app.
@@ -798,6 +813,20 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
             return JSONResponse({"detail": f"Missing {CSRF_HEADER}: 1 header"}, status_code=403)
         return await call_next(request)
 
+    @app.middleware("http")
+    async def require_session(request: Request, call_next):
+        path = request.url.path
+        if auth.auth_enabled() and path.startswith(f"{PREFIX}/api") and not auth.is_public_path(path):
+            try:
+                await run_in_threadpool(auth.current_user, request)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return await call_next(request)
+
+    # Added last so it wraps the middlewares above (they read request.session).
+    app.add_middleware(SessionMiddleware, secret_key=_session_secret(), session_cookie=auth.SESSION_COOKIE,
+                       max_age=auth.SESSION_MAX_AGE, same_site="lax", https_only=auth.secure_cookie())
+    app.include_router(auth.router)
     app.include_router(api)
     _mount_ui(app, Path(static_dir) if static_dir else _default_static_dir())
     return app

@@ -2,10 +2,12 @@
 
 import re
 
+import pytest
 from fastapi.testclient import TestClient
 
 from strelitzia.web import app as web_app
 from strelitzia.web.app import create_app
+from web_helpers import sign_in_as
 
 
 def test_health(client):
@@ -89,3 +91,55 @@ def test_serve_command_is_registered():
     # Typer's Rich help forces colour under GITHUB_ACTIONS/FORCE_COLOR, splitting "--port" with ANSI codes.
     plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "--port" in plain
+
+
+def test_auth_me_with_login_off(client):
+    me = client.get("/app/api/auth/me").json()
+    assert me["enabled"] is False and me["user"]["role"] == "owner"
+
+
+def test_login_on_needs_a_session_for_the_api(auth_client):
+    assert auth_client.get("/app/api/jobs").status_code == 401
+    assert auth_client.get("/app/api/openapi.json").status_code == 401
+    assert auth_client.post("/app/api/auth/logout").status_code == 200
+    assert auth_client.get("/app/api/health").status_code == 200
+    assert auth_client.get("/app/api/auth/me").json() == {"enabled": True, "user": None}
+    # the UI stays public so the SPA can show its login screen
+    assert auth_client.get("/app/").status_code == 200
+    assert auth_client.get("/app/assets/app.js").status_code == 200
+
+
+def test_login_on_with_a_session(auth_client, db_path):
+    from strelitzia import users
+    from strelitzia.database import get_connection
+
+    conn = get_connection(db_path)
+    friend = users.activate(conn, users.invite(conn, "friend@example.com").email, "Friend")
+    sign_in_as(auth_client, friend)
+    assert auth_client.get("/app/api/jobs").status_code == 200
+    assert auth_client.get("/app/api/auth/me").json()["user"]["email"] == "friend@example.com"
+    users.set_status(conn, friend.id, "disabled")
+    assert auth_client.get("/app/api/jobs").status_code == 401
+
+
+def test_a_forged_session_is_refused(auth_client, db_path):
+    from strelitzia import users
+    from strelitzia.database import get_connection
+
+    sign_in_as(auth_client, users.owner(get_connection(db_path)), secret="not-the-secret")
+    assert auth_client.get("/app/api/jobs").status_code == 401
+
+
+def test_session_cookie_flags(auth_app, db_path, monkeypatch, web_dir):
+    monkeypatch.setenv("STRELITZIA_PUBLIC_URL", "https://strelitzia.example.net")
+    app = create_app(static_dir=web_dir, db=db_path)
+    with TestClient(app, base_url="https://testserver") as c:
+        cookie = c.get("/app/api/auth/login", follow_redirects=False).headers["set-cookie"].lower()
+    assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
+    assert f"max-age={30 * 24 * 3600}" in cookie
+
+
+def test_login_on_without_a_session_secret_refuses_to_start(db_path, monkeypatch):
+    monkeypatch.setenv("STRELITZIA_GOOGLE_CLIENT_ID", "client-123")
+    with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+        create_app(db=db_path)

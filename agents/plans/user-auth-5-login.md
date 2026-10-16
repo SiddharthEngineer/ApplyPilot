@@ -46,7 +46,7 @@ Include `auth.router`. Replace the part-2 `current_user` with `auth.current_user
 except `health`, `auth/*` returns 401 without a session. The UI routes stay public (the SPA handles the login screen).
 Test fixtures run with auth off, plus one fixture that turns it on with a fake session.
 **Validate:** `pytest tests/web -q` → passes, including 401 on `/app/api/jobs` with auth on and no session.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 3: docs
 **Runs:** unattended
