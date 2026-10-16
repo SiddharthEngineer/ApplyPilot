@@ -31,7 +31,8 @@ def local_pdf(job: dict, kind: str) -> Path | None:
 
 
 def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool = False) -> dict:
-    """Upload this job's local PDFs, save their links, and delete the local copies once verified.
+    """Upload this job's local PDFs, save their links on its row (only its user's), and delete the local copies
+    once verified.
 
     Also saves the job's Drive folder (drive_folder_id/url): the resume's leaf folder, else the cover letter's.
     """
@@ -45,14 +46,15 @@ def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool 
         counts["uploaded" if result.created else "updated"] += 1
         now = datetime.now(UTC).isoformat()
         conn.execute(
-            f"UPDATE jobs SET {kind}_drive_id = ?, {kind}_drive_url = ?, drive_synced_at = ? WHERE url = ?",
-            (result.id, result.url, now, job["url"]),
+            f"UPDATE jobs SET {kind}_drive_id = ?, {kind}_drive_url = ?, drive_synced_at = ? "
+            "WHERE user_id = ? AND url = ?",
+            (result.id, result.url, now, job["user_id"], job["url"]),
         )
         if result.folder_id and folder_id is None:
             folder_id = result.folder_id
             conn.execute(
-                "UPDATE jobs SET drive_folder_id = ?, drive_folder_url = ? WHERE url = ?",
-                (folder_id, folder_url(folder_id), job["url"]),
+                "UPDATE jobs SET drive_folder_id = ?, drive_folder_url = ? WHERE user_id = ? AND url = ?",
+                (folder_id, folder_url(folder_id), job["user_id"], job["url"]),
             )
             job["drive_folder_id"], job["drive_folder_url"] = folder_id, folder_url(folder_id)
         conn.commit()
