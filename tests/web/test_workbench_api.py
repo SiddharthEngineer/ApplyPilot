@@ -14,6 +14,7 @@ from strelitzia.storage.drive import DOC_MIME, DriveClient
 from strelitzia.web import app as app_mod
 from workbench_helpers import POSTING, fake_render_pdf, good_result, inputs, job, reply
 
+REAL_DRIVE_CLIENT = app_mod._drive_client
 URL = job()["url"]
 KEY = job_key(URL)
 
@@ -24,7 +25,7 @@ def _workbench(monkeypatch, tmp_path):
     monkeypatch.setattr(wb.Inputs, "load", classmethod(lambda cls: inputs()))
     monkeypatch.setattr(config, "TAILORED_DIR", tmp_path / "tailored")
     monkeypatch.setattr(config, "COVER_LETTER_DIR", tmp_path / "cover")
-    monkeypatch.setattr(app_mod, "_drive_client", lambda: None)
+    monkeypatch.setattr(app_mod, "_drive_client", lambda request: None)
     monkeypatch.setenv("DRIVE_ROOT_FOLDER", "Strelitzia")
 
 
@@ -40,7 +41,7 @@ def the_job(conn):
 def drive(monkeypatch):
     fake = FakeDrive()
     client = DriveClient(fake, media_factory=fake_media, html_media_factory=lambda html: html.encode("utf-8"))
-    monkeypatch.setattr(app_mod, "_drive_client", lambda: client)
+    monkeypatch.setattr(app_mod, "_drive_client", lambda request: client)
     return fake
 
 
@@ -68,7 +69,7 @@ def test_packet_with_drive_writes_docs_and_a_short_prompt(client, conn, the_job,
 
 
 def test_packet_falls_back_to_inline_when_drive_fails(client, the_job, monkeypatch):
-    def broken():
+    def broken(request):
         raise RuntimeError("token expired")
 
     monkeypatch.setattr(app_mod, "_drive_client", broken)
@@ -161,3 +162,80 @@ def test_a_saved_draft_keeps_a_status_the_user_set(client, the_job):
 def test_a_rejected_paste_leaves_the_status_alone(client, the_job):
     client.post(f"/app/api/jobs/{the_job}/result", json={"text": "no json here"})
     assert client.get(f"/app/api/jobs/{the_job}").json()["status"] == "active"
+
+
+# --- Per-user Drive (user-auth-6-drive) ---
+
+@pytest.fixture
+def per_user_drive(monkeypatch):
+    """The real _drive_client, with DriveClient.for_user on a fake Drive; returns the user ids it was asked for."""
+    from cryptography.fernet import Fernet
+
+    from strelitzia.storage import drive as drive_mod
+    monkeypatch.setattr(app_mod, "_drive_client", REAL_DRIVE_CLIENT)
+    monkeypatch.setattr(drive_mod, "drive_libraries_installed", lambda: True)
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+    fake, asked = FakeDrive(), []
+
+    def for_user(cls, conn, user_id):
+        asked.append(user_id)
+        return cls(fake, media_factory=fake_media, html_media_factory=lambda html: html.encode("utf-8"))
+
+    monkeypatch.setattr(DriveClient, "for_user", classmethod(for_user))
+    return asked
+
+
+def _connect(conn, user_id):
+    from datetime import UTC, datetime, timedelta
+
+    from google.oauth2.credentials import Credentials
+
+    from strelitzia.storage.drive import save_user_token
+    save_user_token(conn, user_id, Credentials(token="t", refresh_token="r", token_uri="https://oauth2.googleapis.com/token",
+                                               client_id="c", client_secret="s",
+                                               expiry=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1)))
+
+
+def test_packet_uses_the_users_own_drive(client, conn, the_job, per_user_drive):
+    from strelitzia import users
+    owner = users.owner(conn).id
+    assert client.post(f"/app/api/jobs/{the_job}/packet").json()["inline"] is True  # not connected: clipboard
+    assert per_user_drive == []
+    _connect(conn, owner)
+    body = client.post(f"/app/api/jobs/{the_job}/packet").json()
+    assert body["inline"] is False and body["doc_url"]
+    assert per_user_drive == [owner]
+
+
+def test_setup_reports_the_users_drive_and_the_connect_url(client, conn, per_user_drive, monkeypatch):
+    from strelitzia import users
+    s = client.get("/app/api/claude/setup").json()
+    assert s["drive"] is False and s["drive_source"] is None and s["connect_url"] is None  # login off: no web client
+    assert "Claude setup page" in s["drive_detail"]
+    monkeypatch.setattr(app_mod.auth, "drive_connect_available", lambda: True)
+    assert client.get("/app/api/claude/setup").json()["connect_url"] == "/app/api/drive/connect"
+    _connect(conn, users.owner(conn).id)
+    s = client.get("/app/api/claude/setup").json()
+    assert s["drive"] is True and s["drive_source"] == "user"
+
+
+def test_docs_without_drive_say_where_to_connect(client):
+    r = client.post("/app/api/claude/docs")
+    assert r.status_code == 409 and r.json()["detail"] == (
+        "Google Drive isn't set up. Connect Google Drive on the Claude setup page.")
+
+
+def test_owner_without_a_token_key_keeps_the_cli_token(client, conn, tmp_path, monkeypatch):
+    """A local install with only `strelitzia drive auth` (no TOKEN_KEY) still gets Drive in the dashboard."""
+    from strelitzia.storage import drive as drive_mod
+    monkeypatch.setattr(app_mod, "_drive_client", REAL_DRIVE_CLIENT)
+    monkeypatch.setattr(drive_mod, "drive_libraries_installed", lambda: True)
+    token_file = tmp_path / "google_token.json"
+    token_file.write_text("{}")
+    monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", token_file)
+    fake = FakeDrive()
+    monkeypatch.setattr(DriveClient, "from_credentials",
+                        classmethod(lambda cls: cls(fake, html_media_factory=lambda html: html.encode("utf-8"))))
+    s = client.get("/app/api/claude/setup").json()
+    assert s["drive"] is True and s["drive_source"] == "legacy"
+    assert client.post("/app/api/claude/docs").status_code == 200

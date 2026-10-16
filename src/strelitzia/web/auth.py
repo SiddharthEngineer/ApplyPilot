@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -18,10 +18,12 @@ from fastapi.responses import RedirectResponse
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from google.oauth2.credentials import Credentials
 
 from strelitzia import users
 from strelitzia.config import env
 from strelitzia.database import Connection, get_connection
+from strelitzia.storage import drive
 
 PREFIX = "/app/api/auth"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -32,7 +34,12 @@ SESSION_MAX_AGE = 30 * 24 * 3600
 CLOCK_SKEW_SECONDS = 30  # tolerated drift between this server's clock and Google's when checking the ID token
 PUBLIC_API_PATHS = ("/app/api/health",)
 
+DRIVE_PREFIX = "/app/api/drive"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+SETUP_PAGE = "/app/claude-setup"
+
 router = APIRouter(prefix=PREFIX)
+drive_router = APIRouter(prefix=DRIVE_PREFIX)
 log = logging.getLogger(__name__)
 
 
@@ -120,6 +127,30 @@ def _account_for(conn: Connection, email: str, name: str | None) -> users.User |
     return users.activate(conn, email, name)
 
 
+def _state_matches(state: str | None, expected: object) -> bool:
+    return bool(state) and isinstance(expected, str) and secrets.compare_digest(state.encode(), expected.encode())
+
+
+def _exchange_code(code: str, redirect_uri: str) -> dict | None:
+    """Trade an authorization code for Google's token response, or None (logged, without the tokens)."""
+    try:
+        resp = httpx.post(GOOGLE_TOKEN_URL, timeout=15, data={
+            "code": code,
+            "client_id": env("GOOGLE_CLIENT_ID"),
+            "client_secret": env("GOOGLE_CLIENT_SECRET") or "",
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        })
+        body = resp.json() if resp.status_code == 200 else None
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("Google token exchange failed: %s", exc)
+        return None
+    if not isinstance(body, dict):
+        log.warning("Google token exchange returned HTTP %s", resp.status_code)
+        return None
+    return body
+
+
 def _back(outcome: str | None = None) -> RedirectResponse:
     return RedirectResponse("/app/" + (f"?auth={outcome}" if outcome else ""), status_code=303)
 
@@ -146,27 +177,18 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     if not auth_enabled():
         raise HTTPException(404, "Login is off")
     expected = request.session.pop("oauth_state", None)
-    if not state or not isinstance(expected, str) or not secrets.compare_digest(state.encode(), expected.encode()):
+    if not _state_matches(state, expected):
         # A forged callback, or a stale one (a second login tab, Back into the callback): nobody is signed in.
         log.warning("sign-in callback with a missing or wrong state")
         return _back("error")
     if error or not code:
         return _back("error")
     client_id = env("GOOGLE_CLIENT_ID")
-    try:
-        resp = httpx.post(GOOGLE_TOKEN_URL, timeout=15, data={
-            "code": code,
-            "client_id": client_id,
-            "client_secret": env("GOOGLE_CLIENT_SECRET") or "",
-            "redirect_uri": _redirect_uri(request),
-            "grant_type": "authorization_code",
-        })
-        token = resp.json().get("id_token") if resp.status_code == 200 else None
-    except (httpx.HTTPError, ValueError, AttributeError) as exc:
-        log.warning("Google token exchange failed: %s", exc)
-        return _back("error")
+    body = _exchange_code(code, _redirect_uri(request))
+    token = body.get("id_token") if body else None
     if not isinstance(token, str) or not token:
-        log.warning("Google token exchange returned HTTP %s without an id_token", resp.status_code)
+        if body is not None:
+            log.warning("Google token exchange returned no id_token")
         return _back("error")
     try:
         info = id_token.verify_oauth2_token(token, google_requests.Request(), client_id,
@@ -200,3 +222,81 @@ def me(request: Request) -> dict:
         "enabled": auth_enabled(),
         "user": {"email": user.email, "name": user.name, "role": user.role} if user else None,
     }
+
+
+# --- Connect Google Drive (a second, optional consent after sign-in; strelitzia.storage.drive stores the token) ---
+
+def drive_connect_available() -> bool:
+    """The web OAuth client and the token key are both set, so a user can connect their own Drive."""
+    return auth_enabled() and bool(env("TOKEN_KEY"))
+
+
+def _drive_redirect_uri(request: Request) -> str:
+    base = public_url()
+    return f"{base}{DRIVE_PREFIX}/callback" if base else str(request.url_for("drive_callback"))
+
+
+def _setup_page(outcome: str) -> RedirectResponse:
+    return RedirectResponse(f"{SETUP_PAGE}?drive={outcome}", status_code=303)
+
+
+@drive_router.get("/connect")
+def drive_connect(request: Request):
+    current_user(request)
+    if not drive_connect_available():
+        return _setup_page("unavailable")
+    state = secrets.token_urlsafe(32)
+    request.session["drive_state"] = state
+    params = {
+        "client_id": env("GOOGLE_CLIENT_ID"),
+        "redirect_uri": _drive_redirect_uri(request),
+        "response_type": "code",
+        "scope": DRIVE_SCOPE,
+        "state": state,
+        # offline + consent: Google only returns a refresh token on a fresh consent.
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true",
+    }
+    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{urlencode(params)}", status_code=303)
+
+
+@drive_router.get("/callback", name="drive_callback")
+def drive_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None,
+                   scope: str | None = None):
+    user = current_user(request)
+    if not drive_connect_available():
+        return _setup_page("unavailable")
+    if not _state_matches(state, request.session.pop("drive_state", None)):
+        log.warning("Drive connect callback with a missing or wrong state")
+        return _setup_page("error")
+    if error or not code:
+        return _setup_page("denied" if error == "access_denied" else "error")
+    body = _exchange_code(code, _drive_redirect_uri(request))
+    if body is None:
+        return _setup_page("error")
+    granted = str(body.get("scope") or scope or "").split()
+    access, refresh = body.get("access_token"), body.get("refresh_token")
+    if DRIVE_SCOPE not in granted:
+        return _setup_page("denied")  # the user unticked the Drive box on the consent screen
+    if not isinstance(access, str) or not isinstance(refresh, str) or not refresh:
+        log.warning("Drive token exchange returned no refresh token")
+        return _setup_page("error")
+    expires_in = body.get("expires_in")
+    expiry = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=int(expires_in))
+              if isinstance(expires_in, int | float) else None)  # google-auth wants naive UTC
+    creds = Credentials(token=access, refresh_token=refresh, token_uri=GOOGLE_TOKEN_URL,
+                        client_id=env("GOOGLE_CLIENT_ID"), client_secret=env("GOOGLE_CLIENT_SECRET"),
+                        scopes=[DRIVE_SCOPE], expiry=expiry)
+    try:
+        drive.save_user_token(_conn(request), user.id, creds)
+    except drive.DriveNotConfigured as exc:
+        log.warning("Couldn't store the Drive token: %s", exc)
+        return _setup_page("error")
+    return _setup_page("connected")
+
+
+@drive_router.post("/disconnect")
+def drive_disconnect(request: Request) -> dict:
+    drive.disconnect(_conn(request), current_user(request).id)
+    return {"ok": True}

@@ -17,7 +17,8 @@ HEADERS = {"X-Strelitzia": "1"}
 def _login_off(monkeypatch):
     """Login is off in every web test (a developer's STRELITZIA_GOOGLE_CLIENT_ID never leaks in); see `auth_client`."""
     for prefix in ("STRELITZIA_", "APPLYPILOT_"):
-        for name in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "OWNER_EMAIL", "PUBLIC_URL"):
+        for name in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "OWNER_EMAIL", "PUBLIC_URL",
+                     "TOKEN_KEY"):
             monkeypatch.delenv(prefix + name, raising=False)
 
 

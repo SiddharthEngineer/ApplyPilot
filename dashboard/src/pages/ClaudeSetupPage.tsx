@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as api from '../api';
 import Flower from '../components/Flower';
 import type { ClaudeSetup } from '../types';
 
+// The ?drive= outcome the Drive connect callback (web/auth.py) redirects back with.
+const DRIVE_OUTCOMES: Record<string, { text: string; error: boolean }> = {
+  connected: { text: 'Google Drive is connected.', error: false },
+  denied: { text: "Google Drive wasn't connected: allow access to the files Strelitzia creates and try again.", error: true },
+  error: { text: "Couldn't connect Google Drive. Try again.", error: true },
+  unavailable: { text: "This server can't connect Google Drive yet.", error: true },
+};
+
 /** One-time setup: a Claude Project with the two Strelitzia Docs attached and the project instructions pasted in. */
 export default function ClaudeSetupPage() {
+  const [params] = useSearchParams();
+  const outcome = DRIVE_OUTCOMES[params.get('drive') ?? ''];
   const [setup, setSetup] = useState<ClaudeSetup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,6 +34,19 @@ export default function ClaudeSetupPage() {
     setError(null);
     try {
       setSetup(await api.publishClaudeDocs());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.disconnectDrive();
+      setSetup(await api.getClaudeSetup());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -54,6 +78,7 @@ export default function ClaudeSetupPage() {
         Resumes and cover letters are written in your Claude Pro plan. Do this once; after that every job's
         <strong> Open in Claude</strong> button gives you a prompt for a new chat in the project.
       </p>
+      {outcome && <p className={outcome.error ? 'notice error' : 'notice'} role="status">{outcome.text}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <ol className="setup-steps">
         <li>
@@ -77,10 +102,19 @@ export default function ClaudeSetupPage() {
               content library with every job, so you can skip this step.
             </p>
           )}
+          {!setup.drive && setup.connect_url && (
+            <a className="button" href={setup.connect_url}>Connect Google Drive</a>
+          )}
           {setup.drive && (
             <button type="button" disabled={busy} onClick={publish}>
               {busy ? 'Writing…' : missing ? 'Write the Docs to Drive' : 'Refresh the Docs'}
             </button>
+          )}
+          {setup.drive_source === 'user' && (
+            <p className="muted small">
+              Drive connected: files go to a Strelitzia folder in your Drive ({setup.drive_detail}).{' '}
+              <button type="button" disabled={busy} onClick={disconnect}>Disconnect</button>
+            </p>
           )}
         </li>
         <li>

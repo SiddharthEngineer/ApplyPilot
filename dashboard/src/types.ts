@@ -206,6 +206,10 @@ export interface ClaudeDoc {
 export interface ClaudeSetup {
   drive: boolean;
   drive_detail: string;
+  /** "user": the user's own connected Drive; "legacy": the CLI's token file (owner, no TOKEN_KEY on the server). */
+  drive_source: 'user' | 'legacy' | null;
+  /** Where Connect Google Drive goes (a full-page redirect to Google), or null when the server can't offer it. */
+  connect_url: string | null;
   rules_version: string;
   docs: ClaudeDoc[];
   project_name: string;

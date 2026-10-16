@@ -80,6 +80,11 @@ button:hover:not(:disabled) { background: var(--surface-2); }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+a.button {
+  display: inline-block; border: 1px solid var(--accent); border-radius: 6px; padding: 5px 10px;
+  background: var(--accent); color: var(--accent-text); text-decoration: none;
+}
+a.button:hover { filter: brightness(1.08); }
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .badge-grey { background: var(--badge-grey-bg); color: var(--badge-grey-fg); }
