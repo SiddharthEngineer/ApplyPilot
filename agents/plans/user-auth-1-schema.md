@@ -50,7 +50,7 @@ then rebuild/alter `jobs` to `PRIMARY KEY (user_id, url)` and replace `idx_jobs_
 **Validate:** `pytest tests/test_database.py tests/test_database_pg.py -q` → passes: a test builds an old-shape DB with jobs
 and side rows, runs `init_db` twice, and checks every row belongs to the owner, the row count is unchanged, and two
 users can insert the same url.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 2 commit)
 
 ### Task 3: job helpers take a user
 **Runs:** unattended

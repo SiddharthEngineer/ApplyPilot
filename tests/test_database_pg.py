@@ -9,6 +9,8 @@ import pytest
 from strelitzia.database import (
     IntegrityError,
     backend_name,
+    USER_TABLES,
+    _ensure_tables,
     ensure_columns,
     get_connection,
     get_jobs_by_stage,
@@ -18,6 +20,7 @@ from strelitzia.database import (
     store_jobs,
     table_columns,
 )
+from strelitzia.users import owner
 
 BACKENDS = pytest.mark.parametrize(
     "db_target", ["sqlite", pytest.param("pg", marks=pytest.mark.pg)], indirect=True
@@ -82,6 +85,74 @@ def test_integrity_error_is_catchable(db_target):
     conn.execute("INSERT INTO jobs (url, title) VALUES (?, ?)", ("u2", "c"))
     conn.commit()
     assert [r[0] for r in conn.execute("SELECT url FROM jobs ORDER BY url").fetchall()] == ["u1", "u2"]
+
+
+def _old_shape_db(conn) -> None:
+    """A database from before users: jobs keyed on url, side rows without user_id, NULL-user preferences."""
+    _ensure_tables(conn)
+    conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT, site TEXT, strategy TEXT)")
+    ensure_columns(conn)
+    conn.executemany("INSERT INTO jobs (url, title, job_key, tailor_attempts) VALUES (?, ?, ?, ?)",
+                     [(f"https://example.com/job/{i}", f"Engineer {i}", f"key{i}", i) for i in range(4)])
+    conn.execute("INSERT INTO status_events (id, url, to_status) VALUES ('e1', 'https://example.com/job/0', 'x')")
+    conn.execute("INSERT INTO contacts (id, name) VALUES ('c1', 'Ada')")
+    conn.execute("INSERT INTO job_contacts (job_url, contact_id) VALUES ('https://example.com/job/0', 'c1')")
+    conn.execute("INSERT INTO interviews (id, job_url) VALUES ('i1', 'https://example.com/job/1')")
+    conn.execute("INSERT INTO drafts (id, job_url, version) VALUES ('d1', 'https://example.com/job/1', 1)")
+    conn.execute("INSERT INTO panel_runs (id, status) VALUES ('p1', 'open')")
+    conn.execute("INSERT INTO dashboard_tasks (id, url, state) VALUES ('t1', 'https://example.com/job/2', 'done')")
+    conn.execute("INSERT INTO llm_usage (id, purpose, cost_usd) VALUES ('l1', 'score', 0.01)")
+    conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (NULL, '{\"a\": 1}', '1')")
+    conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (NULL, '{\"a\": 2}', '2')")
+    conn.commit()
+
+
+@BACKENDS
+def test_init_db_migrates_an_old_db_to_users(db_target):
+    conn = get_connection(db_target)
+    _old_shape_db(conn)
+
+    init_db(db_target)
+    conn = init_db(db_target)
+
+    owner_id = owner(conn).id
+    assert conn.execute("SELECT COUNT(*), COUNT(DISTINCT user_id) FROM jobs").fetchone()[:] == (4, 1)
+    assert conn.execute("SELECT DISTINCT user_id FROM jobs").fetchone()[0] == owner_id
+    # Columns and their values survive the rebuild.
+    row = conn.execute("SELECT * FROM jobs WHERE url = ?", ("https://example.com/job/3",)).fetchone()
+    assert (row["title"], row["job_key"], row["tailor_attempts"]) == ("Engineer 3", "key3", 3)
+    for table in ("llm_usage", *USER_TABLES):
+        assert conn.execute(f"SELECT COUNT(*), COUNT(DISTINCT user_id) FROM {table}").fetchone()[:] == (1, 1), table
+        assert conn.execute(f"SELECT user_id FROM {table}").fetchone()[0] == owner_id, table
+    # The newest of the NULL preference rows becomes the owner's.
+    assert conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?",
+                        (owner_id,)).fetchone()[0] == '{"a": 2}'
+
+    # Two users can track the same posting; one user can't hold it twice.
+    conn.execute("INSERT INTO jobs (user_id, url, job_key) VALUES ('other', 'https://example.com/job/0', 'key0')")
+    with pytest.raises(IntegrityError):
+        conn.execute("INSERT INTO jobs (url, title) VALUES ('https://example.com/job/0', 'dup')")
+    with pytest.raises(IntegrityError):
+        conn.execute("INSERT INTO jobs (user_id, url, job_key) VALUES ('other', 'https://example.com/job/x', 'key0')")
+    # Inserts that don't name a user (callers not threaded yet) belong to the owner.
+    conn.execute("INSERT INTO jobs (url) VALUES ('https://example.com/job/new')")
+    conn.execute("INSERT INTO contacts (id, name) VALUES ('c2', 'Bob')")
+    conn.commit()
+    assert conn.execute("SELECT user_id FROM jobs WHERE url = 'https://example.com/job/new'").fetchone()[0] == owner_id
+    assert conn.execute("SELECT user_id FROM contacts WHERE id = 'c2'").fetchone()[0] == owner_id
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 6
+
+
+@BACKENDS
+def test_fresh_db_is_keyed_per_user(db_target):
+    conn = init_db(db_target)
+    init_db(db_target)
+    assert {"user_id", "url"} <= table_columns(conn)
+    for table in USER_TABLES:
+        assert "user_id" in table_columns(conn, table), table
+    conn.execute("INSERT INTO jobs (user_id, url) VALUES ('a', 'u'), ('b', 'u')")
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 2
 
 
 def _seed_stages(conn) -> None:

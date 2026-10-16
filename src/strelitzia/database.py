@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeAlias
 
-from strelitzia import config
+from strelitzia import config, users
 from strelitzia.config import DB_PATH
 from strelitzia.db_pg import PgConnection
 from strelitzia.enrichment.posting_model import EXTRACT_VERSION
@@ -137,10 +137,14 @@ def init_db(db_path: Path | str | None = None) -> Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
     conn = get_connection(path)
-    conn.execute("""
+    _ensure_tables(conn)
+    # Rows inserted without a user belong to the owner (callers not yet threading a user through).
+    owner_id = _owner_id(conn)
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS jobs (
+            user_id               TEXT NOT NULL DEFAULT '{owner_id}',
             -- Discovery stage (smart_extract / job_search)
-            url                   TEXT PRIMARY KEY,
+            url                   TEXT,
             title                 TEXT,
             salary                TEXT,
             description           TEXT,
@@ -180,14 +184,15 @@ def init_db(db_path: Path | str | None = None) -> Connection:
             last_attempted_at     TEXT,
             apply_duration_ms     INTEGER,
             apply_task_id         TEXT,
-            verification_confidence TEXT
+            verification_confidence TEXT,
+            PRIMARY KEY (user_id, url)
         )
     """)
     conn.commit()
 
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
-    _ensure_tables(conn)
+    migrate_users(conn)
     backfill_job_keys(conn)
 
     return conn
@@ -200,7 +205,6 @@ def _ensure_tables(conn: Connection) -> None:
         "id TEXT PRIMARY KEY, url TEXT, from_status TEXT, to_status TEXT, at TEXT, source TEXT)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_status_events_url ON status_events (url)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_job_key ON jobs (job_key)")
     # Dashboard generation queue (strelitzia.web.tasks): kind resume|cover|both, state queued|running|done|error.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS dashboard_tasks ("
@@ -209,8 +213,8 @@ def _ensure_tables(conn: Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_url ON dashboard_tasks (url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_tasks_state ON dashboard_tasks (state)")
-    # One row per Claude response (strelitzia.llm.record_usage); batch 0|1, ts ISO UTC. user_id stays NULL until
-    # there are users, so per-user caps won't need a migration.
+    # One row per Claude response (strelitzia.llm.record_usage); batch 0|1, ts ISO UTC. A NULL user_id is set to
+    # the owner's on the next start (migrate_users).
     conn.execute(
         "CREATE TABLE IF NOT EXISTS llm_usage ("
         "id TEXT PRIMARY KEY, ts TEXT, purpose TEXT, model TEXT, batch INTEGER, input_tokens INTEGER, "
@@ -225,11 +229,11 @@ def _ensure_tables(conn: Connection) -> None:
         "id TEXT PRIMARY KEY, purpose TEXT, submitted_at TEXT, status TEXT, request_count INTEGER, "
         "estimate_usd DOUBLE PRECISION)"
     )
-    # Job preferences (strelitzia.scoring.preferences), one JSON document per user; NULL = the single user for now.
+    # Job preferences (strelitzia.scoring.preferences), one JSON document per user.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS user_preferences (user_id TEXT NULL UNIQUE, prefs_json TEXT, updated_at TEXT)"
     )
-    # Workspace (strelitzia.workspace): contacts shared across jobs, and interviews per job.
+    # Workspace (strelitzia.workspace): a user's contacts (shared across their jobs), and interviews per job.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS contacts ("
         "id TEXT PRIMARY KEY, name TEXT NOT NULL, company TEXT, role TEXT, email TEXT, phone TEXT, "
@@ -284,6 +288,115 @@ def _ensure_tables(conn: Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
     conn.commit()
 
+
+
+# Tables migrate_users gives a user_id (with the owner as the default); user_preferences and llm_usage already have one.
+USER_TABLES = ("status_events", "dashboard_tasks", "contacts", "job_contacts", "interviews", "drafts", "panel_runs")
+
+
+def _owner_id(conn: Connection) -> str:
+    owner_id = users.owner(conn).id
+    if not owner_id.isalnum():  # it's inlined into DEFAULT clauses
+        raise ValueError(f"unexpected owner id {owner_id!r}")
+    return owner_id
+
+
+def _jobs_pk(conn: Connection) -> list[str]:
+    """The columns of the jobs primary key, in key order."""
+    if isinstance(conn, PgConnection):
+        rows = conn.execute(
+            "SELECT k.column_name FROM information_schema.table_constraints c "
+            "JOIN information_schema.key_column_usage k ON k.constraint_name = c.constraint_name "
+            "AND k.table_schema = c.table_schema AND k.table_name = c.table_name "
+            "WHERE c.table_schema = current_schema() AND c.table_name = 'jobs' AND c.constraint_type = 'PRIMARY KEY' "
+            "ORDER BY k.ordinal_position"
+        ).fetchall()
+        return [r[0] for r in rows]
+    cols = [r for r in conn.execute("PRAGMA table_info(jobs)").fetchall() if r[5]]
+    return [r[1] for r in sorted(cols, key=lambda r: r[5])]
+
+
+def _rebuild_sqlite_jobs(conn: sqlite3.Connection, owner_id: str) -> None:
+    """Copy jobs into a table keyed on (user_id, url), keeping every column and row (SQLite can't alter a key)."""
+    info = [r for r in conn.execute("PRAGMA table_info(jobs)").fetchall() if r[1] != "user_id"]
+    defs = [f"user_id TEXT NOT NULL DEFAULT '{owner_id}'"]
+    for _, name, ctype, notnull, default, _pk in info:
+        col = f"{name} {ctype}".strip()
+        if notnull:
+            col += " NOT NULL"
+        if default is not None:
+            col += f" DEFAULT {default}"
+        defs.append(col)
+    names = ", ".join(r[1] for r in info)
+    has_user = "user_id" in table_columns(conn)
+    user_expr = f"COALESCE(user_id, '{owner_id}')" if has_user else f"'{owner_id}'"
+    conn.commit()
+    conn.execute("BEGIN")
+    try:
+        conn.execute(f"CREATE TABLE jobs_new ({', '.join(defs)}, PRIMARY KEY (user_id, url))")
+        conn.execute(f"INSERT INTO jobs_new (user_id, {names}) SELECT {user_expr}, {names} FROM jobs")
+        conn.execute("DROP TABLE jobs")
+        conn.execute("ALTER TABLE jobs_new RENAME TO jobs")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _rekey_pg_jobs(conn: PgConnection, owner_id: str) -> None:
+    conn.execute("BEGIN")
+    try:
+        if "user_id" not in table_columns(conn):
+            conn.execute("ALTER TABLE jobs ADD COLUMN user_id TEXT")
+        conn.execute("UPDATE jobs SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+        conn.execute(f"ALTER TABLE jobs ALTER COLUMN user_id SET DEFAULT '{owner_id}', ALTER COLUMN user_id SET NOT NULL")
+        pkey = conn.execute(
+            "SELECT constraint_name FROM information_schema.table_constraints "
+            "WHERE table_schema = current_schema() AND table_name = 'jobs' AND constraint_type = 'PRIMARY KEY'"
+        ).fetchone()
+        if pkey:
+            conn.execute(f'ALTER TABLE jobs DROP CONSTRAINT "{pkey[0]}"')
+        conn.execute("ALTER TABLE jobs ADD PRIMARY KEY (user_id, url)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def migrate_users(conn: Connection) -> None:
+    """Make every per-user table carry user_id, owned by the owner where unset, and key jobs on (user_id, url).
+
+    Idempotent: once jobs has the composite key it only fills NULL user_ids (rows inserted without one) and makes
+    sure the indexes exist. Never drops data.
+    """
+    owner_id = _owner_id(conn)
+    for table in USER_TABLES:
+        if "user_id" not in table_columns(conn, table):
+            # The default fills existing rows and any insert that doesn't name a user yet.
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT DEFAULT '{owner_id}'")
+    conn.commit()
+
+    if _jobs_pk(conn) != ["user_id", "url"]:
+        if isinstance(conn, PgConnection):
+            _rekey_pg_jobs(conn, owner_id)
+        else:
+            _rebuild_sqlite_jobs(conn, owner_id)
+
+    # Preferences were one row with a NULL user_id (racing first saves could leave several; the newest won).
+    if not conn.execute("SELECT 1 FROM user_preferences WHERE user_id = ?", (owner_id,)).fetchone():
+        newest = conn.execute("SELECT prefs_json, updated_at FROM user_preferences WHERE user_id IS NULL "
+                              "ORDER BY updated_at DESC LIMIT 1").fetchone()
+        if newest:
+            conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (?, ?, ?)",
+                         (owner_id, newest[0], newest[1]))
+    for table in ("jobs", "llm_usage", *USER_TABLES):
+        conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+
+    conn.execute("DROP INDEX IF EXISTS idx_jobs_job_key")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_user_job_key ON jobs (user_id, job_key)")
+    for table in ("llm_usage", *USER_TABLES):
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table} (user_id)")
+    conn.commit()
 
 def get_state(conn: Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
@@ -344,7 +457,7 @@ PENDING_EXTRACT_WHERE = (
 )
 
 _ALL_COLUMNS: dict[str, str] = {
-    # Discovery
+    # Discovery (the key is (user_id, url); migrate_users adds user_id to old tables)
     "url": "TEXT PRIMARY KEY",
     "job_key": "TEXT",  # job_key(url): short stable id for dashboard URLs and Drive appProperties
     "title": "TEXT",
