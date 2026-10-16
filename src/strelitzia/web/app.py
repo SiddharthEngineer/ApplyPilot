@@ -504,6 +504,38 @@ def rescore(key: str, request: Request) -> dict:
     return {**task, "key": key}
 
 
+class RescoreAll(BaseModel):
+    confirm: bool = False
+
+
+@api.get("/rescore/preview")
+def rescore_all_preview(request: Request) -> dict:
+    """How many active (not rejected) jobs Rescore all would re-assess, how many it skips because they aren't
+    extracted yet, and the estimated Batch cost. Changes nothing."""
+    from strelitzia.scoring.scorer import rescore_preview
+
+    return rescore_preview(db_conn(request), current_user(request).id, "active")
+
+
+@api.post("/rescore")
+def rescore_all(body: RescoreAll, request: Request) -> dict:
+    """After the user confirmed the cost, queue re-assessment of every active job, current assessments included.
+    Poll GET /app/api/tasks/{id}. A budget stop (402) queues nothing."""
+    from strelitzia.scoring.scorer import rescore_preview
+
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="Confirm the estimated cost first")
+    conn = db_conn(request)
+    user = current_user(request)
+    preview = rescore_preview(conn, user.id, "active")
+    if not preview["jobs"]:
+        return {"task": None, **preview}
+    budget_stop(conn, user.id, preview["estimated_usd"])
+    task = tasks.enqueue(conn, user.id, None, "rescore_all")
+    _notify(request)
+    return {"task": task, **preview}
+
+
 MIN_PASTED_CHARS = 200  # a pasted description shorter than this isn't a whole posting
 
 
@@ -759,35 +791,43 @@ def get_preferences(request: Request) -> dict:
 
 class PrefsBody(BaseModel):
     prefs: dict
+    # "active": re-assess every job that isn't rejected, not only the ones these preferences make stale.
+    reassess_scope: Literal["stale", "active"] = "stale"
 
 
 class PrefsSave(PrefsBody):
     confirm_reassess: bool = False
 
 
-def _preview(conn: Connection, user_id: str, prefs: prefs_mod.Preferences) -> dict:
-    from strelitzia.scoring.scorer import reassess_preview
+def _preview(conn: Connection, user_id: str, prefs: prefs_mod.Preferences, scope: str = "stale") -> dict:
+    from strelitzia.scoring.scorer import reassess_preview, rescore_preview
 
+    if scope == "active":
+        active = rescore_preview(conn, user_id, "active", prefs)
+        return {"reassess_needed": bool(active["jobs"]), "jobs_to_reassess": active["jobs"],
+                "estimated_usd": active["estimated_usd"], "skipped_unextracted": active["skipped_unextracted"]}
     return reassess_preview(conn, user_id, prefs)
 
 
 @api.post("/preferences/preview")
 def preview_preferences(body: PrefsBody, request: Request) -> dict:
-    """What saving these preferences would re-assess and roughly cost (Batch pricing). Changes nothing."""
-    return _preview(db_conn(request), current_user(request).id, prefs_mod.Preferences.from_dict(body.prefs))
+    """What saving these preferences would re-assess and roughly cost (Batch pricing), for `reassess_scope`.
+    Changes nothing."""
+    return _preview(db_conn(request), current_user(request).id, prefs_mod.Preferences.from_dict(body.prefs),
+                    body.reassess_scope)
 
 
 @api.put("/preferences")
 def put_preferences(body: PrefsSave, request: Request) -> dict:
     """Save the user's preferences, then re-rank their jobs now (no LLM). With confirm_reassess, also queue
-    re-assessment of their stale jobs.
+    re-assessment of their stale jobs, or with reassess_scope "active" of every job that isn't rejected.
 
     Without the confirmation, jobs keep their old assessment and show as stale. A budget stop (402) saves nothing.
     """
     conn = db_conn(request)
     user = current_user(request)
     prefs = prefs_mod.Preferences.from_dict(body.prefs)
-    preview = _preview(conn, user.id, prefs) if body.confirm_reassess else None
+    preview = _preview(conn, user.id, prefs, body.reassess_scope) if body.confirm_reassess else None
     reassess = bool(preview and preview["reassess_needed"] and preview["jobs_to_reassess"])
     if reassess:
         budget_stop(conn, user.id, preview["estimated_usd"])
@@ -795,7 +835,8 @@ def put_preferences(body: PrefsSave, request: Request) -> dict:
     rescored = recompute_fit(conn, user.id, prefs=prefs)
     task = None
     if reassess:
-        task = tasks.enqueue(conn, user.id, None, "reassess_all")
+        kind = "rescore_all" if body.reassess_scope == "active" else "reassess_all"
+        task = tasks.enqueue(conn, user.id, None, kind)
         _notify(request)
     return {"prefs": prefs.to_dict(), "rescored": rescored, "task": task}
 

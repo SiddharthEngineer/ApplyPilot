@@ -37,7 +37,7 @@ excludes rejected jobs.
 **What:** `GET /app/api/rescore/preview` → the preview. `POST /app/api/rescore` `{confirm: true}` → `budget_stop(estimate)`,
 then enqueue `rescore_all`, returning the task. `PUT /preferences` takes `reassess_scope: "stale" | "active"` (default "stale").
 **Validate:** `pytest tests/web -q` → passes; a request over the user's cap returns 402 and queues nothing.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 3: dashboard
 **Runs:** unattended
