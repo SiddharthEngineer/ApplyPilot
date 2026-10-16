@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -585,6 +586,28 @@ class ContactPatch(BaseModel):
     phone: str | None = None
     linkedin_url: str | None = None
     notes: str | None = None
+
+    @field_validator("company", "role", "email", "phone", "linkedin_url", "notes")
+    @classmethod
+    def _blank_is_null(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, value: str | None) -> str | None:
+        if value and "@" not in value:
+            raise ValueError("Email must contain @")
+        return value
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def _linkedin(cls, value: str | None) -> str | None:
+        if value:
+            url = urlparse(value)
+            host = (url.hostname or "").lower()
+            if url.scheme not in ("http", "https") or not (host == "linkedin.com" or host.endswith(".linkedin.com")):
+                raise ValueError("LinkedIn must be an http(s) link on linkedin.com")
+        return value
 
 
 class ContactCreate(ContactPatch):

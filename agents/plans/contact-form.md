@@ -27,7 +27,7 @@ typed name and the job's company, instead of creating a name-only contact straig
 **Files:** src/strelitzia/web/app.py (modify), tests/web/test_workspace_api.py (modify)
 **What:** Pydantic validators on `ContactCreate`/`ContactPatch` for email and linkedin_url as above. Empty strings become null.
 **Validate:** `pytest tests/web/test_workspace_api.py -q` → passes, with 422 for a bad email or a non-LinkedIn URL.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: ContactForm and the Contacts page
 **Runs:** unattended
