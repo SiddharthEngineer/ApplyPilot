@@ -11,7 +11,7 @@ R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a t
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | ⏳ | - |
+| R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | ✅ PR open | - |
 | R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | ⏳ | R25 |
 | R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ⏳ | R26 |
 | R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | ⏳ | R27 |

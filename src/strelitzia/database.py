@@ -317,7 +317,10 @@ def _jobs_pk(conn: Connection) -> list[str]:
 
 
 def _rebuild_sqlite_jobs(conn: sqlite3.Connection, owner_id: str) -> None:
-    """Copy jobs into a table keyed on (user_id, url), keeping every column and row (SQLite can't alter a key)."""
+    """Copy jobs into a table keyed on (user_id, url), keeping every column, row and index (SQLite can't alter a key).
+
+    idx_jobs_job_key is left out: migrate_users replaces it with a per-user unique index.
+    """
     info = [r for r in conn.execute("PRAGMA table_info(jobs)").fetchall() if r[1] != "user_id"]
     defs = [f"user_id TEXT NOT NULL DEFAULT '{owner_id}'"]
     for _, name, ctype, notnull, default, _pk in info:
@@ -328,6 +331,10 @@ def _rebuild_sqlite_jobs(conn: sqlite3.Connection, owner_id: str) -> None:
             col += f" DEFAULT {default}"
         defs.append(col)
     names = ", ".join(r[1] for r in info)
+    indexes = [r[0] for r in conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs' AND sql IS NOT NULL "
+        "AND name != 'idx_jobs_job_key'"
+    ).fetchall()]
     has_user = "user_id" in table_columns(conn)
     user_expr = f"COALESCE(user_id, '{owner_id}')" if has_user else f"'{owner_id}'"
     conn.commit()
@@ -337,6 +344,8 @@ def _rebuild_sqlite_jobs(conn: sqlite3.Connection, owner_id: str) -> None:
         conn.execute(f"INSERT INTO jobs_new (user_id, {names}) SELECT {user_expr}, {names} FROM jobs")
         conn.execute("DROP TABLE jobs")
         conn.execute("ALTER TABLE jobs_new RENAME TO jobs")
+        for sql in indexes:
+            conn.execute(sql)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -731,12 +740,16 @@ def store_jobs(conn: Connection, jobs: list[dict],
         url = job.get("url")
         if not url:
             continue
-        cur = conn.execute(
-            "INSERT INTO jobs (user_id, url, title, salary, description, location, site, strategy, discovered_at, "
-            "job_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, url) DO NOTHING",
-            (user_id, url, job.get("title"), job.get("salary"), job.get("description"),
-             job.get("location"), site, strategy, now, job_key(url)),
-        )
+        try:
+            cur = conn.execute(
+                "INSERT INTO jobs (user_id, url, title, salary, description, location, site, strategy, "
+                "discovered_at, job_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, url) DO NOTHING",
+                (user_id, url, job.get("title"), job.get("salary"), job.get("description"),
+                 job.get("location"), site, strategy, now, job_key(url)),
+            )
+        except IntegrityError:  # e.g. a job_key the user already has under another url
+            existing += 1
+            continue
         if cur.rowcount == 1:
             new += 1
         else:

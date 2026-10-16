@@ -68,3 +68,17 @@ def test_set_status_and_cap_and_list(conn):
     with pytest.raises(ValueError):
         users.set_status(conn, a.id, "banned")
     assert [u.email for u in users.list_users(conn)] == [owner.email, "a@example.com", "b@example.com"]
+
+
+def test_an_invited_owner_email_is_promoted(tmp_path, monkeypatch):
+    monkeypatch.setenv("STRELITZIA_OWNER_EMAIL", "boss@example.com")
+    path = tmp_path / "p.db"
+    c = init_db(path)
+    try:
+        c.execute("DELETE FROM users")  # as if the invite came before any owner existed
+        invited = users.invite(c, "Boss@example.com")
+        owner = users.owner(c)
+        assert (owner.id, owner.role, owner.status, owner.monthly_cap_usd) == (invited.id, "owner", "active", None)
+        assert len(users.list_users(c)) == 1
+    finally:
+        close_connection(path)
