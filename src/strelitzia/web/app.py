@@ -798,7 +798,7 @@ def get_preferences(request: Request) -> dict:
     """The saved preferences, plus the labels and value lists the Preferences page offers."""
     return {
         "prefs": prefs_mod.load_preferences(db_conn(request), current_user(request).id).to_dict(),
-        "options": prefs_mod.OPTIONS,
+        "options": prefs_mod.options(),
         "labels": prefs_mod.LABELS,
     }
 

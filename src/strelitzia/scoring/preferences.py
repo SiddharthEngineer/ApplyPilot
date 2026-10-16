@@ -148,9 +148,13 @@ OPTIONS = {
     "importance": list(IMPORTANCES),
     "red_flags": [{"value": f, "label": f.replace("_", " ").capitalize(), "help": RED_FLAG_HELP[f]}
                   for f in RED_FLAGS_PICKABLE],
-    # Common role titles per job field, to pick target_roles from (custom titles are allowed too).
-    "roles_by_field": role_map(),
 }
+
+
+def options() -> dict:
+    """OPTIONS plus roles_by_field: common role titles per job field to pick target_roles from (custom titles are
+    allowed too). Read on demand, so a broken roles.json only breaks the Preferences page."""
+    return {**OPTIONS, "roles_by_field": role_map()}
 
 
 # ── Lenient value coercion ────────────────────────────────────────────────

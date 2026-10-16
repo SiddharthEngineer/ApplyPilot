@@ -32,7 +32,12 @@ from strelitzia.enrichment.posting_model import ROLE_CATEGORIES, Location
     ("Senior Software Engineer - Distributed Systems", "software_engineering"),
     ("Full Stack Software Engineer", "software_engineering"),
     ("Web Developer, eCRM", "software_engineering"),
-    ("Account Executive, Tableau", "other"),
+    ("Account Executive, Tableau", "sales"),
+    ("Technical Recruiter, AI", "hr_recruiting"),
+    ("Customer Success Manager, Data Platform", "customer_success"),
+    ("Senior Security Engineer", "cybersecurity"),
+    ("SOC Analyst", "cybersecurity"),
+    ("SoC Design Engineer", "hardware_electrical"),
     ("Warehouse Team Lead", "other"),
     ("Mainframe Training Specialist", "other"),  # "ai" inside "Mainframe"/"Training" is not a word
     ("", "other"),
