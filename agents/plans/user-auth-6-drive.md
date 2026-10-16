@@ -33,7 +33,7 @@ who hasn't connected Drive still works: the workbench falls back to the clipboar
 `DriveClient.for_user(conn, user_id)`. Encrypt with Fernet from `TOKEN_KEY`; without the key, the store refuses to save.
 The owner import of the legacy token file runs once.
 **Validate:** `pytest tests/test_drive_client.py -q` → passes; the stored column never contains `refresh_token` in clear.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: connect flow and per-user client
 **Runs:** unattended

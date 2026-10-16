@@ -284,6 +284,11 @@ def _ensure_tables(conn: Connection) -> None:
         "status TEXT NOT NULL DEFAULT 'invited', monthly_cap_usd DOUBLE PRECISION NULL, created_at TEXT, "
         "last_login_at TEXT)"
     )
+    # A user's Google Drive connection (strelitzia.storage.drive): the OAuth token, Fernet-encrypted with TOKEN_KEY.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS user_drive (user_id TEXT PRIMARY KEY, token_enc TEXT, root_folder_id TEXT, "
+        "connected_at TEXT)"
+    )
     # Small app-wide key/value state, e.g. the hashes of the Claude Project Docs (strelitzia.scoring.workbench).
     conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
     conn.commit()
