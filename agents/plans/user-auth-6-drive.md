@@ -51,7 +51,7 @@ user's credentials; `/claude/setup` reports that user's status and a `connect_ur
 **What:** Folder paths are unchanged (each user's Drive is separate); cache the root folder id per user in
 `user_drive.root_folder_id` so a lookup by name happens once.
 **Validate:** `pytest tests/test_drive_layout.py tests/test_drive_docs.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit; the cache helpers are in drive_layout, DriveClient uses them)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

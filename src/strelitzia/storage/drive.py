@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from strelitzia import config
-from strelitzia.storage.drive_layout import DEFAULT_ROOT, LEGACY_ROOT, DriveTarget
+from strelitzia.storage.drive_layout import (
+    DEFAULT_ROOT,
+    LEGACY_ROOT,
+    DriveTarget,
+    cache_root_folder_id,
+    cached_root_folder_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -278,11 +284,13 @@ class DriveClient:
     """Thin wrapper around a googleapiclient Drive v3 service (injectable for tests)."""
 
     def __init__(self, service, media_factory: Callable[[Path], object] | None = None,
-                 html_media_factory: Callable[[str], object] | None = None):
+                 html_media_factory: Callable[[str], object] | None = None, conn=None, user_id: str | None = None):
         self._service = service
         self._media = media_factory or _pdf_media
         self._html_media = html_media_factory or _html_media
         self._folders: dict[tuple[str, str], str] = {}
+        # With a user, the root folder's id is cached in their user_drive row (drive_layout.cached_root_folder_id).
+        self._conn, self._user_id = conn, user_id
 
     @classmethod
     def from_credentials(cls) -> DriveClient:
@@ -295,7 +303,7 @@ class DriveClient:
         """A client on the user's own Drive (their connected token). Raises DriveNotConfigured."""
         creds = load_user_credentials(conn, user_id)
         from googleapiclient.discovery import build
-        return cls(build("drive", "v3", credentials=creds, cache_discovery=False))
+        return cls(build("drive", "v3", credentials=creds, cache_discovery=False), conn=conn, user_id=user_id)
 
     def _list(self, q: str) -> list[dict]:
         files: list[dict] = []
@@ -316,8 +324,14 @@ class DriveClient:
         for name in folders:
             key = (parent, name)
             if key not in self._folders:
+                legacy_ok = parent == "root" and name == DEFAULT_ROOT and not os.environ.get("DRIVE_ROOT_FOLDER")
+                cached = self._cached_root(name, legacy_ok) if parent == "root" else None
+                if cached:
+                    self._folders[key] = cached
+                    parent = cached
+                    continue
                 found = self._find_folder(name, parent)
-                if not found and parent == "root" and name == DEFAULT_ROOT and not os.environ.get("DRIVE_ROOT_FOLDER"):
+                if not found and legacy_ok:
                     # Files synced before the rename live under the legacy default root: keep one tree.
                     found = self._find_folder(LEGACY_ROOT, parent)
                 if found:
@@ -325,8 +339,24 @@ class DriveClient:
                 else:
                     body = {"name": name, "mimeType": FOLDER_MIME, "parents": [parent]}
                     self._folders[key] = self._service.files().create(body=body, fields="id").execute()["id"]
+                if parent == "root" and self._user_id:
+                    cache_root_folder_id(self._conn, self._user_id, self._folders[key])
             parent = self._folders[key]
         return parent
+
+    def _cached_root(self, name: str, legacy_ok: bool) -> str | None:
+        """The user's cached root folder id, if it's still that folder (not trashed or renamed, and in this Drive)."""
+        if not self._user_id:
+            return None
+        folder_id = cached_root_folder_id(self._conn, self._user_id)
+        if not folder_id:
+            return None
+        meta = self._get(folder_id)
+        names = (name, LEGACY_ROOT) if legacy_ok else (name,)
+        if (meta and not meta.get("trashed") and meta.get("mimeType", FOLDER_MIME) == FOLDER_MIME
+                and meta.get("name") in names):
+            return folder_id
+        return None
 
     def _find_folder(self, name: str, parent: str) -> list[dict]:
         return self._list(f"name = {_q(name)} and mimeType = {_q(FOLDER_MIME)} and {_q(parent)} in parents and trashed = false")
