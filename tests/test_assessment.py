@@ -12,6 +12,7 @@ from strelitzia.profile import UserProfile, save_profile
 from strelitzia.scoring import scorer
 from strelitzia.scoring.assessment import (
     ASSESS_VERSION,
+    ASSESS_PROMPT,
     RED_FLAGS,
     assess_messages,
     assessment_components,
@@ -23,7 +24,7 @@ from strelitzia.scoring.assessment import (
     load_resume_text,
     recompute_fit,
 )
-from strelitzia.scoring.preferences import Preferences, save_preferences
+from strelitzia.scoring.preferences import RED_FLAG_HELP, Preferences, save_preferences
 from fit_helpers import POSTING, add_extracted_job, default_fit, reply
 
 RESUME = "Synthetic resume: Python, SQL, five years building pipelines."
@@ -90,7 +91,13 @@ def test_only_counted_red_flags_count():
     assert _comps(picky, reply(flags=("relocation_required",)))["red_flags"].score == 0.0
     assert _comps(picky, reply(flags=("vague_posting",)))["red_flags"].score == 1.0
     relaxed = Preferences.from_dict({"red_flags_counted": []})
-    assert _comps(relaxed, reply(flags=("mostly_sales", "vague_posting")))["red_flags"].score == 1.0
+    comps = _comps(relaxed, reply(flags=("mostly_sales", "vague_posting")))
+    assert (comps["red_flags"].score, comps["red_flags"].importance) == (1.0, "dont_care")  # counts for nothing
+
+
+def test_red_flag_help_is_the_rubrics_wording():
+    for code, text in RED_FLAG_HELP.items():
+        assert f"  {code}: {text}\n" in ASSESS_PROMPT
 
 
 def test_red_flags_counted_is_lenient():

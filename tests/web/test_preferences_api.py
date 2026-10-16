@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from fit_helpers import POSTING, add_extracted_job, reply
 
 from strelitzia import config
-from strelitzia.database import get_connection, job_key
+from strelitzia.database import get_connection, init_db, job_key
 from strelitzia.scoring import scorer
 from strelitzia.scoring.assessment import current_assessment_key, parse_assessment, recompute_fit
 from strelitzia.scoring.preferences import Preferences
@@ -363,22 +363,59 @@ def _store_old_prefs(conn, data: dict) -> None:
     conn.commit()
 
 
-def test_old_education_and_experience_move_to_the_profile(client, conn):
+def _unmark(conn) -> None:
+    """Forget that this database already ran the migration (the client fixture's start did, on an empty one)."""
+    conn.execute("DELETE FROM app_state WHERE key = 'migrated:prefs-cleanup-1'")
+    conn.commit()
+
+
+def _stored_prefs(conn) -> dict:
+    return json.loads(conn.execute("SELECT prefs_json FROM user_preferences").fetchone()[0])
+
+
+def test_startup_moves_old_education_and_experience_to_the_profile(client, conn, db_path):
     _store_old_prefs(conn, {"education": {"importance": "dealbreaker", "value": "masters"},
                             "experience": {"importance": "nice", "value": 6},
+                            "company_blocklist": {"importance": "dealbreaker", "value": ["Acme Robotics"]},
                             "salary": {"importance": "dealbreaker", "value": {"min": 120000}}})
-    prefs = client.get("/app/api/preferences").json()["prefs"]
-    assert "education" not in prefs and prefs["salary"]["value"]["min"] == 120000
+    conn.execute("UPDATE jobs SET fit_flags = '[\"company_blocklist\"]', fit_breakdown = '[]'")
+    conn.commit()
+    assert client.get("/app/api/preferences").json()["prefs"]["salary"]["value"]["min"] == 120000
+    assert _stored_prefs(conn)["education"]["value"] == "masters"  # a GET changes nothing
+
+    _unmark(conn)
+    init_db(db_path)  # the next start migrates, once
     profile = client.get("/app/api/profile").json()["profile"]
     assert profile["education_level"] == "masters" and profile["years_experience"] == 6
-    stored = json.loads(conn.execute("SELECT prefs_json FROM user_preferences").fetchone()[0])
-    assert "education" not in stored and "experience" not in stored and stored["salary"]["importance"] == "dealbreaker"
+    stored = _stored_prefs(conn)
+    assert not {"education", "experience", "company_blocklist"} & stored.keys()
+    assert stored["salary"]["importance"] == "dealbreaker" and "red_flags_counted" in stored
+    # Every job was re-ranked with the new rules: the skip list's flag is gone, the profile's values count.
+    detail = client.get(f"/app/api/jobs/{job_key(URLS[0])}").json()
+    assert detail["fit_flags"] == ["salary"]
+    assert {c["key"] for c in detail["fit_breakdown"]} >= {"education", "experience", "skills_match"}
+    assert next(c for c in detail["fit_breakdown"] if c["key"] == "experience")["score"] == 1.0  # 6 years >= 3
+
+    client.put("/app/api/profile", json={"years_experience": 1})
+    init_db(db_path)
+    assert client.get("/app/api/profile").json()["profile"]["years_experience"] == 1  # it ran once
 
 
-def test_old_values_never_overwrite_the_profile(client, conn):
+def test_old_values_never_overwrite_the_profile(client, conn, db_path):
     client.put("/app/api/profile", json={"education_level": "phd", "years_experience": 10})
     _store_old_prefs(conn, {"education": {"value": "bachelors"}, "experience": {"value": 1}})
-    client.get("/app/api/preferences")
+    _unmark(conn)
+    init_db(db_path)
     profile = client.get("/app/api/profile").json()["profile"]
     assert profile["education_level"] == "phd" and profile["years_experience"] == 10
-    assert "education" not in json.loads(conn.execute("SELECT prefs_json FROM user_preferences").fetchone()[0])
+    assert "education" not in _stored_prefs(conn)
+
+
+def test_startup_reranks_users_without_saved_preferences(client, conn, db_path):
+    conn.execute("UPDATE jobs SET fit_breakdown = '[]'")
+    conn.commit()
+    _unmark(conn)
+    init_db(db_path)
+    detail = client.get(f"/app/api/jobs/{job_key(URLS[0])}").json()
+    assert {c["key"] for c in detail["fit_breakdown"]} >= {"education", "experience", "skills_match"}
+    assert conn.execute("SELECT COUNT(*) FROM user_preferences").fetchone()[0] == 0  # nothing to save for them
