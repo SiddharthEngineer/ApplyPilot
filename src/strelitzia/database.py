@@ -273,6 +273,13 @@ def _ensure_tables(conn: Connection) -> None:
         "run_id TEXT, item_no INTEGER, grader TEXT, winner TEXT, detail_json TEXT, created_at TEXT, "
         "PRIMARY KEY (run_id, item_no, grader))"
     )
+    # Accounts (strelitzia.users): role owner | user, status invited | active | disabled, emails lowercased.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS users ("
+        "id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, role TEXT NOT NULL DEFAULT 'user', "
+        "status TEXT NOT NULL DEFAULT 'invited', monthly_cap_usd DOUBLE PRECISION NULL, created_at TEXT, "
+        "last_login_at TEXT)"
+    )
     # Small app-wide key/value state, e.g. the hashes of the Claude Project Docs (strelitzia.scoring.workbench).
     conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
     conn.commit()

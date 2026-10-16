@@ -38,7 +38,7 @@ role is `owner|user`, status is `invited|active|disabled`. Emails are stored low
 (returns None for an email that isn't invited), `set_status`, `set_cap`, `list_users(conn)`. `DEFAULT_CAP_USD = 5.0`.
 The owner's cap is None (no cap).
 **Validate:** `pytest tests/test_users.py -q` → passes, including invite→activate, an un-invited email → None, case-insensitive emails.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 1 commit)
 
 ### Task 2: user_id on every per-user table, owner backfill, composite job key
 **Runs:** unattended
