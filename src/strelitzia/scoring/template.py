@@ -174,10 +174,21 @@ def load_fixed(path: Path | None = None, resume_text_path: Path | None = None) -
     data: dict = {}
     if path.exists():
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    txt = Path(resume_text_path) if resume_text_path else RESUME_PATH
+    if data.get("education") is None and txt.exists():
+        return fixed_from_data(data, txt.read_text(encoding="utf-8"))
+    return fixed_from_data(data)
+
+
+def fixed_from_data(data: dict, resume_text: str = "") -> dict:
+    """The fixed resume blocks from resume_fixed.yaml's parsed content (a user profile keeps it in its extras).
+
+    Without an education list, education comes from the EDUCATION section of `resume_text`.
+    """
+    data = data if isinstance(data, dict) else {}
     education = data.get("education")
     if education is None:
-        txt = Path(resume_text_path) if resume_text_path else RESUME_PATH
-        education = education_from_resume_text(txt.read_text(encoding="utf-8")) if txt.exists() else []
+        education = education_from_resume_text(resume_text) if resume_text else []
     normalized = [
         {
             "heading": str(e.get("heading", "")).strip(),

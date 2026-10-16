@@ -56,7 +56,7 @@ with the fields above plus `extras: dict`; `load_profile(conn, user_id) -> UserP
 **What:** `Inputs.for_user(conn, user_id)` builds library, base resume, profile dict and fixed from the DB.
 `_workbench_inputs(request)` uses it; the 409 says "Add your content library on the Profile page".
 **Validate:** `pytest tests/test_content_library.py tests/test_workbench_packet.py tests/test_workbench_import.py tests/web -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16
 
 ## Validation
 - `scripts/validate.sh --full` passes.

@@ -249,11 +249,11 @@ def _owner_content(user: users.User) -> None:
         raise HTTPException(status_code=403, detail="The resume workbench isn't available for your account yet.")
 
 
-def _workbench_inputs() -> workbench.Inputs:
+def _workbench_inputs(request: Request) -> workbench.Inputs:
     try:
-        return workbench.Inputs.load()
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=409, detail=f"{e}. Add your content library first (strelitzia init).") from e
+        return workbench.Inputs.for_user(db_conn(request), current_user(request).id)
+    except workbench.NoContentLibrary as e:
+        raise HTTPException(status_code=409, detail=f"{e}. Add your content library on the Profile page.") from e
 
 
 def _drive_state(conn, user: users.User) -> tuple[str, str, str | None]:
@@ -292,7 +292,7 @@ def post_packet(key: str, request: Request) -> dict:
     user = current_user(request)
     _owner_content(user)
     job = job_by_key(conn, user.id, key)
-    inputs = _workbench_inputs()
+    inputs = _workbench_inputs(request)
     drive_error = None
     try:
         client = _drive_client(request)
@@ -320,7 +320,7 @@ def post_result(key: str, body: PastedResult, request: Request):
     user = current_user(request)
     _owner_content(user)
     job = job_by_key(conn, user.id, key)
-    outcome = workbench.import_result(conn, job, body.text, _workbench_inputs())
+    outcome = workbench.import_result(conn, job, body.text, _workbench_inputs(request))
     if not outcome.ok:
         return JSONResponse({"detail": outcome.errors[0] if outcome.errors else "The result didn't pass the checks",
                              "errors": outcome.errors, "warnings": outcome.warnings,
@@ -371,7 +371,7 @@ def publish_claude_docs(request: Request) -> dict:
         raise HTTPException(status_code=409, detail=str(e)) from e
     if client is None:
         raise HTTPException(status_code=409, detail="Google Drive isn't set up. Connect Google Drive on the Claude setup page.")
-    workbench.publish_static_docs(client, db_conn(request), user.id, _workbench_inputs(), force=True)
+    workbench.publish_static_docs(client, db_conn(request), user.id, _workbench_inputs(request), force=True)
     return claude_setup(request)
 
 
