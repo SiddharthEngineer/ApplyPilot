@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import BlurField from '../components/BlurField';
+import ContactForm from '../components/ContactForm';
 import { SEARCH_DEBOUNCE_MS } from '../components/ContactsPanel';
 import { RELATION_LABELS } from '../labels';
 import type { ContactFields, ContactListItem, ContactWithJobs } from '../types';
@@ -76,12 +77,13 @@ function ContactEditor({ id, onChanged, onDeleted }: { id: string; onChanged: ()
   );
 }
 
-/** Every contact, searchable; a row opens its editor with the jobs it's linked to. */
+/** Every contact, searchable, with a New contact form; a row opens its editor with the jobs it's linked to. */
 export default function ContactsPage() {
   const [q, setQ] = useState('');
   const [contacts, setContacts] = useState<ContactListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
     api.listContacts(q.trim() || undefined, signal).then(setContacts).catch((err) => {
@@ -103,7 +105,19 @@ export default function ContactsPage() {
       <div className="list-header">
         <h1>Contacts</h1>
         {contacts && <span className="muted">{contacts.length.toLocaleString()} shown</span>}
+        {!creating && <button type="button" className="primary" onClick={() => setCreating(true)}>New contact</button>}
       </div>
+      {creating && (
+        <div className="card">
+          <ContactForm submitLabel="Create contact" onCancel={() => setCreating(false)}
+            onSubmit={async (fields) => {
+              const created = await api.createContact(fields);
+              setCreating(false);
+              setSelected(created.id);
+              load();
+            }} />
+        </div>
+      )}
       <label className="field grow">
         <span>Search</span>
         <input type="search" placeholder="Name, company or email" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -111,7 +125,7 @@ export default function ContactsPage() {
       {error && <p className="notice error" role="alert">Couldn't load contacts: {error}</p>}
       <div className="contacts-layout">
         {contacts && contacts.length === 0 ? (
-          <p className="notice">No contacts{q.trim() ? ' match this search' : ' yet: add them from a job page'}.</p>
+          <p className="notice">{q.trim() ? 'No contacts match this search.' : 'No contacts yet. Add one with New contact.'}</p>
         ) : contacts ? (
           <div className="table-scroll">
             <table className="jobs-table contacts-table">
