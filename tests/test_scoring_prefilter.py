@@ -108,10 +108,7 @@ def test_limit_reaches_scoring():
 
 
 def test_sync_flag_reaches_score_and_extract():
-    from typer.testing import CliRunner
-
     from strelitzia import pipeline, users
-    from strelitzia.cli import app
 
     owner = users.owner(init_db()).id
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
@@ -121,12 +118,6 @@ def test_sync_flag_reaches_score_and_extract():
             patch("strelitzia.enrichment.extract.run_extraction", return_value={}) as rx:
         pipeline._run_extract(limit=3, sync=True)
     rx.assert_called_once_with(limit=3, mode="sync")
-
-    with patch("strelitzia.config.check_tier"), patch("strelitzia.cli._bootstrap"), \
-            patch("strelitzia.pipeline.run_pipeline", return_value={}) as rp:
-        result = CliRunner().invoke(app, ["run", "extract", "--limit", "3", "--sync"])
-    assert result.exit_code == 0, result.output
-    assert rp.call_args.kwargs["sync"] is True and rp.call_args.kwargs["limit"] == 3
 
 
 def test_preferences_target_roles_count(conn, tmp_path):

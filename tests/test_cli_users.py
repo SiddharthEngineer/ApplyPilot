@@ -2,6 +2,8 @@
 
 import re
 
+import typer
+
 import pytest
 from typer.testing import CliRunner
 
@@ -97,3 +99,9 @@ def test_unknown_email(conn, args):
     result = _invoke(*args)
     assert result.exit_code == 1
     assert "No account for nobody@example.com" in _plain(result.output)
+
+
+def test_cli_is_admin_only():
+    """user-auth-8-cli: per-user commands (run, workbench, drive, dashboard...) live in the dashboard now."""
+    commands = {c.name for c in typer.main.get_command(app).commands.values()}
+    assert commands == {"serve", "init", "doctor", "db", "users"}

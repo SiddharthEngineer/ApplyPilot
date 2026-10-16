@@ -100,9 +100,10 @@ def load_credentials():
 
     token_path = config.GOOGLE_TOKEN_PATH
     if not token_path.exists():
-        raise DriveNotConfigured(f"No Google token at {token_path}. Run `strelitzia drive auth` first.")
+        raise DriveNotConfigured(f"No Google token at {token_path}. "
+                                 "Connect Google Drive on the dashboard's Claude setup page (/app/claude-setup).")
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-    return _refreshed(creds, _save_token, "Run `strelitzia drive auth` again.")
+    return _refreshed(creds, _save_token, "Connect Google Drive again on /app/claude-setup.")
 
 
 def _save_token(creds) -> None:
@@ -463,5 +464,5 @@ def drive_status() -> tuple[str, str]:
     if not drive_libraries_installed():
         return "not_installed", INSTALL_HINT
     if not config.GOOGLE_TOKEN_PATH.exists():
-        return "not_authorized", "Run `strelitzia drive auth` (see README: Google Drive)"
+        return "not_authorized", "Connect Google Drive on the dashboard's Claude setup page (/app/claude-setup) (see README: Google Drive)"
     return "authorized", str(config.GOOGLE_TOKEN_PATH)

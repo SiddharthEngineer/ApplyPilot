@@ -136,21 +136,6 @@ def test_reset_score_errors(tmp_path):
     assert {r["url"] for r in get_jobs_by_stage(c, stage="pending_score")} == {"https://e.com/1", "https://e.com/2"}
 
 
-def test_cli_reset_errors(tmp_path):
-    from typer.testing import CliRunner
-
-    from strelitzia.cli import app
-
-    with patch("strelitzia.cli._bootstrap"), \
-            patch("strelitzia.database.reset_score_errors", return_value=326) as reset, \
-            patch("strelitzia.pipeline.run_pipeline") as pipeline:
-        result = CliRunner().invoke(app, ["run", "score", "--reset-errors"])
-    assert result.exit_code == 0, result.output
-    assert "Reset 326 job(s)" in result.output
-    reset.assert_called_once()
-    pipeline.assert_not_called()
-
-
 def test_each_score_is_saved_before_the_next_call(tmp_path, resume):
     """A crash mid-run keeps the scores already returned (they're committed per call)."""
     c = init_db(tmp_path / "per_call.db")

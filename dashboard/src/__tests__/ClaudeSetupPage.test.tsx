@@ -64,7 +64,7 @@ describe('ClaudeSetupPage', () => {
   });
 
   it('explains the clipboard fallback without Drive', async () => {
-    vi.mocked(api.getClaudeSetup).mockResolvedValue(setup({ drive: false, drive_detail: 'Run `strelitzia drive auth`' }));
+    vi.mocked(api.getClaudeSetup).mockResolvedValue(setup({ drive: false, drive_detail: 'Connect Google Drive on /app/claude-setup' }));
     renderPage();
     expect(await screen.findByText(/Google Drive isn't set up/)).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Project Docs' })).toBeNull();

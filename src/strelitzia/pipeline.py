@@ -2,13 +2,9 @@
 
 Runs pipeline stages in sequence or concurrently (streaming mode).
 
-Usage (via CLI):
-    strelitzia run                        # all stages but discover, sequential
-    strelitzia run --with-discover        # discover too (off by default: jobs come from the dashboard's Add job)
-    strelitzia run --stream               # all stages, concurrent
-    strelitzia run discover enrich        # specific stages
-    strelitzia run score extract          # LLM-only stages
-    strelitzia run --dry-run              # preview without executing
+No CLI command runs it any more (the CLI is admin-only, user-auth-8-cli): per-user work happens in the dashboard,
+which calls the stage modules directly. run_pipeline(stages, with_discover=..., stream=..., dry_run=...) stays for
+scripts and tests.
 """
 
 from __future__ import annotations

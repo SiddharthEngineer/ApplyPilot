@@ -213,7 +213,7 @@ def parse_location(location: str | None) -> Location:
     return Location(tokens[0], state, country)
 
 
-# ── `strelitzia classify` ──────────────────────────────────────────────────
+# ── Batch classify ──────────────────────────────────────────────────────
 
 def run_classify(conn=None, only_missing: bool = False) -> dict:
     """Fill role_category, work_mode and location_* by heuristics for every job not yet LLM-extracted.

@@ -298,7 +298,7 @@ def write_fixed_yaml(
     }
     header = (
         "# Fixed resume blocks: copied into every tailored resume, never written by the LLM.\n"
-        "# Generated from resume.txt by `strelitzia template init`; edit freely.\n"
+        "# Generated from resume.txt; edit freely.\n"
     )
     path.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=1000), encoding="utf-8")
     return path
