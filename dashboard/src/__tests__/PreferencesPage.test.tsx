@@ -16,10 +16,8 @@ function defaults(): Preferences {
     salary: { importance: 'important', value: { min: null, currency: 'USD', period: 'year' } },
     locations: { importance: 'important', value: { places: [], remote_ok: true } },
     work_mode: dc([]), role_category: { importance: 'important', value: [] }, seniority: dc([]),
-    employment_type: dc([]), visa: dc(false), clearance: dc(false), travel: dc(null), education: dc(null),
-    experience: dc(null), company_blocklist: dc([]),
-    skills_match: { importance: 'very_important', value: null }, experience_match: dc(null),
-    domain_interest: dc(null), red_flags: dc(null),
+    employment_type: dc([]), visa: dc(false), clearance: dc(false), travel: dc(null),
+    red_flags_counted: ['mostly_sales', 'vague_posting'],
     skills_want: [], skills_avoid: [], industries_favor: [], industries_avoid: [], target_roles: [],
   };
 }
@@ -29,14 +27,14 @@ const RESPONSE: PreferencesResponse = {
   options: {
     work_mode: ['remote', 'hybrid', 'onsite'], role_category: ['data_science', 'data_engineering', 'other'],
     seniority: ['entry', 'mid', 'senior'], employment_type: ['full_time', 'contract'],
-    education: ['bachelors', 'masters'], salary_period: ['year', 'month', 'hour'],
-    importance: ['dont_care', 'nice', 'important', 'very_important', 'dealbreaker'], red_flags: ['mostly_sales'],
+    salary_period: ['year', 'month', 'hour'],
+    importance: ['dont_care', 'nice', 'important', 'very_important', 'dealbreaker'],
+    red_flags: [{ value: 'mostly_sales', label: 'Mostly sales', help: 'the role is mainly selling despite its title' }],
   },
   labels: {
     salary: 'Salary', locations: 'Location', work_mode: 'Work mode', role_category: 'Job field', seniority: 'Seniority',
     employment_type: 'Employment type', visa: 'Visa sponsorship', clearance: 'Security clearance', travel: 'Travel',
-    education: 'Education', experience: 'Experience', company_blocklist: 'Company', skills_match: 'Skills',
-    experience_match: 'Experience match', domain_interest: 'Domain interest', red_flags: 'Red flags',
+    red_flags_counted: 'Red flags',
   },
 };
 
@@ -66,11 +64,13 @@ describe('PreferencesPage', () => {
       expect(within(importance(name)).getByRole('button', { name: 'Important' })).toHaveAttribute('aria-pressed', 'true');
       expect(row(name)).not.toHaveClass('quiet');
     }
-    expect(within(importance('Skills')).getByRole('button', { name: 'Very important' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    expect(row('Red flags')).toHaveClass('quiet');
+    expect(row('Travel')).toHaveClass('quiet');
+    // The AI-judged weights, Education, Experience and Companies to skip are no longer preferences.
+    for (const name of ['Skills', 'Red flags', 'Education', 'Experience', 'Company']) {
+      expect(screen.queryByText(name, { selector: '.pref-label' })).not.toBeInTheDocument();
+    }
     // Advanced groups start collapsed.
-    for (const title of ['Role', 'Eligibility', 'Companies to skip']) {
+    for (const title of ['Role', 'Eligibility']) {
       expect(screen.getByRole('heading', { name: title }).closest('details')).not.toHaveAttribute('open');
     }
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled(); // nothing changed yet

@@ -36,7 +36,7 @@ from strelitzia.llm import LLMStopRun, check_budget, month_spend, user_month_spe
 from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
 from strelitzia.scoring import resume_parse, workbench
-from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
+from strelitzia.scoring.assessment import current_assessment_key, recompute_fit
 from strelitzia.scoring.content_library import parse_content_library_text
 from strelitzia.web import admin, auth, queries, tasks
 
@@ -798,7 +798,7 @@ def get_preferences(request: Request) -> dict:
     """The saved preferences, plus the labels and value lists the Preferences page offers."""
     return {
         "prefs": prefs_mod.load_preferences(db_conn(request), current_user(request).id).to_dict(),
-        "options": {**prefs_mod.OPTIONS, "red_flags": list(RED_FLAGS)},
+        "options": prefs_mod.OPTIONS,
         "labels": prefs_mod.LABELS,
     }
 

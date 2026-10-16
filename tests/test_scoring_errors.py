@@ -96,7 +96,8 @@ def test_retries_stop_after_max_attempts(conn, resume):
 def test_success_stores_integer_score(conn, resume):
     _run(conn, resume, lambda *a, **k: reply(skills=5, summary="Good match."))
     fit_score, reasoning, scored_at, attempts = _row(conn)
-    assert fit_score == 100 and isinstance(fit_score, int)  # default preferences: only skills (5/5) counts
+    # default preferences: skills 1.0 x4, experience match 0.5 x2, no red flags 1.0 x2
+    assert fit_score == round(100 * 7 / 8) and isinstance(fit_score, int)
     assert "Good match." in reasoning and reasoning.startswith("SQL, Python")
     assert scored_at is not None
     assert attempts == 0
@@ -105,7 +106,7 @@ def test_success_stores_integer_score(conn, resume):
 def test_success_after_error(conn, resume):
     _run(conn, resume, RuntimeError("flaky"))
     _run(conn, resume, lambda *a, **k: reply(skills=3))
-    assert _row(conn)[0] == 50
+    assert _row(conn)[0] == round(100 * 5 / 8)  # skills 0.5 x4, experience match 0.5 x2, no red flags 1.0 x2
 
 
 def test_reset_score_errors(tmp_path):
@@ -222,7 +223,7 @@ def test_batch_scores_every_job_by_custom_id(batch_conn, resume):
     assert stats["mode"] == "batch" and stats["scored"] == 8 and stats["estimate_usd"] == 0.04
     assert budget.call_args.args[0] == 0.04
     assert budget.seen["estimate_usd"] == 0.04 and budget.seen["wait"] is True  # reserved against the budget
-    assert [_score_of(batch_conn, u)[0] for u in BATCH_URLS] == [0, 25, 50, 75, 100, 0, 25, 50]
+    assert [_score_of(batch_conn, u)[0] for u in BATCH_URLS] == [38, 50, 62, 75, 88, 38, 50, 62]  # skills x4 + 0.5 x2 + 1.0 x2
     params = items[0][1]
     assert [b["cache_control"] for b in params["system"]] == [{"type": "ephemeral"}] * 2
     assert params["system"][0]["text"] == ASSESS_PROMPT
@@ -255,7 +256,7 @@ def test_open_batches_are_collected_first(batch_conn, resume):
         batch_conn, resume, lambda cid: (reply(skills=3), None),
         resumed={BATCH_URLS[0]: reply(skills=5), BATCH_URLS[1]: reply(skills=1)})
     assert stats["resumed"] == 1 and len(items) == 6
-    assert _score_of(batch_conn, BATCH_URLS[0])[0] == 100
+    assert _score_of(batch_conn, BATCH_URLS[0])[0] == 88  # skills 5/5
     assert _score_of(batch_conn, BATCH_URLS[1])[0] == 40  # the newer assessment wins
 
 
@@ -275,7 +276,7 @@ def test_sync_runs_collect_only_ended_batches(conn, resume):
             patch.object(scorer, "resume_open_batches", return_value={"still_open": 1}) as resume_batches:
         assert scorer.run_scoring(prefilter=False, mode="sync")["mode"] == "sync"
     assert resume_batches.call_args.kwargs["wait"] is False
-    assert _row(conn)[0] == 50
+    assert _row(conn)[0] == round(100 * 5 / 8)  # skills 0.5 x4, experience match 0.5 x2, no red flags 1.0 x2
 
 
 def test_a_leftover_batch_made_with_other_inputs_is_saved_as_stale(batch_conn, resume):
@@ -284,7 +285,7 @@ def test_a_leftover_batch_made_with_other_inputs_is_saved_as_stale(batch_conn, r
                                   resumed={BATCH_URLS[0]: (reply(skills=5), old_key)})
     assert stats["resumed"] == 1
     row = batch_conn.execute("SELECT fit_score, assessment_hash FROM jobs WHERE url = ?", (BATCH_URLS[0],)).fetchone()
-    assert row[0] == 100 and row[1] != CURRENT_KEY and old_key.startswith(row[1])  # stale: truncated old hash
+    assert row[0] == 88 and row[1] != CURRENT_KEY and old_key.startswith(row[1])  # stale: truncated old hash
 
 
 def test_old_scorer_batch_results_are_skipped(batch_conn, resume):

@@ -61,12 +61,8 @@ class Preferences:
     visa: Criterion = _criterion("dont_care", False)  # value: I need sponsorship
     clearance: Criterion = _criterion("dont_care", False)  # value: I hold a clearance
     travel: Criterion = _criterion("dont_care", None)  # value: max travel %
-    company_blocklist: Criterion = _criterion("dont_care", list)
-    # Assessment layer importances (scored by Claude, see scoring/assessment.py); their value is unused.
-    skills_match: Criterion = _criterion("very_important", None)
-    experience_match: Criterion = _criterion("dont_care", None)
-    domain_interest: Criterion = _criterion("dont_care", None)
-    red_flags: Criterion = _criterion("dont_care", None)
+    # The red flags (from the assessment) that count against a job; the others are only shown.
+    red_flags_counted: list[str] = field(default_factory=lambda: list(RED_FLAGS_COUNTED_DEFAULT))
     # Assessment layer inputs: changing these makes every assessment stale.
     skills_want: list[str] = field(default_factory=list)
     skills_avoid: list[str] = field(default_factory=list)
@@ -87,6 +83,10 @@ class Preferences:
             if f.name in LLM_INPUTS:
                 setattr(out, f.name, _str_list(raw))
                 continue
+            if f.name == "red_flags_counted":
+                if isinstance(raw, list):
+                    out.red_flags_counted = [v for v in RED_FLAGS_PICKABLE if v in _str_list(raw)]
+                continue
             default: Criterion = getattr(out, f.name)
             if not isinstance(raw, dict):
                 continue
@@ -105,18 +105,36 @@ class Preferences:
         return json.dumps(self.to_dict(), sort_keys=True)
 
     def criteria(self) -> dict[str, Criterion]:
-        return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in LLM_INPUTS}
+        return {f.name: getattr(self, f.name) for f in fields(self) if isinstance(getattr(self, f.name), Criterion)}
 
 
 LLM_INPUTS = ("skills_want", "skills_avoid", "industries_favor", "industries_avoid", "target_roles")
-LLM_CRITERIA = ("skills_match", "experience_match", "domain_interest", "red_flags")
+# The Preferences page's rows.
 LABELS = {
     "salary": "Salary", "locations": "Location", "work_mode": "Work mode", "role_category": "Job field",
     "seniority": "Seniority", "employment_type": "Employment type", "visa": "Visa sponsorship",
-    "clearance": "Security clearance", "travel": "Travel", "education": "Education", "experience": "Experience",
-    "company_blocklist": "Company", "skills_match": "Skills", "experience_match": "Experience match",
-    "domain_interest": "Domain interest", "red_flags": "Red flags",
+    "clearance": "Security clearance", "travel": "Travel", "red_flags_counted": "Red flags",
 }
+# Every fit score component: the rows above, the Profile's qualifications and the assessment layer.
+COMPONENT_LABELS = {
+    **LABELS, "education": "Education", "experience": "Experience", "skills_match": "Skills",
+    "experience_match": "Experience match", "domain_interest": "Domain interest", "red_flags": "Red flags",
+}
+# The red-flag codes the assessment can return, with what each means (also the rubric's wording).
+RED_FLAG_HELP = {
+    "mostly_sales": "the role is mainly selling despite its title",
+    "commission_heavy": "pay is mostly commission",
+    "title_mismatch": "the duties don't match the title",
+    "unrealistic_requirements": "requirements no one could meet (for example more years of a tool than it has existed)",
+    "contract_disguised": "a contract or gig presented as a permanent job",
+    "relocation_required": "relocation is required and not offered",
+    "unpaid_or_trial": "unpaid work, an unpaid trial or a paid-to-apply scheme",
+    "vague_posting": "too vague to tell what the job is",
+    "other": "anything else a careful candidate would want to know before applying",
+}
+RED_FLAGS: tuple[str, ...] = tuple(RED_FLAG_HELP)
+RED_FLAGS_PICKABLE: tuple[str, ...] = tuple(f for f in RED_FLAGS if f != "other")
+RED_FLAGS_COUNTED_DEFAULT: tuple[str, ...] = tuple(f for f in RED_FLAGS_PICKABLE if f != "relocation_required")
 # The value lists the dashboard offers for set-valued criteria.
 OPTIONS = {
     "work_mode": [m for m in WORK_MODES if m != "unknown"],
@@ -125,6 +143,8 @@ OPTIONS = {
     "employment_type": [t for t in EMPLOYMENT_TYPES if t != "unknown"],
     "salary_period": list(SALARY_PERIODS_PER_YEAR),
     "importance": list(IMPORTANCES),
+    "red_flags": [{"value": f, "label": f.replace("_", " ").capitalize(), "help": RED_FLAG_HELP[f]}
+                  for f in RED_FLAGS_PICKABLE],
 }
 
 
@@ -186,8 +206,6 @@ _VALUE_COERCE = {
     "visa": lambda v, _d: bool(v),
     "clearance": lambda v, _d: bool(v),
     "travel": lambda v, _d: _number(v),
-    "company_blocklist": lambda v, _d: _str_list(v),
-    **{name: (lambda v, _d: None) for name in LLM_CRITERIA},
 }
 
 
@@ -210,7 +228,7 @@ class Component:
 
 def _component(key: str, crit: Criterion, score: float | None, note: str = "") -> Component:
     hit = crit.importance == "dealbreaker" and score is not None and score <= 0
-    return Component(key, LABELS[key], score, crit.importance, hit, note)
+    return Component(key, COMPONENT_LABELS[key], score, crit.importance, hit, note)
 
 
 def _money(amount: float, currency: str) -> str:
@@ -375,28 +393,12 @@ def score_qualifications(profile, posting: JobPosting) -> list[Component]:
         ("experience", _score_experience, getattr(profile, "years_experience", None)),
     ):
         score, hit, note = scorer(have, posting)
-        out.append(Component(key, LABELS[key], score, QUALIFICATION_IMPORTANCE, hit, note))
+        out.append(Component(key, COMPONENT_LABELS[key], score, QUALIFICATION_IMPORTANCE, hit, note))
     return out
 
 
-def _score_company(crit: Criterion, company: str | None) -> tuple[float | None, str]:
-    blocked = crit.value
-    if not blocked:
-        return None, ""
-    name = (company or "").strip().lower()
-    if not name:
-        return UNKNOWN, "company unknown"
-    for b in blocked:
-        if b.strip().lower() == name:
-            return 0.0, f"{company} is on your skip list"
-    return 1.0, ""
-
-
-def score_preferences(prefs: Preferences, posting: JobPosting, company: str | None = None) -> list[Component]:
-    """The preference-layer components for one posting (every criterion, set or not; see `combine`).
-
-    `company` is the job row's company, used when the posting has none.
-    """
+def score_preferences(prefs: Preferences, posting: JobPosting) -> list[Component]:
+    """The preference-layer components for one posting (every criterion, set or not; see `combine`)."""
     scorers = {
         "salary": lambda c: _score_salary(c, posting),
         "locations": lambda c: _score_locations(c, posting),
@@ -407,7 +409,6 @@ def score_preferences(prefs: Preferences, posting: JobPosting, company: str | No
         "visa": lambda c: _score_visa(c, posting),
         "clearance": lambda c: _score_clearance(c, posting),
         "travel": lambda c: _score_travel(c, posting),
-        "company_blocklist": lambda c: _score_company(c, posting.company or company),
     }
     out = []
     for key, score in scorers.items():

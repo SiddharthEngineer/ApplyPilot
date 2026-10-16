@@ -55,7 +55,7 @@ masters vs phd scores 0.4; 3 of 4 years scores 0.4; 6 of 8 years scores 0.4; 2 o
 **Files:** src/strelitzia/scoring/preferences.py (modify), src/strelitzia/scoring/assessment.py (modify), tests/test_assessment.py (modify)
 **What:** As in the Goal. `OPTIONS["red_flags"]` lists the pickable flags with labels. `LABELS` loses the removed keys.
 **Validate:** `pytest tests/test_assessment.py tests/test_preferences.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit; also drops the removed rows from the Preferences page so it keeps loading, and rebuilds the bundle)
 
 ### Task 3: wire profile into recompute and migrate old values
 **Runs:** unattended

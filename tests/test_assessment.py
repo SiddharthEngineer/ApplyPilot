@@ -43,7 +43,7 @@ def test_preference_only_changes_leave_the_hash_alone():
     changed = Preferences.from_dict({**base.to_dict(),
                                      "salary": {"importance": "dealbreaker", "value": {"min": 150000}},
                                      "work_mode": {"importance": "important", "value": ["remote"]},
-                                     "skills_match": {"importance": "nice"}})
+                                     "red_flags_counted": []})
     assert assessment_input_hash(changed, RESUME) == assessment_input_hash(base, RESUME)
     assert assessment_input_hash(Preferences(skills_want=["Python", "Go"]), RESUME) != \
         assessment_input_hash(base, RESUME)
@@ -67,24 +67,55 @@ def test_request_layout():
     assert user["content"].endswith("x" * 8000) and "x" * 8001 not in user["content"]
 
 
+def _comps(prefs, text):
+    return {c.key: c for c in assessment_components(prefs, parse_assessment(text))}
+
+
 def test_red_flags_component():
-    a = parse_assessment(reply(flags=("mostly_sales", "commission_heavy")))
-    comps = {c.key: c for c in assessment_components(Preferences(), a)}
-    assert comps["red_flags"].score == pytest.approx(0.32)
+    comps = _comps(Preferences(), reply(flags=("mostly_sales", "commission_heavy")))
+    assert (comps["red_flags"].score, comps["red_flags"].importance) == (0.0, "important")
     assert comps["red_flags"].note.startswith("mostly sales: ")
+    assert not comps["red_flags"].dealbreaker_hit
     assert comps["skills_match"].score == 0.75
-    none = {c.key: c for c in assessment_components(Preferences(), parse_assessment(reply()))}
-    assert none["red_flags"].score == 1.0
-    many = parse_assessment(reply(flags=RED_FLAGS[:4]))
-    assert {c.key: c for c in assessment_components(Preferences(), many)}["red_flags"].score == 0.0
+    assert _comps(Preferences(), reply())["red_flags"].score == 1.0
+    assert _comps(Preferences(), reply(flags=RED_FLAGS[:4]))["red_flags"].score == 0.0
 
 
-def test_red_flags_as_dealbreaker():
-    prefs = Preferences.from_dict({"red_flags": {"importance": "dealbreaker"}})
-    comps = {c.key: c for c in assessment_components(prefs, parse_assessment(reply(flags=("vague_posting",))))}
-    assert comps["red_flags"].dealbreaker_hit
-    clean = {c.key: c for c in assessment_components(prefs, parse_assessment(reply()))}
-    assert not clean["red_flags"].dealbreaker_hit
+def test_only_counted_red_flags_count():
+    assert "relocation_required" not in Preferences().red_flags_counted  # off by default
+    comps = _comps(Preferences(), reply(flags=("relocation_required",)))
+    assert comps["red_flags"].score == 1.0
+    assert comps["red_flags"].note == "relocation required (not counted): seen in posting"  # still shown
+    picky = Preferences.from_dict({"red_flags_counted": ["relocation_required"]})
+    assert _comps(picky, reply(flags=("relocation_required",)))["red_flags"].score == 0.0
+    assert _comps(picky, reply(flags=("vague_posting",)))["red_flags"].score == 1.0
+    relaxed = Preferences.from_dict({"red_flags_counted": []})
+    assert _comps(relaxed, reply(flags=("mostly_sales", "vague_posting")))["red_flags"].score == 1.0
+
+
+def test_red_flags_counted_is_lenient():
+    prefs = Preferences.from_dict({"red_flags_counted": ["vague_posting", "other", "aliens", "mostly_sales"]})
+    assert prefs.red_flags_counted == ["mostly_sales", "vague_posting"]  # "other" can't be picked
+    assert Preferences.from_dict({"red_flags_counted": "all"}).red_flags_counted == Preferences().red_flags_counted
+    assert "red_flags_counted" not in Preferences().criteria()
+
+
+def test_red_flag_picks_leave_the_hash_alone():
+    assert assessment_input_hash(Preferences(red_flags_counted=[]), RESUME) == \
+        assessment_input_hash(Preferences(), RESUME)
+
+
+def test_fixed_weights():
+    comps = _comps(Preferences(), reply())
+    assert {k: comps[k].importance for k in ("skills_match", "experience_match", "domain_interest")} == \
+        {"skills_match": "very_important", "experience_match": "important", "domain_interest": "dont_care"}
+    for industries in ({"industries_favor": ["Fintech"]}, {"industries_avoid": ["Gambling"]}):
+        assert _comps(Preferences.from_dict(industries), reply())["domain_interest"].importance == "important"
+    # The old importance rows are gone; saved ones are dropped.
+    old = Preferences.from_dict({"skills_match": {"importance": "nice"}, "red_flags": {"importance": "dealbreaker"},
+                                 "company_blocklist": {"importance": "dealbreaker", "value": ["Initech"]}})
+    assert old == Preferences()
+    assert _comps(old, reply(skills=1))["skills_match"].importance == "very_important"
 
 
 def test_unknown_red_flag_code_becomes_other():
@@ -111,6 +142,11 @@ def _fit(conn, url):
     return row[0], json.loads(row[1]) if row[1] else None, json.loads(row[2]) if row[2] else []
 
 
+def _overall(skills: int, experience: int = 3) -> int:
+    """The fit score with default preferences: skills x4, experience match x2 and no red flags (1.0) x2."""
+    return round(100 * (4 * (skills - 1) / 4 + 2 * (experience - 1) / 4 + 2) / 8)
+
+
 def test_recompute_combines_both_layers(conn):
     add_extracted_job(conn, "https://e.com/1")
     _assess(conn, "https://e.com/1", reply(skills=4))
@@ -120,10 +156,11 @@ def test_recompute_combines_both_layers(conn):
     }))
     assert recompute_fit(conn) == 1
     score, breakdown, flags = _fit(conn, "https://e.com/1")
-    # salary 1.0 x2, work_mode 0.0 x2, skills 0.75 x4 -> 5/8
-    assert score == round(100 * 5 / 8) and flags == []
+    # salary 1.0 x2, work_mode 0.0 x2, skills 0.75 x4, experience match 0.5 x2, no red flags 1.0 x2 -> 8/12
+    assert score == round(100 * 8 / 12) and flags == []
     keys = [c["key"] for c in breakdown]
-    assert keys == ["salary", "locations", "work_mode", "role_category", "skills_match"]  # the non-dont_care ones
+    assert keys == ["salary", "locations", "work_mode", "role_category", "skills_match", "experience_match",
+                    "red_flags"]  # the non-dont_care ones
 
 
 def test_salary_dealbreaker_flags_without_any_llm_call(conn):
@@ -135,7 +172,7 @@ def test_salary_dealbreaker_flags_without_any_llm_call(conn):
     assert flags == ["salary"]
     salary = next(c for c in breakdown if c["key"] == "salary")
     assert "salary below minimum" in salary["note"]
-    assert score == 50  # salary 0 x4, skills 1.0 x4
+    assert score == round(100 * 7 / 12)  # salary 0 x4, skills 1.0 x4, experience match 0.5 x2, no red flags 1.0 x2
     assert get_jobs_by_stage(conn, "pending_tailor", min_score=0) == []  # flagged jobs aren't tailored
 
 
@@ -153,7 +190,7 @@ def test_recompute_only_the_given_urls(conn):
     _assess(conn, "https://e.com/1", reply(skills=5))
     _assess(conn, "https://e.com/2", reply(skills=5))
     assert recompute_fit(conn, urls=["https://e.com/2"]) == 1
-    assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == 100
+    assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == _overall(5)
     assert recompute_fit(conn, urls=[]) == 0
 
 
@@ -215,10 +252,10 @@ def test_stale_jobs_need_a_confirmed_reassess(conn, tmp_path):
     save_preferences(conn, Preferences(skills_want=["Rust"]))  # every assessment is stale now
     stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2))
     assert client.chat.call_count == 0  # a pipeline run doesn't pay for re-assessment on its own
-    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {75}
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(4)}
 
     stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
-    assert client.chat.call_count == 3 and {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {25}
+    assert client.chat.call_count == 3 and {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(2)}
     assert "Rust" in client.chat.call_args.args[0][1]["content"]
 
 
@@ -228,13 +265,12 @@ def test_rescore_one_job_by_url(conn, tmp_path):
     _run(conn, tmp_path, lambda *a, **k: reply(skills=3))
     stats, client = _run(conn, tmp_path, [reply(skills=5)], urls=["https://e.com/1"])
     assert client.chat.call_count == 1 and stats["scored"] == 1
-    assert _fit(conn, "https://e.com/1")[0] == 100 and _fit(conn, "https://e.com/2")[0] == 50
+    assert _fit(conn, "https://e.com/1")[0] == _overall(5) and _fit(conn, "https://e.com/2")[0] == _overall(3)
 
 
 def test_breakdown_after_a_run(conn, tmp_path):
     add_extracted_job(conn, "https://e.com/1")
-    save_preferences(conn, Preferences.from_dict({"red_flags": {"importance": "nice"},
-                                                  "domain_interest": {"importance": "important"}}))
+    save_preferences(conn, Preferences.from_dict({"industries_favor": ["Logistics"]}))
     _run(conn, tmp_path, [reply(skills=4, domain=5, flags=("vague_posting",))])
     score, breakdown, flags = _fit(conn, "https://e.com/1")
     comps = {c["key"]: c for c in breakdown}
@@ -243,7 +279,7 @@ def test_breakdown_after_a_run(conn, tmp_path):
     assert 0 <= score <= 100 and flags == []
     row = conn.execute("SELECT fit_assessment, assessment_hash, assessed_at FROM jobs").fetchone()
     assert json.loads(row[0])["red_flags"][0]["code"] == "vague_posting"
-    assert row[1] == assessment_key(Preferences.from_dict({}), RESUME) and row[2]
+    assert row[1] == assessment_key(Preferences.from_dict({"industries_favor": ["Logistics"]}), RESUME) and row[2]
 
 
 def test_old_scored_jobs_wait_for_a_confirmed_reassess(conn, tmp_path):
@@ -253,7 +289,7 @@ def test_old_scored_jobs_wait_for_a_confirmed_reassess(conn, tmp_path):
     assert client.chat.call_count == 1  # only the new job
     assert _fit(conn, "https://e.com/legacy")[0] == 80
     _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
-    assert client.chat.call_count == 1 and _fit(conn, "https://e.com/legacy")[0] == 25
+    assert client.chat.call_count == 1 and _fit(conn, "https://e.com/legacy")[0] == _overall(2)
 
 
 def test_preferences_saved_during_a_run_win(conn, tmp_path):
@@ -314,8 +350,8 @@ def test_active_scope_includes_current_assessments_and_excludes_rejected(conn, t
     assert client.chat.call_count == 0  # nothing is stale
     _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), scope="active")
     assert client.chat.call_count == 3
-    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {25}
-    assert _fit(conn, "https://e.com/rejected")[0] == 75  # left alone
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(2)}
+    assert _fit(conn, "https://e.com/rejected")[0] == _overall(4)  # left alone
 
     conn.execute("UPDATE jobs SET score_attempts = ? WHERE url = 'https://e.com/0'", (scorer.MAX_SCORE_ATTEMPTS,))
     conn.commit()

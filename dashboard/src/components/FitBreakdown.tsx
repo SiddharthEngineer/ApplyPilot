@@ -8,7 +8,8 @@ const RATED = ['skills_match', 'experience_match', 'domain_interest'];
 export function componentScore(c: FitComponent): string {
   if (c.score == null) return 'not set';
   if (RATED.includes(c.key)) return `${Math.round(c.score * 4 + 1)}/5`;
-  if (c.key === 'red_flags') return c.score >= 1 ? 'none' : '⚠';
+  // Flags the user doesn't count leave the score at 1 but are still listed in the note.
+  if (c.key === 'red_flags') return c.score < 1 ? '⚠' : c.note === 'none' ? 'none' : '✓';
   return c.score >= 1 ? '✓' : c.score <= 0 ? '✗' : '~';
 }
 

@@ -69,9 +69,15 @@ def test_get_defaults_and_options(client):
     body = client.get("/app/api/preferences").json()
     prefs = body["prefs"]
     assert {k for k, v in prefs.items() if isinstance(v, dict) and v["importance"] != "dont_care"} == \
-        {"salary", "locations", "role_category", "skills_match"}
+        {"salary", "locations", "role_category"}
     assert "remote" in body["options"]["work_mode"] and "data_science" in body["options"]["role_category"]
-    assert body["options"]["importance"][-1] == "dealbreaker" and "mostly_sales" in body["options"]["red_flags"]
+    assert body["options"]["importance"][-1] == "dealbreaker"
+    flags = {f["value"]: f for f in body["options"]["red_flags"]}
+    assert "other" not in flags and flags["mostly_sales"]["label"] == "Mostly sales" and flags["mostly_sales"]["help"]
+    assert set(prefs["red_flags_counted"]) == set(flags) - {"relocation_required"}
+    for removed in ("company_blocklist", "education", "experience", "skills_match", "experience_match",
+                    "domain_interest", "red_flags"):
+        assert removed not in prefs and removed not in body["labels"]
     assert body["labels"]["role_category"] == "Job field"
 
 

@@ -21,8 +21,9 @@ from strelitzia.database import job_company
 from strelitzia.enrichment.posting_model import JobPosting
 from strelitzia.llm import json_object
 from strelitzia.scoring.preferences import (
-    LABELS,
+    COMPONENT_LABELS,
     LLM_INPUTS,
+    RED_FLAGS,
     Component,
     Preferences,
     combine,
@@ -36,10 +37,6 @@ log = logging.getLogger(__name__)
 ASSESS_VERSION = 1
 DESCRIPTION_CHARS = 8000
 
-RED_FLAGS = (
-    "mostly_sales", "commission_heavy", "title_mismatch", "unrealistic_requirements", "contract_disguised",
-    "relocation_required", "unpaid_or_trial", "vague_posting", "other",
-)
 RATED = ("skills_match", "experience_match", "domain_interest")
 PREFILTER_FLAG = "prefilter"
 
@@ -187,21 +184,35 @@ def _posting(job: dict) -> JobPosting:
         return JobPosting()
 
 
+def _rated_importance(prefs: Preferences, key: str) -> str:
+    """The fixed weights of the ratings. Domain interest only counts once the user has said which industries they
+    like or avoid."""
+    if key == "skills_match":
+        return "very_important"
+    if key == "domain_interest" and not (prefs.industries_favor or prefs.industries_avoid):
+        return "dont_care"
+    return "important"
+
+
+def _flag_text(flag: dict, counted: bool) -> str:
+    text = flag["code"].replace("_", " ") + ("" if counted else " (not counted)")
+    return f"{text}: {flag['note']}" if flag.get("note") else text
+
+
 def assessment_components(prefs: Preferences, assessment: dict) -> list[Component]:
-    """The assessment layer's components: ratings 1-5 mapped to 0-1, and red flags at -0.34 each."""
+    """The assessment layer's components: ratings 1-5 mapped to 0-1 at fixed weights, and red flags (0 when the
+    posting has any flag the user counts, else 1) at Important."""
     out = []
     for key in RATED:
-        crit = getattr(prefs, key)
         rating = assessment.get(key) or {}
         score = (rating["score"] - 1) / 4 if isinstance(rating.get("score"), int) else None
-        hit = crit.importance == "dealbreaker" and score == 0
-        out.append(Component(key, LABELS[key], score, crit.importance, hit, rating.get("evidence", "")))
+        out.append(Component(key, COMPONENT_LABELS[key], score, _rated_importance(prefs, key), False,
+                             rating.get("evidence", "")))
     flags = assessment.get("red_flags") or []
-    crit = prefs.red_flags
-    note = "; ".join(f"{f['code'].replace('_', ' ')}: {f['note']}" if f.get("note") else f["code"].replace("_", " ")
-                     for f in flags)
-    out.append(Component("red_flags", LABELS["red_flags"], max(0.0, 1 - 0.34 * len(flags)), crit.importance,
-                         crit.importance == "dealbreaker" and bool(flags), note or "none"))
+    counted = [f["code"] in prefs.red_flags_counted for f in flags]
+    note = "; ".join(_flag_text(f, c) for f, c in zip(flags, counted, strict=True))
+    out.append(Component("red_flags", COMPONENT_LABELS["red_flags"], 0.0 if any(counted) else 1.0, "important",
+                         False, note or "none"))
     return out
 
 
@@ -211,7 +222,7 @@ def compute_fit(prefs: Preferences, job: dict) -> tuple[int | None, list[dict], 
     A job with no assessment keeps its current fit_score (an old 1-10 score times 10, or NULL); its preference
     breakdown and dealbreaker flags are still filled in. A prefiltered job scores 0.
     """
-    components = score_preferences(prefs, _posting(job), company=job_company(job) or None)
+    components = score_preferences(prefs, _posting(job))
     assessment = _assessment(job)
     prefiltered = bool(assessment and assessment.get("prefiltered"))
     if assessment and not prefiltered:

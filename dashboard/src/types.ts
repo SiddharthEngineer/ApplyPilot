@@ -277,13 +277,7 @@ export interface Preferences {
   visa: Criterion<boolean>;
   clearance: Criterion<boolean>;
   travel: Criterion<number | null>;
-  education: Criterion<string | null>;
-  experience: Criterion<number | null>;
-  company_blocklist: Criterion<string[]>;
-  skills_match: Criterion<null>;
-  experience_match: Criterion<null>;
-  domain_interest: Criterion<null>;
-  red_flags: Criterion<null>;
+  red_flags_counted: string[];
   skills_want: string[];
   skills_avoid: string[];
   industries_favor: string[];
@@ -291,9 +285,16 @@ export interface Preferences {
   target_roles: string[];
 }
 
+export interface RedFlagOption {
+  value: string;
+  label: string;
+  help: string;
+}
+
 export interface PreferencesResponse {
   prefs: Preferences;
-  options: Record<string, string[]>;
+  // Value lists by key; red_flags lists the pickable flags with a label and a one-line explanation.
+  options: Record<string, string[] | RedFlagOption[]>;
   labels: Record<string, string>;
 }
 
