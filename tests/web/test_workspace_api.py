@@ -165,18 +165,21 @@ def test_contact_field_validation(client, conn):
     k1 = job_key("https://x/1")
     bad = [{"email": "ana.acme.com"}, {"linkedin_url": "https://example.com/in/ana"},
            {"linkedin_url": "ftp://linkedin.com/in/ana"}, {"linkedin_url": "linkedin.com/in/ana"},
-           {"linkedin_url": "https://notlinkedin.com/in/ana"}]
+           {"linkedin_url": "https://notlinkedin.com/in/ana"}, {"linkedin_url": "https:linkedin.com/in/ana"},
+           {"linkedin_url": "https://evil.com\\@www.linkedin.com/in/ana"},
+           {"linkedin_url": "https://www.linkedin.com/in/ana smith"}]
     for fields in bad:
         r = client.post("/app/api/contacts", json={"name": "Ana", **fields})
         assert r.status_code == 422, fields
         r = client.post(f"/app/api/jobs/{k1}/contacts", json={"contact": {"name": "Ana", **fields}})
         assert r.status_code == 422, fields
+    assert client.post("/app/api/contacts", json={"name": "   "}).status_code == 422
     r = client.post("/app/api/contacts", json={
-        "name": "Ana", "email": " ana@acme.com ", "phone": "  +1 555 0100 ", "company": "",
+        "name": " Ana ", "email": " ana@acme.com ", "phone": "  +1 555 0100 ", "company": "",
         "linkedin_url": "https://www.linkedin.com/in/ana"})
     assert r.status_code == 201
     ana = r.json()
-    assert ana["email"] == "ana@acme.com" and ana["phone"] == "+1 555 0100" and ana["company"] is None
+    assert ana["name"] == "Ana" and ana["email"] == "ana@acme.com" and ana["phone"] == "+1 555 0100" and ana["company"] is None
     assert ana["linkedin_url"] == "https://www.linkedin.com/in/ana"
     assert client.patch(f"/app/api/contacts/{ana['id']}", json={"email": "nope"}).status_code == 422
     assert client.patch(f"/app/api/contacts/{ana['id']}", json={"linkedin_url": "http://x.com"}).status_code == 422

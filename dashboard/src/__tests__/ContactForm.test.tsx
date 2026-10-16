@@ -57,7 +57,7 @@ describe('ContactForm', () => {
 
   it('shows the API error inline', async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn().mockRejectedValue(new Error('Value error, Email must contain @'));
+    const onSubmit = vi.fn().mockRejectedValue(new Error('Email must contain @'));
     render(<ContactForm initial={{ name: 'Ana' }} onSubmit={onSubmit} onCancel={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Save contact' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/^Email must contain @$/);
@@ -78,6 +78,8 @@ describe('ContactForm', () => {
     expect(contactProblem({ name: 'A', linkedin_url: 'ftp://linkedin.com/in/a' })).not.toBeNull();
     expect(contactProblem({ name: 'A', linkedin_url: 'https://notlinkedin.com/in/a' })).not.toBeNull();
     expect(contactProblem({ name: 'A', linkedin_url: 'linkedin.com/in/a' })).not.toBeNull();
+    expect(contactProblem({ name: 'A', linkedin_url: 'https:linkedin.com/in/a' })).not.toBeNull();
+    expect(contactProblem({ name: 'A', linkedin_url: 'https://evil.com\\@www.linkedin.com/in/a' })).not.toBeNull();
   });
 });
 

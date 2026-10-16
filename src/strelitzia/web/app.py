@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -592,6 +593,11 @@ class ContactPatch(BaseModel):
     def _blank_is_null(cls, value: str | None) -> str | None:
         return (value or "").strip() or None
 
+    @field_validator("name")
+    @classmethod
+    def _trim_name(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
     @field_validator("email")
     @classmethod
     def _email(cls, value: str | None) -> str | None:
@@ -603,9 +609,11 @@ class ContactPatch(BaseModel):
     @classmethod
     def _linkedin(cls, value: str | None) -> str | None:
         if value:
+            # Strict on the shape (scheme, "//", no backslash or space) so browsers parse the same host as urlparse.
             url = urlparse(value)
             host = (url.hostname or "").lower()
-            if url.scheme not in ("http", "https") or not (host == "linkedin.com" or host.endswith(".linkedin.com")):
+            shaped = re.match(r"https?://[^\\\s]+$", value, re.IGNORECASE) is not None
+            if not shaped or not (host == "linkedin.com" or host.endswith(".linkedin.com")):
                 raise ValueError("LinkedIn must be an http(s) link on linkedin.com")
         return value
 

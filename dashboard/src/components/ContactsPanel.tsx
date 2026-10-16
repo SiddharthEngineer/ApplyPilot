@@ -48,15 +48,18 @@ function ContactPicker({ job, onLinked, onCancel }: {
 
   const name = text.trim();
   const company = job.company && job.company !== 'Unknown company' ? job.company : undefined;
+  const relationField = (
+    <label className="field">
+      <span>Relation</span>
+      <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)}>
+        {RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABELS[r]}</option>)}
+      </select>
+    </label>
+  );
   if (creating) {
     return (
       <div className="picker">
-        <label className="field">
-          <span>Relation</span>
-          <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)}>
-            {RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABELS[r]}</option>)}
-          </select>
-        </label>
+        {relationField}
         <ContactForm initial={{ name, company }} submitLabel="Create and link" onCancel={() => setCreating(false)}
           onSubmit={async (fields) => {
             onLinked(await api.linkContact(job.key, { contact: fields }, relation));
@@ -72,12 +75,7 @@ function ContactPicker({ job, onLinked, onCancel }: {
           <input ref={inputRef} type="search" placeholder="Name, company or email" value={text}
             onChange={(e) => setText(e.target.value)} />
         </label>
-        <label className="field">
-          <span>Relation</span>
-          <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)}>
-            {RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABELS[r]}</option>)}
-          </select>
-        </label>
+        {relationField}
         <button type="button" onClick={onCancel}>Cancel</button>
       </div>
       <ul className="picker-results" aria-label="Contacts">

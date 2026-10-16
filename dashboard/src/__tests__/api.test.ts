@@ -48,6 +48,12 @@ describe('api', () => {
     expect(err.message).toBe("submitted_at can't be cleared; set a status instead");
   });
 
+  it('joins pydantic validation messages without their "Value error, " prefix', async () => {
+    mockFetch(422, { detail: [{ msg: 'Value error, Email must contain @' }, { msg: 'Field required' }] });
+    const err = await setStatus('abc', 'submitted').catch((e) => e);
+    expect(err.message).toBe('Email must contain @; Field required');
+  });
+
   it('POSTs the packet request with the CSRF header', async () => {
     const fetch = mockFetch(200, { prompt: 'p', doc_url: null, inline: true, rules_version: 'abcd1234' });
     expect((await openPacket('k1')).inline).toBe(true);

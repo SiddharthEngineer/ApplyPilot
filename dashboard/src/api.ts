@@ -21,7 +21,9 @@ async function errorMessage(res: Response): Promise<string> {
     const detail = body?.detail;
     if (typeof detail === 'string') return detail;
     if (typeof detail?.message === 'string') return detail.message; // e.g. the 402 budget stop
-    if (Array.isArray(detail)) return detail.map((d) => d?.msg ?? String(d)).join('; ');
+    if (Array.isArray(detail)) { // pydantic validation errors; drop its "Value error, " prefix
+      return detail.map((d) => (d?.msg ? String(d.msg).replace(/^Value error, /, '') : String(d))).join('; ');
+    }
   } catch {
     // not JSON
   }
