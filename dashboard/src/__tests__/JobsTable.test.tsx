@@ -168,10 +168,12 @@ describe('JobsPage', () => {
       expect(api.rescoreAll).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(await screen.findByRole('status')).toHaveTextContent('Queued: re-assessment of your active jobs');
+      expect(screen.getByRole('button', { name: 'Rescore all' })).toBeDisabled(); // no second paid run
       const loads = vi.mocked(api.listJobs).mock.calls.length;
       await act(() => vi.advanceTimersByTimeAsync(3000));
       expect(screen.getByRole('status')).toHaveTextContent('Finished re-assessment of your active jobs');
       await waitFor(() => expect(vi.mocked(api.listJobs).mock.calls.length).toBe(loads + 1));
+      expect(screen.getByRole('button', { name: 'Rescore all' })).toBeEnabled();
     });
 
     it('cancel queues nothing, and a failed task or budget stop shows as an error', async () => {

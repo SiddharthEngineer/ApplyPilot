@@ -90,6 +90,16 @@ def enqueue(conn: Connection, user_id: str, url: str | None, kind: str) -> dict:
     return get_task(conn, task_id)
 
 
+def active_task(conn: Connection, user_id: str, kind: str) -> dict | None:
+    """The user's newest queued or running task of `kind` that isn't about one job, if any."""
+    row = conn.execute(
+        "SELECT * FROM dashboard_tasks WHERE user_id = ? AND url IS NULL AND kind = ? AND state IN ('queued', 'running') "
+        "ORDER BY created_at DESC, id LIMIT 1",
+        (user_id, kind),
+    ).fetchone()
+    return task_dict(row) if row else None
+
+
 def recover_interrupted(conn: Connection) -> int:
     """Mark tasks a previous server left `running` as failed. Returns how many."""
     cur = conn.execute(

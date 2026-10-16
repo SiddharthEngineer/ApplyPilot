@@ -2,18 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import * as api from '../api';
 import Flower from '../components/Flower';
 import TaskProgress from '../components/TaskProgress';
-import { humanize, IMPORTANCE_LABELS, IMPORTANCES, roleLabel, WORK_MODE_LABELS } from '../labels';
+import { humanize, IMPORTANCE_LABELS, IMPORTANCES, roleLabel, usd, WORK_MODE_LABELS } from '../labels';
 import type {
   Criterion, Importance, Preferences, PreferencesResponse, ReassessPreview, ReassessScope, Task,
 } from '../types';
 
 type CriterionKey = { [K in keyof Preferences]: Preferences[K] extends Criterion ? K : never }[keyof Preferences];
 type ListKey = 'skills_want' | 'skills_avoid' | 'industries_favor' | 'industries_avoid' | 'target_roles';
-
-/** "about $0.40", or "under $0.01" for tiny runs. */
-export function usd(value: number): string {
-  return value < 0.01 ? 'under $0.01' : `about $${value.toFixed(2)}`;
-}
 
 function ImportanceControl({ label, value, onChange }: {
   label: string; value: Importance; onChange: (v: Importance) => void;

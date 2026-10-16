@@ -530,6 +530,9 @@ def rescore_all(body: RescoreAll, request: Request) -> dict:
     preview = rescore_preview(conn, user.id, "active")
     if not preview["jobs"]:
         return {"task": None, **preview}
+    # A second Rescore all while one is waiting or running would pay again for every job.
+    if running := tasks.active_task(conn, user.id, "rescore_all"):
+        return {"task": running, **preview}
     budget_stop(conn, user.id, preview["estimated_usd"])
     task = tasks.enqueue(conn, user.id, None, "rescore_all")
     _notify(request)

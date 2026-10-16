@@ -301,3 +301,8 @@ def test_active_scope_includes_current_assessments_and_excludes_rejected(conn, t
     assert client.chat.call_count == 3
     assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {25}
     assert _fit(conn, "https://e.com/rejected")[0] == 75  # left alone
+
+    conn.execute("UPDATE jobs SET score_attempts = ? WHERE url = 'https://e.com/0'", (scorer.MAX_SCORE_ATTEMPTS,))
+    conn.commit()
+    assert "https://e.com/0" not in {j["url"] for j in scorer._select_jobs(conn, owner, "", 0, False, False, None,
+                                                                           "active")}  # keeps failing: left out
