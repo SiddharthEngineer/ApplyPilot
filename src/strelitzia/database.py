@@ -196,6 +196,9 @@ def init_db(db_path: Path | str | None = None) -> Connection:
     migrate_users(conn)
     backfill_job_keys(conn)
     import_owner_files(conn)
+    from strelitzia.scoring.preferences import migrate_preferences  # imports the scoring layer, which imports this
+
+    migrate_preferences(conn)
 
     return conn
 

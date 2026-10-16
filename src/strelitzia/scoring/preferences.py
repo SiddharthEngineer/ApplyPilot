@@ -121,7 +121,8 @@ COMPONENT_LABELS = {
     **LABELS, "education": "Education", "experience": "Experience", "skills_match": "Skills",
     "experience_match": "Experience match", "domain_interest": "Domain interest", "red_flags": "Red flags",
 }
-# The red-flag codes the assessment can return, with what each means (also the rubric's wording).
+# The red-flag codes the assessment can return, with what each means. The rubric (assessment.ASSESS_PROMPT) uses the
+# same wording; a test keeps them in step.
 RED_FLAG_HELP = {
     "mostly_sales": "the role is mainly selling despite its title",
     "commission_heavy": "pay is mostly commission",
@@ -441,30 +442,16 @@ def _user(conn, user_id: str | None) -> str:
     return user_id or users.owner(conn).id
 
 
-_MOVED_TO_PROFILE = {"education", "experience"}
-
-
 def load_preferences(conn, user_id: str | None = None) -> Preferences:
-    """The user's saved preferences (the owner's by default), or the defaults.
-
-    Preferences saved before education and experience moved to the Profile hand those values to the profile (where
-    it has none yet) and are saved again without them, once.
-    """
-    user_id = _user(conn, user_id)
-    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
+    """The user's saved preferences (the owner's by default), or the defaults."""
+    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?",
+                       (_user(conn, user_id),)).fetchone()
     if row is None or not row[0]:
         return Preferences()
     try:
-        data = json.loads(row[0])
+        return Preferences.from_dict(json.loads(row[0]))
     except ValueError:
         return Preferences()
-    prefs = Preferences.from_dict(data)
-    if isinstance(data, dict) and _MOVED_TO_PROFILE & data.keys():
-        from strelitzia.profile import adopt_old_qualifications
-
-        adopt_old_qualifications(conn, user_id, data)
-        save_preferences(conn, prefs, user_id)
-    return prefs
 
 
 def save_preferences(conn, prefs: Preferences, user_id: str | None = None) -> None:
@@ -475,3 +462,40 @@ def save_preferences(conn, prefs: Preferences, user_id: str | None = None) -> No
         (_user(conn, user_id), prefs.to_json(), now),
     )
     conn.commit()
+
+
+# Preference keys saved before prefs-cleanup-1 that are gone now (education and experience moved to the Profile).
+_REMOVED_KEYS = {"education", "experience", "company_blocklist", "skills_match", "experience_match",
+                 "domain_interest", "red_flags"}
+_MIGRATED_STATE = "migrated:prefs-cleanup-1"
+
+
+def migrate_preferences(conn) -> int:
+    """Once, at startup: bring every user to the fixed-rule fit score (prefs-cleanup-1).
+
+    Saved preferences that still have the removed rows hand their education and years of experience to the user's
+    Profile where it has none yet and are saved again without them. Then every user's jobs are re-ranked (code only,
+    no LLM). Returns the number of users re-ranked.
+    """
+    from strelitzia.database import get_state, set_state
+    from strelitzia.profile import adopt_old_qualifications
+    from strelitzia.scoring.assessment import recompute_fit
+
+    if get_state(conn, _MIGRATED_STATE):
+        return 0
+    stored = conn.execute("SELECT user_id, prefs_json FROM user_preferences WHERE user_id IS NOT NULL").fetchall()
+    for user_id, prefs_json in stored:
+        try:
+            data = json.loads(prefs_json or "{}")
+        except ValueError:
+            continue
+        if isinstance(data, dict) and _REMOVED_KEYS & data.keys():
+            adopt_old_qualifications(conn, user_id, data)
+            save_preferences(conn, Preferences.from_dict(data), user_id)
+    scored = conn.execute("SELECT DISTINCT user_id FROM jobs WHERE details_json IS NOT NULL AND user_id IS NOT NULL")
+    user_ids = sorted({r[0] for r in scored.fetchall()})
+    for user_id in user_ids:
+        recompute_fit(conn, user_id)
+    set_state(conn, _MIGRATED_STATE, datetime.now(UTC).isoformat(timespec="seconds"))
+    conn.commit()
+    return len(user_ids)

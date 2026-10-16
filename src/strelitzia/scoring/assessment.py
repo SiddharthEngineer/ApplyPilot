@@ -202,7 +202,7 @@ def _flag_text(flag: dict, counted: bool) -> str:
 
 def assessment_components(prefs: Preferences, assessment: dict) -> list[Component]:
     """The assessment layer's components: ratings 1-5 mapped to 0-1 at fixed weights, and red flags (0 when the
-    posting has any flag the user counts, else 1) at Important."""
+    posting has any flag the user counts, else 1) at Important, or left out when the user counts none."""
     out = []
     for key in RATED:
         rating = assessment.get(key) or {}
@@ -212,7 +212,8 @@ def assessment_components(prefs: Preferences, assessment: dict) -> list[Componen
     flags = assessment.get("red_flags") or []
     counted = [f["code"] in prefs.red_flags_counted for f in flags]
     note = "; ".join(_flag_text(f, c) for f, c in zip(flags, counted, strict=True))
-    out.append(Component("red_flags", COMPONENT_LABELS["red_flags"], 0.0 if any(counted) else 1.0, "important",
+    importance = "important" if prefs.red_flags_counted else "dont_care"
+    out.append(Component("red_flags", COMPONENT_LABELS["red_flags"], 0.0 if any(counted) else 1.0, importance,
                          False, note or "none"))
     return out
 

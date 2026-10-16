@@ -1,5 +1,5 @@
 # Plan: Preferences cleanup, part 1: qualification rules from the profile, fixed AI weights, red-flag picks
-**Status:** ❌ Not started
+**Status:** ✅ Done 2026-10-16
 **Risk:** review (changes how the fit score is computed)
 **Issue:** #46
 **Depends on:** profile-2-page
@@ -75,3 +75,9 @@ old preference values into the profile happens in `load_preferences` (or at star
 ## Decisions
 1. The qualification rules run in code, not in the AI prompt: the posting fields are already extracted, so this is free and deterministic.
 2. Experience relevance (Claude's 1–5 rating) stays, at a fixed "important" weight (user, 2026-10-16).
+3. The move of old values into the Profile runs once at startup (`init_db` → `migrate_preferences`, marked in
+   `app_state`) and re-ranks every user's jobs, not in `load_preferences`: a read never writes, and stored scores
+   pick up the new rules straight away (found in review, 2026-10-16).
+4. With no red flags ticked, the red-flags component is left out of the score rather than counting as a constant 1.0.
+5. The Preferences page only loses the removed rows here so it keeps loading; its regrouping and the red-flag
+   checkboxes are prefs-cleanup-3.
