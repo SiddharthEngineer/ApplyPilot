@@ -22,7 +22,9 @@ Cron every 5 minutes → `run.sh`. It checks for due work with plain bash/Python
   `AGENT_MERGE_POLICY=all` merges every ready PR after green CI, also merges PRs already waiting for review once their CI is green,
   and redeploys preprod from trunk after each merge (`preprod.sh release`). A PR with red CI stays open and you get a notice.
 - Each run is killed after `AGENT_MAX_RUNTIME` (3h). A `flock` allows one run at a time.
-- A usage-limit exit pauses the queue for 5h and gives the attempt back.
+- Context cap: runs auto-compact at 200k tokens (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`; override with `AGENT_COMPACT_WINDOW`).
+  Opus's 1M window otherwise lets a long run re-send 250–380k tokens every turn.
+- A usage-limit exit pauses the queue for 5h, gives the attempt back, and the next run resumes that session (`resume=limit`).
 - A run that ends without a result file, or whose `ready` fails `validate.sh --full`, counts as a failed attempt. After 2 failures the item is `blocked` and you get a notice.
 
 ## One-time setup (you)

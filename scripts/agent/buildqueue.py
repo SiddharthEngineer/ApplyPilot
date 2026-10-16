@@ -20,7 +20,8 @@ Usage:
   buildqueue.py get <slug> <key>
 
 Item statuses: queued → running → done | pr-open | awaiting-preprod | on-preprod | waiting-answer | blocked | cancelled.
-run.sh stores the agent's `session_id` after each run; `resume=1` (set by `answer`) makes the next run resume that session.
+run.sh stores the agent's `session_id` after each run; `resume=1` (set by `answer`) or `resume=limit` (set by run.sh after a
+usage-limit stop) makes the next run resume that session.
 Standard library only.
 """
 

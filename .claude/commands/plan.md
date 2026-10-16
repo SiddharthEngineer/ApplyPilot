@@ -20,19 +20,31 @@ conversation can implement and validate on its own, unattended.
 - `review`: a PR that's deployed to preprod and tested by the user. Use it for everything else, and whenever you're unsure.
 - `scripts/agent/gate.py` re-checks a `low` plan after the code is written and downgrades it to `review` if the diff
   touches high-risk paths (see `HIGH_RISK` there), goes over the size budget, or weakens tests. Tell the user this.
-- After writing the plan (step 3), run `python3 scripts/agent/gate.py agents/plans/<slug>.md --plan`. If a `low` plan
+- After writing the plan (step 4), run `python3 scripts/agent/gate.py agents/plans/<slug>.md --plan`. If a `low` plan
   comes back `review`, tell the user which files caused it (the `touches high-risk path` reasons), then either change
-  the risk to `review` or narrow the files.
+  the risk to `review` or narrow the files. If `"split"` isn't empty, go back to step 3 and split it.
 - Mark a task `Runs: interactive` if it needs the user, prod, engineerfamily, secrets, or live job boards or Gemini.
   Unattended runs skip those tasks and flag them in the PR.
 
-## 3. Write `agents/plans/<slug>.md` (kebab-case)
+## 3. Size it: one plan = one short unattended run
+Every turn of an unattended run re-sends its whole context, so cost grows much faster than plan size. Plans touching ≤14 files
+took 19–73 turns; plans touching 22–49 files took 100–180 turns and most of a 5-hour usage window.
+- Budget per plan: **≤4 tasks, ≤12 files across all `**Files:**` lines, ≤10 KB**. `gate.py --plan` prints any overrun under `"split"`.
+- When the feature is bigger, **always recommend splitting it** before writing anything, and show the user the proposed parts
+  (AskUserQuestion, splitting as the recommended option). Write the full plan only if the user explicitly declines the split.
+- Split along seams that each merge on their own with green validation: data model/storage → pipeline/CLI → API → dashboard.
+  Name the parts `<slug>-1-<part>`, `<slug>-2-<part>`, …, give each later part a `**Depends on:** <earlier slug>` line,
+  and keep each part's Context to what that part needs.
+- Context entries cite line ranges (`file.py:120-160`), not whole files, so the implementer reads only those lines.
+
+## 4. Write `agents/plans/<slug>.md` (kebab-case)
 
 ```markdown
 # Plan: <Title>
 **Status:** ❌ Not started | 🔄 In progress | ✅ Complete (YYYY-MM-DD)
 **Risk:** low | review (one-line reason)
 **Issue:** #n (optional)
+**Depends on:** <slug> (optional; an earlier part of a split plan)
 
 ## Goal
 One paragraph: the user-facing outcome.
@@ -63,9 +75,9 @@ Numbered, one sentence each: the choice and why.
 Rules: success means a command printed something checkable, never "looks good". Each task is one committed,
 testable unit. Never put personal data (resume text, contact details, DB rows) in a plan. Point at the file instead.
 
-## 4. Register and hand off
-1. Add a row to the **Active** table in `agents/ROADMAP.md` (ID, initiative, plan link, risk, status ⏳, depends on).
+## 5. Register and hand off
+1. Add a row to the **Active** table in `agents/ROADMAP.md` (ID, initiative, plan link, risk, status ⏳, depends on), one per part.
 2. Show the user the plan summary, then commit both files on `trunk` and push (`git push origin trunk`), because the unattended
    runner only builds plans that are on `origin/trunk`.
 3. Ask the user: implement now in this session (`/implement agents/plans/<slug>.md`), or schedule it
-   (`/schedule-build <slug> [time]`)?
+   (`/schedule-build <slug> [time]`)? Queue split parts in order with `after`: `/schedule-build <slug>-2-<part> after <slug>-1-<part>`.
