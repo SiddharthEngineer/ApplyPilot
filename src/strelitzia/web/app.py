@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from strelitzia import __version__, intake, tracking, workspace
+from strelitzia import __version__, intake, tracking, users, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend, user_month_spend
@@ -241,6 +241,12 @@ def get_job_file(key: str, kind: Literal["resume_pdf", "resume_docx", "cover_let
     return FileResponse(path, filename=path.name)
 
 
+def _owner_content(user: users.User) -> None:
+    """The workbench reads the owner's content library, resume and Drive; other accounts get them in #48 and part 6."""
+    if user.role != "owner":
+        raise HTTPException(status_code=403, detail="The resume workbench isn't available for your account yet.")
+
+
 def _workbench_inputs() -> workbench.Inputs:
     try:
         return workbench.Inputs.load()
@@ -262,6 +268,7 @@ def post_packet(key: str, request: Request) -> dict:
     """Write the job's Claude packet (a Drive Doc when Drive is set up) and return the prompt to paste in Claude."""
     conn = db_conn(request)
     user = current_user(request)
+    _owner_content(user)
     job = job_by_key(conn, user.id, key)
     inputs = _workbench_inputs()
     drive_error = None
@@ -289,6 +296,7 @@ def post_result(key: str, body: PastedResult, request: Request):
     """Check a pasted Claude reply. 422 with errors and a fix message, or 200 with the saved draft and the job."""
     conn = db_conn(request)
     user = current_user(request)
+    _owner_content(user)
     job = job_by_key(conn, user.id, key)
     outcome = workbench.import_result(conn, job, body.text, _workbench_inputs())
     if not outcome.ok:
@@ -315,8 +323,10 @@ def claude_setup(request: Request) -> dict:
     """What the Claude setup page shows: the Project Docs, the rules version, Drive status, the instructions."""
     from strelitzia.storage.drive import drive_status
 
+    user = current_user(request)
+    _owner_content(user)
     state, detail = drive_status()
-    docs = workbench.published_static_docs(db_conn(request), current_user(request).id)
+    docs = workbench.published_static_docs(db_conn(request), user.id)
     return {
         "drive": state == "authorized", "drive_detail": detail,
         "rules_version": workbench.RULES_VERSION,
@@ -331,14 +341,15 @@ def claude_setup(request: Request) -> dict:
 @api.post("/claude/docs")
 def publish_claude_docs(request: Request) -> dict:
     """Write (or refresh) the rules and content-library Docs in Drive."""
+    user = current_user(request)
+    _owner_content(user)
     try:
         client = _drive_client()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=409, detail=str(e)) from e
     if client is None:
         raise HTTPException(status_code=409, detail="Google Drive isn't set up. Run `strelitzia drive auth`.")
-    workbench.publish_static_docs(client, db_conn(request), current_user(request).id, _workbench_inputs(),
-                                  force=True)
+    workbench.publish_static_docs(client, db_conn(request), user.id, _workbench_inputs(), force=True)
     return claude_setup(request)
 
 
@@ -770,13 +781,7 @@ def _default_static_dir() -> Path | None:
 
 def _session_secret() -> str:
     """STRELITZIA_SESSION_SECRET; with login off and no secret, a per-process one (sessions then hold nothing)."""
-    secret = env("SESSION_SECRET")
-    if secret:
-        return secret
-    if auth.auth_enabled():
-        raise RuntimeError("STRELITZIA_GOOGLE_CLIENT_ID is set but STRELITZIA_SESSION_SECRET is not; "
-                           "set it to a long random string")
-    return secrets.token_urlsafe(32)
+    return env("SESSION_SECRET") or secrets.token_urlsafe(32)
 
 
 def create_app(static_dir: Path | str | None = None, db: Path | str | None = None,
@@ -788,6 +793,7 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
     generate: the function that runs queued tasks (default: real intake and assessment, which uses the
         configured database, so pass db=None with it). run_tasks=False queues tasks without running them.
     """
+    auth.check_config()
     runner = tasks.TaskRunner(db, generate) if run_tasks else None
 
     @asynccontextmanager

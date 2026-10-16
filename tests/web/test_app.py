@@ -141,5 +141,20 @@ def test_session_cookie_flags(auth_app, db_path, monkeypatch, web_dir):
 
 def test_login_on_without_a_session_secret_refuses_to_start(db_path, monkeypatch):
     monkeypatch.setenv("STRELITZIA_GOOGLE_CLIENT_ID", "client-123")
+    monkeypatch.setenv("STRELITZIA_GOOGLE_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("STRELITZIA_OWNER_EMAIL", "owner@example.com")
     with pytest.raises(RuntimeError, match="SESSION_SECRET"):
         create_app(db=db_path)
+
+
+def test_workbench_is_owner_only_with_login_on(auth_client, db_path):
+    from strelitzia import users
+    from strelitzia.database import get_connection
+
+    conn = get_connection(db_path)
+    friend = users.activate(conn, users.invite(conn, "friend@example.com").email, None)
+    sign_in_as(auth_client, friend)
+    assert auth_client.get("/app/api/claude/setup").status_code == 403
+    assert auth_client.post("/app/api/claude/docs").status_code == 403
+    assert auth_client.post("/app/api/jobs/anykey/packet").status_code == 403
+    assert auth_client.post("/app/api/jobs/anykey/result", json={"text": "x"}).status_code == 403
