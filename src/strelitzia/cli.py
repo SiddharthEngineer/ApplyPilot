@@ -416,7 +416,7 @@ def doctor() -> None:
                         "Set ANTHROPIC_API_KEY in ~/.strelitzia/.env (run 'strelitzia init')"))
     for purpose in PURPOSES:
         model, effort = resolve_model(purpose)
-        results.append((f"{purpose.title()} model", ok_mark, f"{model} (effort {effort})"))
+        results.append((f"{purpose.replace('_', ' ').title()} model", ok_mark, f"{model} (effort {effort})"))
     results.extend(_doctor_spend_rows(ok_mark, warn_mark))
 
     # --- Render results ---

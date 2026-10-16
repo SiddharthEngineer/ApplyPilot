@@ -6,6 +6,7 @@ purposes:
   discovery: {model: claude-haiku-5-5, effort: low, output_tokens: 600}
   extract: {model: claude-haiku-5-5, effort: low, output_tokens: 900}
   scoring: {model: claude-haiku-5-5, effort: low, output_tokens: 600}
+  profile_parse: {model: claude-haiku-5-5, effort: low, output_tokens: 500}  # the Profile page's resume upload
 
 # Resumes and cover letters are written in Claude Pro chats (the workbench), not through the API.
 

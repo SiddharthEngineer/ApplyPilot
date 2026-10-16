@@ -22,8 +22,8 @@ import anthropic
 
 log = logging.getLogger(__name__)
 
-# Pipeline stages that can each pick their own model via LLM_{PURPOSE}_MODEL.
-PURPOSES = ("discovery", "extract", "scoring")
+# Pipeline stages (and the Profile page's resume parsing) that can each pick their own model via LLM_{PURPOSE}_MODEL.
+PURPOSES = ("discovery", "extract", "scoring", "profile_parse")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # The SDK retries 408/409/429/5xx and connection errors with exponential backoff.

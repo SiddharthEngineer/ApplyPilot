@@ -31,7 +31,7 @@ Preferences is about the job you want."
 `parse_resume(text, user_id) -> dict` returns profile fields the resume states (no guesses; omitted fields stay absent), with
 `years_experience` as a number and `education_level` from the enum.
 **Validate:** `pytest tests/test_resume_parse.py -q` → passes with a fake PDF/DOCX built in the test and a mocked LLM response.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: profile API
 **Runs:** unattended
