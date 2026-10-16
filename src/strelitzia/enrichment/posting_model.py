@@ -12,7 +12,9 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass, field, fields
+from functools import cache
 
+from strelitzia import config
 from strelitzia.llm import json_object, nullable
 
 # Bump whenever the schema or the extraction prompt changes: rows with an older
@@ -23,7 +25,13 @@ EXTRACT_VERSION = 4  # 2: title-first categories, no inferred skills/work mode, 
 ROLE_CATEGORIES = (
     "data_science", "data_engineering", "ml_ai_engineering", "data_analytics_bi",
     "software_engineering", "research_science", "product_program_management", "quant_finance",
-    "hardware_electrical", "it_infra_devops", "other",
+    "hardware_electrical", "it_infra_devops",
+    # Added later (only ever append: stored rows keep their value, so nothing is re-extracted).
+    "cybersecurity", "design_ux", "marketing", "sales", "customer_success", "operations", "finance_accounting",
+    "consulting", "legal", "hr_recruiting", "healthcare_clinical", "education_teaching", "science_lab",
+    "mechanical_civil_engineering", "manufacturing", "supply_chain_logistics", "writing_content",
+    "government_public_policy", "trades_skilled", "hospitality_retail",
+    "other",
 )
 SENIORITIES = ("intern", "entry", "mid", "senior", "staff_principal", "manager", "director_plus", "unknown")
 EMPLOYMENT_TYPES = ("full_time", "part_time", "contract", "internship", "co_op", "temporary", "unknown")
@@ -44,6 +52,14 @@ ENUMS: dict[str, tuple[str, ...]] = {
     "visa_sponsorship": VISA_SPONSORSHIP,
     "security_clearance": SECURITY_CLEARANCE,
 }
+
+
+
+@cache
+def role_map() -> dict[str, list[str]]:
+    """Common role titles per role_category (`config/roles.json`), for picking target roles. "other" has none."""
+    return json.loads((config.CONFIG_DIR / "roles.json").read_text(encoding="utf-8"))
+
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

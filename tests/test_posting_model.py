@@ -8,6 +8,7 @@ from strelitzia.enrichment.posting_model import (
     JobPosting,
     Location,
     posting_schema,
+    role_map,
 )
 from schema_rules import assert_strict_schema
 
@@ -125,3 +126,21 @@ class TestSchema:
                                         "locations": [{"city": "", "state": "WA", "country": "US"}]})
         assert (posting.team, posting.travel, posting.company_blurb) == (None, None, None)
         assert posting.locations[0].city is None and posting.locations[0].state == "WA"
+
+
+class TestRoleMap:
+    def test_every_category_but_other_has_roles(self):
+        roles = role_map()
+        assert set(roles) == set(ROLE_CATEGORIES) - {"other"}
+        for category, titles in roles.items():
+            assert 8 <= len(titles) <= 20, category
+            assert all(isinstance(t, str) and t.strip() == t and t for t in titles), category
+            assert len(set(titles)) == len(titles), category
+
+    def test_original_categories_kept_in_order(self):
+        # Stored rows use these values: new categories may only be added.
+        original = ("data_science", "data_engineering", "ml_ai_engineering", "data_analytics_bi",
+                    "software_engineering", "research_science", "product_program_management", "quant_finance",
+                    "hardware_electrical", "it_infra_devops", "other")
+        assert set(original) <= set(ROLE_CATEGORIES)
+        assert ROLE_CATEGORIES[-1] == "other"

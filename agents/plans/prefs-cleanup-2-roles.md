@@ -1,5 +1,5 @@
 # Plan: Preferences cleanup, part 2: more job fields and a role map
-**Status:** ❌ Not started
+**Status:** 🔄 In progress
 **Risk:** review (changes the extraction enum)
 **Issue:** #46
 **Depends on:** prefs-cleanup-1-scoring
@@ -28,7 +28,7 @@ manufacturing, supply_chain_logistics, cybersecurity, writing_content, governmen
 `roles.json`: `{ "<category>": ["Role title", ...] }` with 8–20 common titles each, covering every category except "other".
 A test checks every category except "other" has roles and that the JSON has no unknown keys.
 **Validate:** `pytest tests/test_posting_model.py tests/test_structured_output.py tests/test_posting_prompt.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: serve the map
 **Runs:** unattended

@@ -59,7 +59,7 @@ build-backend = "hatchling.build"
 packages = ["src/strelitzia"]
 
 [tool.hatch.build]
-artifacts = ["src/strelitzia/config/*.yaml", "src/strelitzia/config/*.html", "src/strelitzia/web/static/**"]
+artifacts = ["src/strelitzia/config/*.yaml", "src/strelitzia/config/*.json", "src/strelitzia/config/*.html", "src/strelitzia/web/static/**"]
 
 [tool.ruff]
 target-version = "py311"
