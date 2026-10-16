@@ -14,6 +14,7 @@ from strelitzia.database import (
     ensure_columns,
     get_connection,
     get_jobs_by_stage,
+    get_jobs_by_urls,
     get_stats,
     init_db,
     reset_score_errors,
@@ -74,6 +75,28 @@ def test_store_jobs_dedupes_by_url(db_target):
     row = conn.execute("SELECT * FROM jobs WHERE url = ?", ("https://example.com/job/0",)).fetchone()
     assert row["salary"] == "100% remote, $150k"
     assert dict(row)["site"] == "RemoteOK"
+
+
+@BACKENDS
+def test_job_helpers_filter_by_user(db_target):
+    conn = init_db(db_target)
+    owner_id = owner(conn).id
+    assert store_jobs(conn, _jobs(3), site="RemoteOK", strategy="json_ld") == (3, 0)  # no user = the owner
+    # Another user tracks one of the same postings plus a new one, as separate rows.
+    assert store_jobs(conn, _jobs(4)[2:], site="Dice", strategy="api", user_id="other") == (2, 0)
+    assert store_jobs(conn, _jobs(4)[2:], site="Dice", strategy="api", user_id="other") == (0, 2)
+    conn.execute("UPDATE jobs SET full_description = 'jd'")
+    conn.commit()
+
+    assert get_stats(conn)["total"] == 5
+    assert get_stats(conn, user_id=owner_id)["by_site"] == [("RemoteOK", 3)]
+    assert get_stats(conn, user_id="other")["with_description"] == 2
+    assert len(get_jobs_by_stage(conn, "enriched", user_id="other")) == 2
+    assert len(get_jobs_by_stage(conn, "enriched")) == 5
+    u = "https://example.com/job/"
+    picked = get_jobs_by_urls(conn, [f"{u}2", f"{u}0"], user_id="other")
+    assert [(j["url"], j["site"]) for j in picked] == [(f"{u}2", "Dice")]
+    assert [j["url"] for j in get_jobs_by_urls(conn, [f"{u}2", f"{u}0"])] == [f"{u}2", f"{u}0"]
 
 
 @BACKENDS

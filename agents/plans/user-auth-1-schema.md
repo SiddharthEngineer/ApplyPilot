@@ -60,7 +60,7 @@ users can insert the same url.
 `ON CONFLICT (user_id, url)`. Callers that don't pass a user yet keep working (None = all users) until parts 2–4 thread it.
 `backfill_job_keys` stays per row. The seed script uses `users.owner(conn).id`.
 **Validate:** `scripts/validate.sh` → green.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 3 commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
