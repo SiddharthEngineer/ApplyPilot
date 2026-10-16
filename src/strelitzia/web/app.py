@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from strelitzia import __version__, intake, tracking, users, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
-from strelitzia.llm import LLMStopRun, check_budget, month_spend
+from strelitzia.llm import LLMStopRun, check_budget, month_spend, user_month_spend
 from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
 from strelitzia.scoring import workbench
@@ -89,7 +89,7 @@ def list_jobs(
         score_min=score_min, score_max=score_max, q=q, hide_flagged=hide_flagged, source=list(source),
     )
     return queries.list_jobs(conn, filters, sort=sort, page=page, page_size=page_size, today=today(),
-                             current_key=current_assessment_key(conn))
+                             current_key=current_assessment_key(conn, user_id=current_user(request).id))
 
 
 @api.get("/facets")
@@ -121,7 +121,7 @@ def job_detail(conn: Connection, job: dict) -> dict:
     except ValueError:
         details = None
     out = {k: v for k, v in job.items() if k not in _RAW_COLUMNS}
-    out.update(queries.fit_fields(job, current_assessment_key(conn)))
+    out.update(queries.fit_fields(job, current_assessment_key(conn, user_id=job["user_id"])))
     out.update(
         key=job["job_key"],
         fit_assessment=queries._json(job.get("fit_assessment"), None),
@@ -432,13 +432,15 @@ def post_panel_grades(run_id: str, body: PanelGrade, request: Request):
     return {"graded": outcome.graded, "run": _panel_run(conn, run_id)}
 
 
-def budget_stop(conn: Connection, estimated_usd: float = 0.0) -> None:
-    """402 with the month's spend if `estimated_usd` more would pass LLM_MONTHLY_BUDGET_USD."""
+def budget_stop(conn: Connection, user_id: str, estimated_usd: float = 0.0) -> None:
+    """402 with the month's spend if `estimated_usd` more would pass LLM_MONTHLY_BUDGET_USD or the user's cap."""
     try:
-        check_budget(estimated_usd, conn)
+        check_budget(estimated_usd, conn, user_id)
     except LLMStopRun as e:
+        # A capped user sees their own spend, not everyone's.
+        spend = user_month_spend(conn, user_id) if e.user_id else month_spend(conn)
         raise HTTPException(status_code=402, detail={
-            "message": f"{e} {tasks.STOP_MESSAGES['budget']}", "month_spend": round(month_spend(conn), 2),
+            "message": f"{e} {tasks.STOP_MESSAGES['budget']}", "month_spend": round(spend, 2),
             "estimated_usd": round(estimated_usd, 4)}) from e
 
 
@@ -454,7 +456,7 @@ def rescore(key: str, request: Request) -> dict:
     conn = db_conn(request)
     user = current_user(request)
     job = job_by_key(conn, user.id, key)
-    budget_stop(conn)
+    budget_stop(conn, user.id)
     task = tasks.enqueue(conn, user.id, job["url"], "rescore")
     _notify(request)
     return {**task, "key": key}
@@ -505,7 +507,7 @@ def add_job(body: AddJobBody, request: Request) -> JSONResponse:
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     if existing is None or intake.needs_intake(existing):
-        budget_stop(conn)
+        budget_stop(conn, user.id)
     manual = intake.ManualFields(title=body.title, company=body.company, location=body.location,
                                  description=body.description)
     row, created = intake.add_job(conn, user.id, url, manual)
@@ -527,7 +529,7 @@ def put_description(key: str, body: PastedDescription, request: Request) -> dict
     conn = db_conn(request)
     user = current_user(request)
     job = job_by_key(conn, user.id, key)
-    budget_stop(conn)
+    budget_stop(conn, user.id)
     intake.save_pasted(conn, user.id, job["url"], intake.ManualFields(
         title=body.title, company=body.company, location=body.location, description=body.description))
     return {"task": _queue_intake(conn, request, user.id, job["url"]), "key": key}
@@ -675,7 +677,7 @@ def delete_interview(interview_id: str, request: Request) -> dict:
 def get_preferences(request: Request) -> dict:
     """The saved preferences, plus the labels and value lists the Preferences page offers."""
     return {
-        "prefs": prefs_mod.load_preferences(db_conn(request)).to_dict(),
+        "prefs": prefs_mod.load_preferences(db_conn(request), current_user(request).id).to_dict(),
         "options": {**prefs_mod.OPTIONS, "red_flags": list(RED_FLAGS)},
         "labels": prefs_mod.LABELS,
     }
@@ -689,35 +691,37 @@ class PrefsSave(PrefsBody):
     confirm_reassess: bool = False
 
 
-def _preview(conn: Connection, prefs: prefs_mod.Preferences) -> dict:
+def _preview(conn: Connection, user_id: str, prefs: prefs_mod.Preferences) -> dict:
     from strelitzia.scoring.scorer import reassess_preview
 
-    return reassess_preview(conn, prefs)
+    return reassess_preview(conn, user_id, prefs)
 
 
 @api.post("/preferences/preview")
 def preview_preferences(body: PrefsBody, request: Request) -> dict:
     """What saving these preferences would re-assess and roughly cost (Batch pricing). Changes nothing."""
-    return _preview(db_conn(request), prefs_mod.Preferences.from_dict(body.prefs))
+    return _preview(db_conn(request), current_user(request).id, prefs_mod.Preferences.from_dict(body.prefs))
 
 
 @api.put("/preferences")
 def put_preferences(body: PrefsSave, request: Request) -> dict:
-    """Save, then re-rank every job now (no LLM). With confirm_reassess, also queue re-assessment of stale jobs.
+    """Save the user's preferences, then re-rank their jobs now (no LLM). With confirm_reassess, also queue
+    re-assessment of their stale jobs.
 
     Without the confirmation, jobs keep their old assessment and show as stale. A budget stop (402) saves nothing.
     """
     conn = db_conn(request)
+    user = current_user(request)
     prefs = prefs_mod.Preferences.from_dict(body.prefs)
-    preview = _preview(conn, prefs) if body.confirm_reassess else None
+    preview = _preview(conn, user.id, prefs) if body.confirm_reassess else None
     reassess = bool(preview and preview["reassess_needed"] and preview["jobs_to_reassess"])
     if reassess:
-        budget_stop(conn, preview["estimated_usd"])
-    prefs_mod.save_preferences(conn, prefs)
-    rescored = recompute_fit(conn, prefs=prefs)
+        budget_stop(conn, user.id, preview["estimated_usd"])
+    prefs_mod.save_preferences(conn, prefs, user_id=user.id)
+    rescored = recompute_fit(conn, user.id, prefs=prefs)
     task = None
     if reassess:
-        task = tasks.enqueue(conn, current_user(request).id, None, "reassess_all")
+        task = tasks.enqueue(conn, user.id, None, "reassess_all")
         _notify(request)
     return {"prefs": prefs.to_dict(), "rescored": rescored, "task": task}
 

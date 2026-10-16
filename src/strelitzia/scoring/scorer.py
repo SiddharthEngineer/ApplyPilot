@@ -15,9 +15,10 @@ from typing import Literal
 
 import anthropic
 
+from strelitzia import users
 from strelitzia.config import RESUME_PATH, load_profile, load_search_config
 from strelitzia.database import MAX_SCORE_ATTEMPTS, get_connection, get_jobs_by_stage, job_key
-from strelitzia.llm import LLMStopRun, check_budget, estimate_cost, get_client
+from strelitzia.llm import LLMStopRun, acting_for, check_budget, estimate_cost, get_client
 from strelitzia.llm_batch import resume_open_batches, run_batch
 from strelitzia.scoring.assessment import (
     ASSESS_SCHEMA,
@@ -128,13 +129,14 @@ def prefilter_jobs(jobs: list[dict], target_tokens: set[str]) -> tuple[list[dict
     return keep, skipped
 
 
-def _save_result(conn, r: dict, key: str, prefs: Preferences) -> None:
-    """Write one assessment (and the job's new fit score) and commit it right away."""
+def _save_result(conn, user_id: str, r: dict, key: str, prefs: Preferences) -> None:
+    """Write one assessment for the user's job (and its new fit score) and commit it right away."""
     if r["assessment"] is None:
         # The job keeps any earlier assessment and score; a never-assessed one is retried, up to MAX_SCORE_ATTEMPTS.
         conn.execute(
-            "UPDATE jobs SET score_reasoning = ?, score_attempts = COALESCE(score_attempts, 0) + 1 WHERE url = ?",
-            (r["reasoning"], r["url"]),
+            "UPDATE jobs SET score_reasoning = ?, score_attempts = COALESCE(score_attempts, 0) + 1 "
+            "WHERE user_id = ? AND url = ?",
+            (r["reasoning"], user_id, r["url"]),
         )
         conn.commit()
         return
@@ -143,18 +145,19 @@ def _save_result(conn, r: dict, key: str, prefs: Preferences) -> None:
     now = datetime.now(UTC).isoformat()
     conn.execute(
         "UPDATE jobs SET fit_assessment = ?, assessment_hash = ?, assessed_at = ?, scored_at = ?, score_reasoning = ? "
-        "WHERE url = ?",
-        (json.dumps(a), key, now, now, f"{', '.join(a['matched_keywords'])}\n{a['summary']}", r["url"]),
+        "WHERE user_id = ? AND url = ?",
+        (json.dumps(a), key, now, now, f"{', '.join(a['matched_keywords'])}\n{a['summary']}", user_id, r["url"]),
     )
     conn.commit()
-    recompute_fit(conn, [r["url"]], prefs)
+    recompute_fit(conn, user_id, [r["url"]], prefs)
 
 
 class _Tally:
-    """Saves each result as it arrives and keeps the counts."""
+    """Saves each of one user's results as it arrives and keeps the counts."""
 
-    def __init__(self, conn, total: int, key: str, prefs: Preferences) -> None:
+    def __init__(self, conn, user_id: str, total: int, key: str, prefs: Preferences) -> None:
         self.conn = conn
+        self.user_id = user_id
         self.total = total
         self.key = key
         self.prefs = prefs
@@ -170,7 +173,7 @@ class _Tally:
             self.errors += 1
             self.first_error = self.first_error or result.get("reasoning", "")
         self.results.append(result)
-        _save_result(self.conn, result, self.key, self.prefs)
+        _save_result(self.conn, self.user_id, result, self.key, self.prefs)
         if result["assessment"] is None:
             shown = "error"
         else:
@@ -235,21 +238,22 @@ def _score_batch(tally: _Tally, resume_text: str, jobs: list[dict], poll_seconds
         estimate = estimate_cost("scoring", [params for _, params in items], batch=True)
         extra["estimate_usd"] = estimate
         log.info("Assessing %d job(s) in a batch: estimated cost $%.2f (%s).", len(items), estimate, client.model)
-        check_budget(estimate, tally.conn)
-        run_batch("scoring", items, on_result, poll_seconds=poll_seconds, estimate_usd=estimate, conn=tally.conn)
+        check_budget(estimate, tally.conn, tally.user_id)
+        run_batch("scoring", items, on_result, poll_seconds=poll_seconds, estimate_usd=estimate, conn=tally.conn,
+                  user_id=tally.user_id)
     except LLMStopRun as e:
         log.warning("Scoring stopped: %s. Unassessed jobs stay pending for the next run.", e)
         return e.reason
     return ""
 
 
-def _collect_open_batches(conn, poll_seconds: float, wait: bool, key: str, prefs: Preferences) -> int:
-    """Save the results of scoring batches a killed run left open (matched by job_key). Returns how many.
+def _collect_open_batches(conn, user_id: str, poll_seconds: float, wait: bool, key: str, prefs: Preferences) -> int:
+    """Save the results of the user's scoring batches a killed run left open (matched by job_key). Returns how many.
 
     A job assessed since with the current inputs keeps that assessment; a result made with older inputs is saved
     as stale. Raises LLMStopRun if the batches can't be collected.
     """
-    tally = _Tally(conn, 0, key, prefs)
+    tally = _Tally(conn, user_id, 0, key, prefs)
 
     def on_result(custom_id: str, text: str | None, error: str | None) -> None:
         parsed = _parse_custom_id(custom_id, key)
@@ -257,7 +261,8 @@ def _collect_open_batches(conn, poll_seconds: float, wait: bool, key: str, prefs
             log.warning("Batch result %s is from the old 1-10 scorer; skipped.", custom_id)
             return
         jkey, made_with = parsed
-        row = conn.execute("SELECT url, title, assessment_hash FROM jobs WHERE job_key = ?", (jkey,)).fetchone()
+        row = conn.execute("SELECT url, title, assessment_hash FROM jobs WHERE user_id = ? AND job_key = ?",
+                           (user_id, jkey)).fetchone()
         if row is None:
             log.warning("Batch result %s matches no job; skipped.", custom_id)
             return
@@ -267,7 +272,8 @@ def _collect_open_batches(conn, poll_seconds: float, wait: bool, key: str, prefs
         result = _result_from_reply(text) if text is not None else _error_result(error or "?")
         tally.add(row[0], {**result, "key": made_with}, row[1] or "?")
 
-    open_left = resume_open_batches("scoring", on_result, poll_seconds=poll_seconds, wait=wait, conn=conn)["still_open"]
+    open_left = resume_open_batches("scoring", on_result, poll_seconds=poll_seconds, wait=wait, conn=conn,
+                                    user_id=user_id)["still_open"]
     if open_left:
         log.warning("%d scoring batch(es) from an earlier run are still processing; a later batch run collects them.",
                     open_left)
@@ -277,41 +283,44 @@ def _collect_open_batches(conn, poll_seconds: float, wait: bool, key: str, prefs
 _EXTRACTED = "full_description IS NOT NULL AND details_json IS NOT NULL"
 
 
-def _select_jobs(conn, key: str, limit: int, rescore: bool, reassess: bool, urls: list[str] | None) -> list[dict]:
+def _select_jobs(conn, user_id: str, key: str, limit: int, rescore: bool, reassess: bool,
+                 urls: list[str] | None) -> list[dict]:
+    """The user's jobs this run assesses."""
+    mine = f"user_id = ? AND {_EXTRACTED}"
     if urls is not None:
         if not urls:
             return []
-        rows = conn.execute(f"SELECT * FROM jobs WHERE {_EXTRACTED} AND url IN ({', '.join('?' * len(urls))})",
-                            list(urls)).fetchall()
+        rows = conn.execute(f"SELECT * FROM jobs WHERE {mine} AND url IN ({', '.join('?' * len(urls))})",
+                            [user_id, *urls]).fetchall()
     elif rescore:
-        query = f"SELECT * FROM jobs WHERE {_EXTRACTED}"
+        query = f"SELECT * FROM jobs WHERE {mine}"
         if limit > 0:
             query += f" LIMIT {int(limit)}"
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute(query, (user_id,)).fetchall()
     elif reassess:
         rows = conn.execute(
-            f"SELECT * FROM jobs WHERE {_EXTRACTED} AND (assessment_hash IS NULL OR assessment_hash != ?) "
+            f"SELECT * FROM jobs WHERE {mine} AND (assessment_hash IS NULL OR assessment_hash != ?) "
             f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS} ORDER BY fit_score DESC NULLS LAST, url",
-            (key,),
+            (user_id, key),
         ).fetchall()
     else:
         # No SQL limit: the prefilter must see every pending job, and `limit` caps LLM calls below.
-        return get_jobs_by_stage(conn=conn, stage="pending_score", limit=0)
+        return get_jobs_by_stage(conn=conn, stage="pending_score", limit=0, user_id=user_id)
     return [dict(r) for r in rows]
 
 
-def _prefilter(conn, jobs: list[dict], key: str, prefs: Preferences) -> tuple[list[dict], int]:
+def _prefilter(conn, user_id: str, jobs: list[dict], key: str, prefs: Preferences) -> tuple[list[dict], int]:
     """Flag jobs whose title matches no target ("prefilter", fit_score 0) without an LLM call."""
     total = len(jobs)
     jobs, skipped = prefilter_jobs(jobs, load_target_tokens(prefs))
     now = datetime.now(UTC).isoformat()
     conn.executemany(
         "UPDATE jobs SET fit_assessment = ?, assessment_hash = ?, assessed_at = ?, scored_at = ?, "
-        "score_reasoning = ? WHERE url = ?",
-        [(json.dumps({"prefiltered": True}), key, now, now, PREFILTER_REASONING, j["url"]) for j in skipped],
+        "score_reasoning = ? WHERE user_id = ? AND url = ?",
+        [(json.dumps({"prefiltered": True}), key, now, now, PREFILTER_REASONING, user_id, j["url"]) for j in skipped],
     )
     conn.commit()
-    recompute_fit(conn, [j["url"] for j in skipped], prefs)
+    recompute_fit(conn, user_id, [j["url"] for j in skipped], prefs)
     log.info("prefilter skipped %d/%d jobs (title not relevant; --no-prefilter to assess them)",
              len(skipped), total)
     return jobs, len(skipped)
@@ -321,8 +330,8 @@ def _prefilter(conn, jobs: list[dict], key: str, prefs: Preferences) -> tuple[li
 _PREVIEW_SAMPLE = 5
 
 
-def reassess_preview(conn, new_prefs: Preferences) -> dict:
-    """What saving `new_prefs` would cost in re-assessment, before anything is saved.
+def reassess_preview(conn, user_id: str, new_prefs: Preferences) -> dict:
+    """What saving `new_prefs` as the user's preferences would cost in re-assessment, before anything is saved.
 
     Re-assessment is needed when some job was assessed with other inputs than `new_prefs` and the current resume:
     because these prefs change the assessment inputs, or because an earlier save skipped re-assessing or the resume
@@ -335,11 +344,12 @@ def reassess_preview(conn, new_prefs: Preferences) -> dict:
     resume_text = load_resume_text()
     new_key = assessment_key(new_prefs, resume_text)
     stale = conn.execute(
-        f"SELECT COUNT(*) FROM jobs WHERE {_EXTRACTED} AND assessment_hash IS NOT NULL AND assessment_hash != ? "
-        f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}", (new_key,)).fetchone()[0]
+        f"SELECT COUNT(*) FROM jobs WHERE user_id = ? AND {_EXTRACTED} AND assessment_hash IS NOT NULL "
+        f"AND assessment_hash != ? AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS}",
+        (user_id, new_key)).fetchone()[0]
     if not stale:
         return {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}
-    jobs = _select_jobs(conn, new_key, 0, rescore=False, reassess=True, urls=None)
+    jobs = _select_jobs(conn, user_id, new_key, 0, rescore=False, reassess=True, urls=None)
     jobs, _ = prefilter_jobs(jobs, load_target_tokens(new_prefs))  # skipped for free by the run
     estimate = 0.0
     if jobs:
@@ -352,7 +362,8 @@ def reassess_preview(conn, new_prefs: Preferences) -> dict:
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
                 mode: Literal["batch", "sync"] = "batch", poll_seconds: float = 30,
                 urls: list[str] | None = None, reassess: bool = False, user_id: str | None = None) -> dict:
-    """Assess pending jobs with Claude, then recompute every job's fit score from the assessments and preferences.
+    """Assess the user's pending jobs with Claude, then recompute their fit scores from the assessments and the
+    user's preferences.
 
     Pending means extracted and never assessed. Each result is written to the DB as soon as it arrives, so a run
     that is stopped (Ctrl-C, budget, crash) keeps every assessment it already paid for; a batch left open is
@@ -370,35 +381,42 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
         urls: Assess exactly these jobs (the dashboard's Rescore), whatever their state.
         reassess: Also re-assess jobs whose assessment is stale (the resume or assessment inputs changed since).
             Only after the user confirmed the cost.
-        user_id: Whose jobs to assess. Accepted and not used yet: scoring becomes per user in user-auth-3.
+        user_id: Whose jobs to assess, with whose preferences (default: the owner).
 
     Returns:
         {"scored", "errors", "parse_errors", "prefiltered", "elapsed", "distribution", "mode"}, plus
         "estimate_usd" for a batch and "stopped" when the budget, key or API stopped the run.
     """
-    resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
-    prefs = load_preferences(conn)
+    user_id = user_id or users.owner(conn).id
+    with acting_for(user_id):  # every Claude call of the run is billed to the user and held to their cap
+        return _run_scoring(conn, user_id, limit, rescore, prefilter, mode, poll_seconds, urls, reassess)
+
+
+def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool, mode: Literal["batch", "sync"],
+                 poll_seconds: float, urls: list[str] | None, reassess: bool) -> dict:
+    resume_text = RESUME_PATH.read_text(encoding="utf-8")
+    prefs = load_preferences(conn, user_id)
     key = assessment_key(prefs, resume_text)
     extra: dict = {}
     # Results of batches a killed run left open come first, so those jobs aren't paid for twice. A batch run waits
     # for them; a sync or small run only takes the ones that have already ended.
     try:
         extra["resumed"] = _collect_open_batches(
-            conn, poll_seconds, wait=mode == "batch" and not 0 < limit <= SYNC_MAX_JOBS and urls is None,
+            conn, user_id, poll_seconds, wait=mode == "batch" and not 0 < limit <= SYNC_MAX_JOBS and urls is None,
             key=key, prefs=prefs)
     except LLMStopRun as e:  # scoring now could pay again for jobs in the uncollected batch
         log.warning("Scoring stopped: could not collect open batches (%s).", e)
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": e.reason}
 
-    jobs = _select_jobs(conn, key, limit, rescore, reassess, urls)
+    jobs = _select_jobs(conn, user_id, key, limit, rescore, reassess, urls)
     if not jobs:
         log.info("No extracted jobs waiting for an assessment.")
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": []}
 
     prefiltered = 0
     if prefilter and urls is None:
-        jobs, prefiltered = _prefilter(conn, jobs, key, prefs)
+        jobs, prefiltered = _prefilter(conn, user_id, jobs, key, prefs)
         if not jobs:
             return {"scored": 0, "errors": 0, "parse_errors": 0, "prefiltered": prefiltered,
                     "elapsed": 0.0, "distribution": []}
@@ -411,7 +429,7 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
         mode = "sync"
     log.info("Assessing %d jobs (%s)...", len(jobs), mode)
     t0 = time.time()
-    tally = _Tally(conn, len(jobs), key, prefs)
+    tally = _Tally(conn, user_id, len(jobs), key, prefs)
     if mode == "sync":
         stopped = _score_sync(tally, resume_text, jobs)
     else:
@@ -428,14 +446,14 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
     # Each unparseable reply costs a retry on a later run (another paid request).
     log.info("JSON parse retries (scoring): %d", parse_errors)
 
-    # Every job again, with the preferences as saved now: the Preferences page may have changed them during a long
-    # batch, and the per-result recomputes used the ones this run started with.
-    recompute_fit(conn)
+    # Every job of the user's again, with the preferences as saved now: the Preferences page may have changed them
+    # during a long batch, and the per-result recomputes used the ones this run started with.
+    recompute_fit(conn, user_id)
     dist = conn.execute("""
         SELECT (fit_score / 10) * 10 AS band, COUNT(*) FROM jobs
-        WHERE fit_score IS NOT NULL
+        WHERE user_id = ? AND fit_score IS NOT NULL
         GROUP BY band ORDER BY band DESC
-    """).fetchall()
+    """, (user_id,)).fetchall()
     distribution = [(row[0], row[1]) for row in dist]
 
     stats = {

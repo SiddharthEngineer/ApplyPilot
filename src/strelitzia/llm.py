@@ -12,6 +12,9 @@ Every response is written to the `llm_usage` table with its dollar cost, and `LL
 import logging
 import os
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from functools import cache
 
@@ -44,11 +47,13 @@ class LLMStopRun(RuntimeError):
     """No further request can succeed in this run (budget used up, bad key, API overloaded through every retry).
 
     Stage loops catch this, stop without counting an attempt for the job in progress, and leave the remaining
-    jobs for the next run. `reason` is the stage's "stopped" value: "budget", "auth" or "overloaded".
+    jobs for the next run. `reason` is the stage's "stopped" value: "budget", "auth" or "overloaded". `user_id` is
+    set when only that user is stopped (their monthly cap): a run for several users can go on with the others.
     """
 
-    def __init__(self, reason: str = "stopped", message: str | None = None) -> None:
+    def __init__(self, reason: str = "stopped", message: str | None = None, user_id: str | None = None) -> None:
         self.reason = reason
+        self.user_id = user_id
         super().__init__(message or reason)
 
 
@@ -179,12 +184,35 @@ def _ledger_conn():
     return get_connection()
 
 
+# The user the Claude calls in this thread (or task) are for; see `acting_for`.
+_acting_user: ContextVar[str | None] = ContextVar("llm_acting_user", default=None)
+
+
+@contextmanager
+def acting_for(user_id: str | None) -> Iterator[None]:
+    """Bill the Claude calls made inside the block to `user_id`, and hold them to that user's cap.
+
+    Context-local, so threads (the dashboard's task runner) don't see each other's user. None = nobody in particular:
+    the call is recorded without a user (the owner's, after the next migration) and only the global budget applies.
+    """
+    token = _acting_user.set(user_id)
+    try:
+        yield
+    finally:
+        _acting_user.reset(token)
+
+
+def current_user() -> str | None:
+    """The user set by the innermost `acting_for`, or None."""
+    return _acting_user.get()
+
+
 def record_usage(purpose: str, model: str, usage, batch: bool = False, job_url: str | None = None,
-                 conn=None, row_id: str | None = None) -> float:
+                 conn=None, row_id: str | None = None, user_id: str | None = None) -> float:
     """Write one `llm_usage` row and return its cost. A failed write is logged, never raised: the answer is paid.
 
     `row_id` makes the write idempotent (batch results use "<batch id>:<custom_id>", so collecting a batch twice
-    doesn't count it twice).
+    doesn't count it twice). `user_id` (default: `current_user()`) is who the call was for.
     """
     cost = cost_usd(model, usage, batch)
     t = _usage_tokens(usage)
@@ -192,11 +220,11 @@ def record_usage(purpose: str, model: str, usage, batch: bool = False, job_url: 
         conn = conn or _ledger_conn()
         conn.execute(
             "INSERT INTO llm_usage (id, ts, purpose, model, batch, input_tokens, cache_read_tokens, "
-            "cache_write_tokens, output_tokens, cost_usd, job_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "cache_write_tokens, output_tokens, cost_usd, job_url, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (id) DO NOTHING",
             (row_id or uuid.uuid4().hex, datetime.now(timezone.utc).isoformat(timespec="seconds"), purpose, model,
              int(batch), t["input_tokens"], t["cache_read_tokens"], t["cache_write_tokens"], t["output_tokens"],
-             cost, job_url),
+             cost, job_url, user_id or current_user()),
         )
         conn.commit()
     except Exception as e:  # noqa: BLE001 - spend tracking must not lose a paid answer
@@ -213,6 +241,15 @@ def month_spend(conn=None) -> float:
     conn = conn or _ledger_conn()
     row = conn.execute("SELECT SUM(cost_usd) FROM llm_usage WHERE ts >= ?", (_month_start(),)).fetchone()
     return float(row[0] or 0.0)
+
+
+def user_month_spend(conn, user_id: str) -> float:
+    """The user's month-to-date LLM spend in USD, plus their open batches at their estimate."""
+    spent = conn.execute("SELECT SUM(cost_usd) FROM llm_usage WHERE user_id = ? AND ts >= ?",
+                         (user_id, _month_start())).fetchone()[0]
+    reserved = conn.execute("SELECT SUM(estimate_usd) FROM llm_batches WHERE user_id = ? AND status = 'submitted'",
+                            (user_id,)).fetchone()[0]
+    return float(spent or 0.0) + float(reserved or 0.0)
 
 
 def monthly_budget() -> float | None:
@@ -236,20 +273,41 @@ def reserved_spend(conn=None) -> float:
     return float(row[0] or 0.0)
 
 
-def check_budget(estimated_usd: float = 0.0, conn=None) -> None:
+def check_budget(estimated_usd: float = 0.0, conn=None, user_id: str | None = None) -> None:
     """Raise LLMStopRun("budget") if month-to-date spend has reached the budget or `estimated_usd` would pass it.
 
-    Open batches count at their estimate until they are collected.
+    Open batches count at their estimate until they are collected. The global budget (LLM_MONTHLY_BUDGET_USD) covers
+    everyone's spend; `user_id` (default: `current_user()`) is also held to their own `users.monthly_cap_usd`
+    (None, as for the owner, is no cap). Other users' spend never counts against a user's cap.
     """
     budget = monthly_budget()
-    if budget is None:
+    user_id = user_id or current_user()
+    if budget is None and user_id is None:
         return
-    spent = month_spend(conn) + reserved_spend(conn)
-    if spent >= budget or spent + estimated_usd > budget:
+    conn = conn or _ledger_conn()
+    if budget is not None:
+        spent = month_spend(conn) + reserved_spend(conn)
+        if spent >= budget or spent + estimated_usd > budget:
+            raise LLMStopRun(
+                "budget",
+                f"Monthly LLM budget reached: ${spent:.2f} spent or reserved this month + ${estimated_usd:.2f} "
+                f"estimated > ${budget:.2f} (LLM_MONTHLY_BUDGET_USD)",
+            )
+    if user_id is None:
+        return
+    from strelitzia import users
+
+    user = users.get(conn, user_id)
+    cap = user.monthly_cap_usd if user else None
+    if cap is None:
+        return
+    spent = user_month_spend(conn, user_id)
+    if spent >= cap or spent + estimated_usd > cap:
         raise LLMStopRun(
             "budget",
-            f"Monthly LLM budget reached: ${spent:.2f} spent or reserved this month + ${estimated_usd:.2f} "
-            f"estimated > ${budget:.2f} (LLM_MONTHLY_BUDGET_USD)",
+            f"Your monthly Claude cap is reached: ${spent:.2f} spent or reserved this month + ${estimated_usd:.2f} "
+            f"estimated > your cap of ${cap:.2f}",
+            user_id=user_id,
         )
 
 
@@ -320,6 +378,11 @@ class LLMClient:
         self._sdk: anthropic.Anthropic | None = None
 
     @property
+    def user_id(self) -> str | None:
+        """Who this client's calls are billed to: the current `acting_for` user (clients are shared per stage)."""
+        return current_user()
+
+    @property
     def sdk(self) -> anthropic.Anthropic:
         """The SDK client, created on first use. The key comes only from ANTHROPIC_API_KEY (never a CLI profile)."""
         if self._sdk is None:
@@ -368,15 +431,16 @@ class LLMClient:
     ) -> str:
         """Send one request and return the answer text (JSON text when `schema` is given).
 
-        Checks the monthly budget first and records the response's usage (tagged with `job_url`) afterwards.
+        Checks the monthly budget and the user's cap first and records the response's usage (tagged with `job_url`
+        and `self.user_id`) afterwards.
         """
         params = self.request_params(messages, max_tokens=max_tokens, schema=schema, effort=effort)
-        check_budget()
+        check_budget(user_id=self.user_id)
         try:
             message = self.sdk.messages.create(**params)
         except anthropic.APIError as e:
             raise _api_error(e) from e
-        record_usage(self.purpose, self.model, message.usage, job_url=job_url)
+        record_usage(self.purpose, self.model, message.usage, job_url=job_url, user_id=self.user_id)
         return response_text(message)
 
     def ask(self, prompt: str, **kwargs) -> str:

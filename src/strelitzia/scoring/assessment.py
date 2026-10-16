@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 
+from strelitzia import users
 from strelitzia.database import job_company
 from strelitzia.enrichment.posting_model import JobPosting
 from strelitzia.llm import json_object
@@ -128,8 +129,9 @@ def load_resume_text() -> str:
         return ""
 
 
-def current_assessment_key(conn, prefs: Preferences | None = None) -> str:
-    return assessment_key(prefs or load_preferences(conn), load_resume_text())
+def current_assessment_key(conn, prefs: Preferences | None = None, user_id: str | None = None) -> str:
+    """The key of an up-to-date assessment for the user (the owner by default)."""
+    return assessment_key(prefs or load_preferences(conn, user_id), load_resume_text())
 
 
 # ── Request and reply ─────────────────────────────────────────────────────
@@ -234,26 +236,29 @@ def _assessment(job: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def recompute_fit(conn, urls: list[str] | None = None, prefs: Preferences | None = None) -> int:
-    """Recompute fit_score, fit_breakdown and fit_flags for extracted jobs (all, or `urls`). No LLM calls.
+def recompute_fit(conn, user_id: str | None = None, urls: list[str] | None = None,
+                  prefs: Preferences | None = None) -> int:
+    """Recompute fit_score, fit_breakdown and fit_flags for the user's extracted jobs (all, or `urls`). No LLM calls.
 
-    Returns the number of jobs updated.
+    `user_id` defaults to the owner; `prefs` to the user's saved preferences. Returns the number of jobs updated.
     """
-    prefs = prefs or load_preferences(conn)
+    user_id = user_id or users.owner(conn).id
+    prefs = prefs or load_preferences(conn, user_id)
     sql = ("SELECT url, title, company, site, strategy, details_json, fit_assessment, fit_score FROM jobs "
-           "WHERE details_json IS NOT NULL")
-    params: list = []
+           "WHERE details_json IS NOT NULL AND user_id = ?")
+    params: list = [user_id]
     if urls is not None:
         if not urls:
             return 0
         sql += f" AND url IN ({', '.join('?' * len(urls))})"
-        params = list(urls)
+        params += list(urls)
     updates = []
     for row in conn.execute(sql, params).fetchall():
         job = dict(row)
         overall, breakdown, flags = compute_fit(prefs, job)
-        updates.append((overall, json.dumps(breakdown), json.dumps(flags) if flags else None, job["url"]))
+        updates.append((overall, json.dumps(breakdown), json.dumps(flags) if flags else None, user_id, job["url"]))
     if updates:
-        conn.executemany("UPDATE jobs SET fit_score = ?, fit_breakdown = ?, fit_flags = ? WHERE url = ?", updates)
+        conn.executemany("UPDATE jobs SET fit_score = ?, fit_breakdown = ?, fit_flags = ? WHERE user_id = ? AND url = ?",
+                         updates)
         conn.commit()
     return len(updates)

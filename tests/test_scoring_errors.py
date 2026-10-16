@@ -192,14 +192,14 @@ def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None, resu
 
     seen = {}
 
-    def fake_run_batch(purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None):
+    def fake_run_batch(purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None, user_id=None):
         seen["items"] = items
         seen["estimate_usd"] = estimate_usd
         for cid, _ in reversed(items):
             on_result(cid, *results(cid))
         return {}
 
-    def fake_resume(purpose, on_result, poll_seconds=30, wait=True, conn=None):
+    def fake_resume(purpose, on_result, poll_seconds=30, wait=True, conn=None, user_id=None):
         seen["wait"] = wait
         if resume_error:
             raise resume_error

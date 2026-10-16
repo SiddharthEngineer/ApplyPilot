@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from strelitzia.database import Connection, get_connection
-from strelitzia.llm import LLMStopRun
+from strelitzia.llm import LLMStopRun, acting_for
 from strelitzia.tracking import _now
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,8 @@ KINDS = ("rescore", "reassess_all", "intake")
 STATES = ("queued", "running", "done", "error")
 # What the dashboard shows when the LLM stops a task (LLMStopRun.reason).
 STOP_MESSAGES = {
-    "budget": "This month's LLM budget (LLM_MONTHLY_BUDGET_USD) is used up; raise it or wait for next month.",
+    "budget": "This month's Claude budget is used up (your monthly cap, or LLM_MONTHLY_BUDGET_USD for everyone); "
+              "wait for next month or ask the owner to raise it.",
     "auth": "The Claude API key is missing or was rejected; check ANTHROPIC_API_KEY.",
     "overloaded": "The Claude API is overloaded right now; try again in a few minutes.",
 }
@@ -122,7 +123,13 @@ RETIRED_KINDS = ("resume", "cover", "both")
 
 def generate_for_job(user_id: str, url: str | None, kind: str) -> None:
     """The real work for one task, against the configured database: `intake` goes to `intake.run_intake`,
-    the assessment kinds to `assess_task`. Any other kind fails without running anything."""
+    the assessment kinds to `assess_task`. Any other kind fails without running anything. Claude calls are billed to
+    the user and held to their cap."""
+    with acting_for(user_id):
+        _generate(user_id, url, kind)
+
+
+def _generate(user_id: str, url: str | None, kind: str) -> None:
     if kind == "intake":
         from strelitzia.intake import run_intake
 
