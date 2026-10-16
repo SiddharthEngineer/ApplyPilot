@@ -29,7 +29,8 @@ behaves as the owner (login comes in part 5), so nothing visible changes.
 `run_intake(user_id, url, conn=None)`, `find_existing(conn, user_id, url)`; `_same_posting` only matches the same user's rows.
 **Validate:** `pytest tests/test_intake.py -q` → passes, including a new test where users A and B add the same URL:
 two rows, and B's intake never changes A's row.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (also brought forward from Task 3: `generate_for_job(user_id, url, kind)` and
+`assess_task(user_id, ...)`; from Task 2: `_save_posting`/`_Results` in extract.py with per-user batch custom_ids)
 
 ### Task 2: enrichment stages update by (user_id, url)
 **Runs:** unattended

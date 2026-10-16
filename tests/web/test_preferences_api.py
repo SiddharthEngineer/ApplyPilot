@@ -186,14 +186,14 @@ def test_assess_task(kind, url, stats, error):
     with patch.object(scorer, "run_scoring", return_value=stats) as run:
         if error:
             with pytest.raises((tasks.GenerationFailed, tasks.LLMStopRun)) as e:
-                tasks.generate_for_job(url, kind)
+                tasks.generate_for_job("u1", url, kind)
             assert error in (str(e.value) + getattr(e.value, "reason", ""))
         else:
-            tasks.generate_for_job(url, kind)
+            tasks.generate_for_job("u1", url, kind)
     if kind == "rescore":
-        run.assert_called_once_with(urls=[url], mode="sync", prefilter=False)
+        run.assert_called_once_with(urls=[url], mode="sync", prefilter=False, user_id="u1")
     else:
-        run.assert_called_once_with(mode="batch", reassess=True)
+        run.assert_called_once_with(mode="batch", reassess=True, user_id="u1")
 
 
 def test_enqueue_checks_the_job_argument(conn):
@@ -221,4 +221,4 @@ def test_preview_leaves_out_titles_the_prefilter_skips(client, conn):
 
 def test_a_reassessment_with_some_errors_still_succeeds():
     with patch.object(scorer, "run_scoring", return_value={"scored": 99, "errors": 1}):
-        tasks.generate_for_job(None, "reassess_all")
+        tasks.generate_for_job("u1", None, "reassess_all")

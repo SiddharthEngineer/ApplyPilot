@@ -32,8 +32,9 @@ STOP_MESSAGES = {
     "overloaded": "The Claude API is overloaded right now; try again in a few minutes.",
 }
 
-# generate(url, kind) does the work for one task and raises on failure (url is None for reassess_all).
-Generator = Callable[[str | None, str], None]
+# generate(user_id, url, kind) does the work for one of the user's tasks and raises on failure (url is None for
+# reassess_all).
+Generator = Callable[[str, str | None, str], None]
 
 
 class GenerationFailed(RuntimeError):
@@ -41,7 +42,8 @@ class GenerationFailed(RuntimeError):
 
 
 def task_dict(row) -> dict:
-    return {k: row[k] for k in ("id", "url", "kind", "state", "created_at", "started_at", "finished_at", "error")}
+    return {k: row[k] for k in ("id", "user_id", "url", "kind", "state", "created_at", "started_at", "finished_at",
+                                "error")}
 
 
 def get_task(conn: Connection, task_id: str) -> dict | None:
@@ -91,14 +93,14 @@ def recover_interrupted(conn: Connection) -> int:
     return cur.rowcount
 
 
-def assess_task(url: str | None, kind: str) -> None:
+def assess_task(user_id: str, url: str | None, kind: str) -> None:
     """rescore: assess one job now. reassess_all: re-assess every stale job in a Message Batch (can take an hour)."""
     from strelitzia.scoring.scorer import run_scoring
 
     if kind == "rescore":
-        stats = run_scoring(urls=[url], mode="sync", prefilter=False)
+        stats = run_scoring(urls=[url], mode="sync", prefilter=False, user_id=user_id)
     else:
-        stats = run_scoring(mode="batch", reassess=True)
+        stats = run_scoring(mode="batch", reassess=True, user_id=user_id)
     if stats.get("stopped") in STOP_MESSAGES:
         raise LLMStopRun(stats["stopped"])
     if stats.get("stopped"):
@@ -114,15 +116,15 @@ def assess_task(url: str | None, kind: str) -> None:
 RETIRED_KINDS = ("resume", "cover", "both")
 
 
-def generate_for_job(url: str | None, kind: str) -> None:
+def generate_for_job(user_id: str, url: str | None, kind: str) -> None:
     """The real work for one task, against the configured database: `intake` goes to `intake.run_intake`,
     the assessment kinds to `assess_task`. Any other kind fails without running anything."""
     if kind == "intake":
         from strelitzia.intake import run_intake
 
-        run_intake(url)
+        run_intake(user_id, url)
     elif kind in ("rescore", "reassess_all"):
-        assess_task(url, kind)
+        assess_task(user_id, url, kind)
     elif kind in RETIRED_KINDS:
         raise GenerationFailed("Resumes are written in Claude now: use Open in Claude on the job page.")
     else:
@@ -183,7 +185,7 @@ class TaskRunner:
         conn.commit()
         state, error = "done", None
         try:
-            self.generate(task["url"], task["kind"])
+            self.generate(task["user_id"], task["url"], task["kind"])
         except LLMStopRun as e:
             state, error = "error", STOP_MESSAGES.get(e.reason, str(e))
         except GenerationFailed as e:
