@@ -83,3 +83,69 @@ def test_different_urls_different_keys():
 def test_unknown_kind():
     with pytest.raises(ValueError):
         drive_target(JOB, "transcript")
+
+
+# -- Per-user root folder (user-auth-6-drive Task 3) ---------------------------
+
+@pytest.fixture
+def conn(tmp_path):
+    from strelitzia.database import init_db
+    c = init_db(tmp_path / "layout.db")
+    c.execute("INSERT INTO user_drive (user_id, token_enc) VALUES ('u1', 'x'), ('u2', 'y')")
+    c.commit()
+    yield c
+    c.close()
+
+
+def _client(fake, conn, user_id):
+    from strelitzia.storage.drive import DriveClient
+    return DriveClient(fake, conn=conn, user_id=user_id)
+
+
+def test_root_folder_is_looked_up_by_name_once_per_user(conn, monkeypatch):
+    from fake_drive import FakeDrive
+
+    from strelitzia.storage.drive_layout import cached_root_folder_id
+    monkeypatch.delenv("DRIVE_ROOT_FOLDER", raising=False)
+    fake = FakeDrive()
+    first = _client(fake, conn, "u1").ensure_folder_path(("Strelitzia", "Acme"))
+    root = cached_root_folder_id(conn, "u1")
+    assert root and fake.store[root]["name"] == "Strelitzia"
+    lists = fake.calls["list"]
+    # A new client (a later request) reuses the cached id: only the subfolder is searched by name.
+    assert _client(fake, conn, "u1").ensure_folder_path(("Strelitzia", "Acme")) == first
+    assert fake.calls["list"] == lists + 1
+    assert cached_root_folder_id(conn, "u2") is None
+
+
+def test_each_user_caches_their_own_root(conn):
+    from fake_drive import FakeDrive
+
+    from strelitzia.storage.drive_layout import cached_root_folder_id
+    mine, theirs = FakeDrive(), FakeDrive()
+    _client(mine, conn, "u1").ensure_folder_path(("Strelitzia",))
+    _client(theirs, conn, "u2").ensure_folder_path(("Strelitzia",))
+    assert cached_root_folder_id(conn, "u1") in mine.store
+    assert cached_root_folder_id(conn, "u2") in theirs.store
+
+
+def test_a_trashed_or_foreign_cached_root_is_replaced(conn):
+    from fake_drive import FakeDrive
+
+    from strelitzia.storage.drive_layout import cache_root_folder_id, cached_root_folder_id
+    fake = FakeDrive()
+    old = _client(fake, conn, "u1").ensure_folder_path(("Strelitzia",))
+    fake.store[old]["trashed"] = True
+    new = _client(fake, conn, "u1").ensure_folder_path(("Strelitzia",))
+    assert new != old and cached_root_folder_id(conn, "u1") == new
+    cache_root_folder_id(conn, "u1", "from-another-account")  # e.g. reconnected with a different Google account
+    assert _client(fake, conn, "u1").ensure_folder_path(("Strelitzia",)) == new
+    assert cached_root_folder_id(conn, "u1") == new
+
+
+def test_a_renamed_root_setting_does_not_reuse_the_cache(conn, monkeypatch):
+    from fake_drive import FakeDrive
+    fake = FakeDrive()
+    default = _client(fake, conn, "u1").ensure_folder_path(("Strelitzia",))
+    monkeypatch.setenv("DRIVE_ROOT_FOLDER", "Jobs")
+    assert _client(fake, conn, "u1").ensure_folder_path(("Jobs",)) != default

@@ -37,6 +37,19 @@ def root_folder() -> str:
     return clean_name(os.environ.get("DRIVE_ROOT_FOLDER") or DEFAULT_ROOT)
 
 
+# Each user's Drive is their own, so the paths are the same for everyone; the root folder's id is cached per user in
+# user_drive.root_folder_id (strelitzia.storage.drive) so it's looked up by name once.
+
+def cached_root_folder_id(conn, user_id: str) -> str | None:
+    row = conn.execute("SELECT root_folder_id FROM user_drive WHERE user_id = ?", (user_id,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def cache_root_folder_id(conn, user_id: str, folder_id: str | None) -> None:
+    conn.execute("UPDATE user_drive SET root_folder_id = ? WHERE user_id = ?", (folder_id, user_id))
+    conn.commit()
+
+
 def _local_date(value: str | None) -> str | None:
     if not value:
         return None
