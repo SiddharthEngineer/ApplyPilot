@@ -49,8 +49,8 @@ def google(monkeypatch):
         Google.token_requests.append(data)
         return httpx.Response(200, json={"id_token": "signed.jwt", "access_token": "at"})
 
-    def fake_verify(token, request, audience):
-        assert token == "signed.jwt" and audience == "client-123"
+    def fake_verify(token, request, audience, clock_skew_in_seconds=0):
+        assert token == "signed.jwt" and audience == "client-123" and clock_skew_in_seconds > 0
         return dict(Google.claims)
 
     monkeypatch.setattr(auth.httpx, "post", fake_post)
@@ -141,14 +141,16 @@ def test_unverified_email_is_refused(auth_on, client, conn, google):
 
 def test_bad_state_is_rejected(auth_on, client, google):
     resp = sign_in(client, state="forged")
-    assert resp.status_code == 400
+    assert resp.headers["location"] == "/app/?auth=error"
     assert google.token_requests == []
     assert client.get("/app/api/whoami").status_code == 401
 
 
 def test_callback_without_a_login_is_rejected(auth_on, client, google):
-    resp = client.get("/app/api/auth/callback", params={"code": "c0de", "state": "anything"})
-    assert resp.status_code == 400
+    for state in ("anything", "\u00e9t\u00e9"):  # a non-ASCII state is refused too, not a 500
+        resp = client.get("/app/api/auth/callback", params={"code": "c0de", "state": state})
+        assert resp.headers["location"] == "/app/?auth=error"
+    assert google.token_requests == []
 
 
 def test_state_is_single_use(auth_on, client, google):
@@ -156,16 +158,59 @@ def test_state_is_single_use(auth_on, client, google):
     state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
     assert client.get("/app/api/auth/callback", params={"code": "c0de", "state": state}).status_code == 303
     client.post("/app/api/auth/logout")
-    assert client.get("/app/api/auth/callback", params={"code": "c0de", "state": state}).status_code == 400
+    assert client.get("/app/api/auth/callback", params={"code": "c0de", "state": state}).headers["location"] \
+        == "/app/?auth=error"
+    assert len(google.token_requests) == 1
 
 
 def test_rejected_id_token_signs_nobody_in(auth_on, client, google, monkeypatch):
-    def reject(token, request, audience):
+    def reject(token, request, audience, clock_skew_in_seconds=0):
         raise ValueError("Token expired")
 
     monkeypatch.setattr(auth.id_token, "verify_oauth2_token", reject)
     assert sign_in(client).headers["location"] == "/app/?auth=error"
     assert client.get("/app/api/whoami").status_code == 401
+
+
+def test_token_endpoint_trouble_signs_nobody_in(auth_on, client, google, monkeypatch):
+    responses = iter([httpx.Response(200, text="<html>captive portal</html>"), httpx.Response(400, json={}),
+                      httpx.Response(200, json={"access_token": "no id token"})])
+    monkeypatch.setattr(auth.httpx, "post", lambda url, data=None, timeout=None: next(responses))
+    for _ in range(3):
+        assert sign_in(client).headers["location"] == "/app/?auth=error"
+    assert client.get("/app/api/whoami").status_code == 401
+
+
+def test_google_cert_fetch_failure_signs_nobody_in(auth_on, client, google, monkeypatch):
+    from google.auth.exceptions import TransportError
+
+    def unreachable(token, request, audience, clock_skew_in_seconds=0):
+        raise TransportError("Could not fetch certificates")
+
+    monkeypatch.setattr(auth.id_token, "verify_oauth2_token", unreachable)
+    assert sign_in(client).headers["location"] == "/app/?auth=error"
+
+
+def test_sign_in_records_last_login(auth_on, client, conn, google):
+    sign_in(client)
+    first = conn.execute("SELECT last_login_at FROM users WHERE role = 'owner'").fetchone()[0]
+    assert first
+    conn.execute("UPDATE users SET last_login_at = '2000-01-01' WHERE role = 'owner'")
+    conn.commit()
+    sign_in(client)
+    assert conn.execute("SELECT last_login_at FROM users WHERE role = 'owner'").fetchone()[0] > "2000-01-01"
+
+
+def test_login_on_needs_the_other_keys(monkeypatch):
+    monkeypatch.setenv("STRELITZIA_GOOGLE_CLIENT_ID", "client-123")
+    for name in ("GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "OWNER_EMAIL"):
+        monkeypatch.delenv(f"STRELITZIA_{name}", raising=False)
+    with pytest.raises(RuntimeError, match="OWNER_EMAIL"):
+        auth.check_config()
+    monkeypatch.setenv("STRELITZIA_GOOGLE_CLIENT_SECRET", "s")
+    monkeypatch.setenv("STRELITZIA_SESSION_SECRET", "s")
+    monkeypatch.setenv("STRELITZIA_OWNER_EMAIL", OWNER)
+    auth.check_config()
 
 
 def test_disabled_user_gets_401(auth_on, client, conn, google):

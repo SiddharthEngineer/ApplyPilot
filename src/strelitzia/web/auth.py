@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import logging
 import secrets
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 
@@ -27,6 +29,7 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPES = "openid email profile"
 SESSION_COOKIE = "strelitzia_session"
 SESSION_MAX_AGE = 30 * 24 * 3600
+CLOCK_SKEW_SECONDS = 30  # tolerated drift between this server's clock and Google's when checking the ID token
 PUBLIC_API_PATHS = ("/app/api/health",)
 
 router = APIRouter(prefix=PREFIX)
@@ -76,8 +79,28 @@ def current_user(request: Request) -> users.User:
     return user
 
 
+def check_config() -> None:
+    """With login on, refuse to start without the keys sign-in can't work without."""
+    if not auth_enabled():
+        return
+    missing = [f"STRELITZIA_{name}" for name in ("GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "OWNER_EMAIL")
+               if not env(name)]
+    if missing:
+        raise RuntimeError(f"STRELITZIA_GOOGLE_CLIENT_ID is set but {', '.join(missing)} is not "
+                           "(see agents/DEPLOY.md, Google sign-in)")
+
+
 def _sign_in(conn: Connection, email: str, name: str | None) -> users.User | None:
     """The account a verified Google email signs in as: the owner, an invited (or active) user, else None."""
+    user = _account_for(conn, email, name)
+    if user is not None:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?",
+                     (datetime.now(timezone.utc).isoformat(), user.id))
+        conn.commit()
+    return user
+
+
+def _account_for(conn: Connection, email: str, name: str | None) -> users.User | None:
     owner = users.owner(conn)
     email = email.strip().lower()
     if email == owner.email:
@@ -123,8 +146,10 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     if not auth_enabled():
         raise HTTPException(404, "Login is off")
     expected = request.session.pop("oauth_state", None)
-    if not state or not isinstance(expected, str) or not secrets.compare_digest(state, expected):
-        raise HTTPException(400, "Bad sign-in state; start again from the login page")
+    if not state or not isinstance(expected, str) or not secrets.compare_digest(state.encode(), expected.encode()):
+        # A forged callback, or a stale one (a second login tab, Back into the callback): nobody is signed in.
+        log.warning("sign-in callback with a missing or wrong state")
+        return _back("error")
     if error or not code:
         return _back("error")
     client_id = env("GOOGLE_CLIENT_ID")
@@ -136,16 +161,17 @@ def callback(request: Request, code: str | None = None, state: str | None = None
             "redirect_uri": _redirect_uri(request),
             "grant_type": "authorization_code",
         })
-    except httpx.HTTPError as exc:
+        token = resp.json().get("id_token") if resp.status_code == 200 else None
+    except (httpx.HTTPError, ValueError, AttributeError) as exc:
         log.warning("Google token exchange failed: %s", exc)
         return _back("error")
-    token = resp.json().get("id_token") if resp.status_code == 200 else None
-    if not token:
+    if not isinstance(token, str) or not token:
         log.warning("Google token exchange returned HTTP %s without an id_token", resp.status_code)
         return _back("error")
     try:
-        info = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-    except ValueError as exc:
+        info = id_token.verify_oauth2_token(token, google_requests.Request(), client_id,
+                                            clock_skew_in_seconds=CLOCK_SKEW_SECONDS)
+    except (ValueError, GoogleAuthError) as exc:
         log.warning("Google ID token rejected: %s", exc)
         return _back("error")
     if not info.get("email_verified") or not info.get("email"):

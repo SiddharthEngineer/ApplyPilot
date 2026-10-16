@@ -63,12 +63,14 @@ request acts as the owner, as before accounts existed, so merging or deploying s
 To turn it on for an environment, the user (secrets are never handled by an agent) adds to that environment's `.env`
 (`~/.strelitzia/.env` for prod, `~/.strelitzia-preprod/.env` for preprod):
 - `STRELITZIA_GOOGLE_CLIENT_ID`, `STRELITZIA_GOOGLE_CLIENT_SECRET`: a Google OAuth client of type Web application.
-- `STRELITZIA_SESSION_SECRET`: a long random string (e.g. `openssl rand -hex 32`); the app refuses to start with login
-  on and no secret. Changing it signs everyone out.
+- `STRELITZIA_SESSION_SECRET`: a long random string (e.g. `openssl rand -hex 32`). Changing it signs everyone out
+  (it's also the only way to revoke a session early, besides disabling the account).
 - `STRELITZIA_OWNER_EMAIL`: the owner's Google email. An owner row still called `owner@localhost` is re-keyed to it on
   the owner's first sign-in.
 - `STRELITZIA_PUBLIC_URL`: `https://strelitzia.engineerfamily.net` (prod) or `https://strelitzia-preprod.engineerfamily.net`
   (preprod). An https URL makes the session cookie `Secure`.
+
+With the client id set, the app refuses to start unless the client secret, session secret and owner email are set too.
 
 Authorized redirect URIs on the OAuth client (one per environment):
 - `https://strelitzia.engineerfamily.net/app/api/auth/callback`
@@ -77,5 +79,6 @@ Authorized redirect URIs on the OAuth client (one per environment):
 
 With login on, every `/app/api/*` route except `/app/api/health` and `/app/api/auth/*` returns 401 without a session
 (30 days, `HttpOnly`, `SameSite=Lax`); the UI routes stay public. Only the owner and invited emails get in; anyone else
-lands on `/app/?auth=not_invited`. nginx basic auth stays in front for now; dropping it on prod is a later manual step.
+lands on `/app/?auth=not_invited`. The resume workbench (packet, result, Claude setup) stays owner-only until per-user
+content libraries (#48) and Drive (part 6) exist: it reads the owner's resume and Drive. nginx basic auth stays in front for now; dropping it on prod is a later manual step.
 Preprod's no-`.env` rule above is about LLM keys: an auth-only `.env` there is the user's call.
