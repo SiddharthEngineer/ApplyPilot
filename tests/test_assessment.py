@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from strelitzia import users
 from strelitzia.database import get_jobs_by_stage, init_db
+from strelitzia.profile import UserProfile, save_profile
 from strelitzia.scoring import scorer
 from strelitzia.scoring.assessment import (
     ASSESS_VERSION,
@@ -17,6 +19,8 @@ from strelitzia.scoring.assessment import (
     assessment_key,
     candidate_block,
     parse_assessment,
+    current_assessment_key,
+    load_resume_text,
     recompute_fit,
 )
 from strelitzia.scoring.preferences import Preferences, save_preferences
@@ -175,16 +179,29 @@ def test_migration_scales_old_scores(tmp_path):
 # ── run_scoring: what gets assessed ───────────────────────────────────────
 
 def _run(conn, tmp_path, replies, **kwargs):
-    resume = tmp_path / "resume.txt"
-    resume.write_text(RESUME)
+    save_profile(conn, None, UserProfile(resume_text=RESUME))  # the owner's
     client = MagicMock()
     client.chat.side_effect = replies
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
             patch.object(scorer, "get_client", return_value=client), \
             patch.object(scorer, "resume_open_batches", return_value={"still_open": 0}):
         stats = scorer.run_scoring(prefilter=False, mode="sync", **kwargs)
     return stats, client
+
+
+def test_the_resume_comes_from_each_users_profile(conn):
+    other = users.invite(conn, "other@example.com").id
+    save_profile(conn, None, UserProfile(resume_text=RESUME))
+    assert load_resume_text(conn) == RESUME and load_resume_text(conn, other) == ""
+    assert current_assessment_key(conn) == assessment_key(Preferences(), RESUME)
+    assert current_assessment_key(conn, user_id=other) == assessment_key(Preferences(), "")
+
+
+def test_no_resume_stops_before_any_request(conn, tmp_path):
+    add_extracted_job(conn, "https://e.com/1")
+    other = users.invite(conn, "other@example.com").id
+    stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=4), user_id=other)
+    assert stats["stopped"] == "no_resume" and client.chat.call_count == 0
 
 
 def test_stale_jobs_need_a_confirmed_reassess(conn, tmp_path):
@@ -286,9 +303,7 @@ def test_active_scope_includes_current_assessments_and_excludes_rejected(conn, t
     _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=4))
     assert client.chat.call_count == 4  # every assessment is current now
 
-    resume = tmp_path / "resume.txt"
-    with patch.object(scorer, "estimate_cost", return_value=0.01), \
-            patch.object(scorer, "load_resume_text", return_value=resume.read_text()):
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
         owner = conn.execute("SELECT user_id FROM jobs LIMIT 1").fetchone()[0]
         active = scorer.rescore_preview(conn, owner, "active")
         stale = scorer.rescore_preview(conn, owner, "stale")

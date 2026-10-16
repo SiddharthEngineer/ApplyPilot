@@ -121,6 +121,12 @@ def has_profile(conn, user_id: str) -> bool:
     return conn.execute("SELECT 1 FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone() is not None
 
 
+def resume_text(conn, user_id: str | None = None) -> str:
+    """The user's resume text ("" when there is none yet), without loading the rest of the profile."""
+    row = conn.execute("SELECT resume_text FROM user_profiles WHERE user_id = ?", (_user(conn, user_id),)).fetchone()
+    return (row[0] or "") if row else ""
+
+
 def load_profile(conn, user_id: str | None = None) -> UserProfile:
     """The user's profile (the owner's by default), or an empty one."""
     row = conn.execute(

@@ -7,6 +7,7 @@ import pytest
 from strelitzia.database import init_db
 from strelitzia.scoring import scorer
 from strelitzia.scoring.preferences import Preferences, save_preferences
+from strelitzia.profile import UserProfile
 from fit_helpers import add_extracted_job, reply
 
 JOBS = {
@@ -29,10 +30,10 @@ def _run(conn, tmp_path, **kwargs):
     client = MagicMock()
     client.chat.return_value = reply(skills=4)
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client), \
             patch.object(scorer, "load_search_config", return_value={"queries": [{"query": "Data Engineer"}]}), \
-            patch.object(scorer, "load_profile", return_value={}):
+            patch.object(scorer, "load_profile", return_value=UserProfile()):
         stats = scorer.run_scoring(**kwargs)
     return stats, client
 
@@ -66,9 +67,9 @@ def test_no_prefilter_scores_both(conn, tmp_path):
 
 def test_profile_target_role_counts():
     jobs = [{"title": "Machine Learning Scientist"}, {"title": "Registered Nurse"}]
-    with patch.object(scorer, "load_search_config", return_value={}), \
-            patch.object(scorer, "load_profile", return_value={"experience": {"target_role": "ML Engineer, Machine Learning"}}):
-        keep, skipped = scorer.prefilter_jobs(jobs, scorer.load_target_tokens())
+    profile = UserProfile(extras={"experience": {"target_role": "ML Engineer, Machine Learning"}})
+    with patch.object(scorer, "load_search_config", return_value={}):
+        keep, skipped = scorer.prefilter_jobs(jobs, scorer.load_target_tokens(None, profile))
     assert [j["title"] for j in keep] == ["Machine Learning Scientist"]
     assert [j["title"] for j in skipped] == ["Registered Nurse"]
 

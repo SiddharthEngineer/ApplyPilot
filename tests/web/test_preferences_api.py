@@ -14,6 +14,7 @@ from strelitzia.scoring.assessment import current_assessment_key, parse_assessme
 from strelitzia.scoring.preferences import Preferences
 from strelitzia.web import tasks
 from strelitzia.web.app import create_app
+from strelitzia.profile import UserProfile
 
 HEADERS = {"X-Strelitzia": "1"}
 LOW_PAY = {**POSTING, "salary_min": 60000, "salary_max": 70000}
@@ -213,7 +214,7 @@ def test_stale_jobs_can_be_reassessed_from_any_save(client, conn):
 def test_preview_leaves_out_titles_the_prefilter_skips(client, conn):
     with patch.object(scorer, "estimate_cost", return_value=0.01), \
             patch.object(scorer, "load_search_config", return_value={}), \
-            patch.object(scorer, "load_profile", return_value={}):
+            patch.object(scorer, "load_profile", return_value=UserProfile()):
         r = client.post("/app/api/preferences/preview",
                         json={"prefs": _prefs(client, target_roles=["Registered Nurse"])})
     assert r.json() == {"reassess_needed": False, "jobs_to_reassess": 0, "estimated_usd": 0.0}

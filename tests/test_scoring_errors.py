@@ -33,7 +33,7 @@ def _run(conn, resume, chat):
     client = MagicMock()
     client.chat.side_effect = chat
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client):
         return scorer.run_scoring(prefilter=False)
 
@@ -197,7 +197,7 @@ def _run_batch_mode(conn, resume, results, budget_error=None, resumed=None, resu
     client.request_params.side_effect = LLMClient("scoring", "claude-haiku-5-5", "low").request_params
     client.model = "claude-haiku-5-5"
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client), \
             patch.object(scorer, "run_batch", side_effect=fake_run_batch), \
             patch.object(scorer, "resume_open_batches", side_effect=fake_resume), \
@@ -270,7 +270,7 @@ def test_sync_runs_collect_only_ended_batches(conn, resume):
     client = MagicMock()
     client.chat.return_value = reply(skills=3)
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client), \
             patch.object(scorer, "resume_open_batches", return_value={"still_open": 1}) as resume_batches:
         assert scorer.run_scoring(prefilter=False, mode="sync")["mode"] == "sync"

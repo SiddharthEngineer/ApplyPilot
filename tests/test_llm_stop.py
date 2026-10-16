@@ -38,7 +38,7 @@ def test_scoring_stops_after_one_request(conn, resume):
     client = MagicMock()
     client.chat.side_effect = STOP
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client):
         stats = scorer.run_scoring(prefilter=False)
     assert client.chat.call_count == 1
@@ -52,7 +52,7 @@ def test_scoring_keeps_scores_before_the_stop(conn, resume):
     client = MagicMock()
     client.chat.side_effect = [reply(skills=4), STOP]
     with patch.object(scorer, "get_connection", return_value=conn), \
-            patch.object(scorer, "RESUME_PATH", resume), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()), \
             patch.object(scorer, "get_client", return_value=client):
         stats = scorer.run_scoring(prefilter=False)
     assert client.chat.call_count == 2

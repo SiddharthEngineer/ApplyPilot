@@ -48,7 +48,7 @@ with the fields above plus `extras: dict`; `load_profile(conn, user_id) -> UserP
 **What:** `load_resume_text(conn, user_id)` and `load_target_tokens(prefs, profile)` use the DB profile.
 `run_scoring` loads both per user. A user with no resume text gets the existing "add your resume" stop.
 **Validate:** `pytest tests/test_assessment.py tests/test_scoring_prefilter.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16
 
 ### Task 3: workbench reads the DB profile
 **Runs:** unattended

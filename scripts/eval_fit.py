@@ -220,7 +220,7 @@ def cmd_run(conn, labels_path: Path, models: list[str], efforts: list[str], out,
         return 1
     if missing := len(labels) - len(jobs):
         print(f"{missing} labelled job(s) are not extracted in this database; skipping them.", file=sys.stderr)
-    prefs, resume_text = load_preferences(conn), load_resume_text()
+    prefs, resume_text = load_preferences(conn), load_resume_text(conn)
     results = []
     print(f"{'model':<24} {'effort':<7} {'jobs':>4} {'errors':>6} {'spearman':>8} {'good@10':>7} {'$/1k jobs':>9}",
           file=out)
