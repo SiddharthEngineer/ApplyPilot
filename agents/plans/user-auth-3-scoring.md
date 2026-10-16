@@ -1,5 +1,5 @@
 # Plan: User accounts, part 3: per-user preferences, scoring and spend caps
-**Status:** ❌ Not started
+**Status:** 🔄 In progress
 **Risk:** review (scoring and the LLM budget gate)
 **Issue:** #47
 **Depends on:** user-auth-2-intake
@@ -27,7 +27,7 @@ the same budget-stop error the global budget gives today, and other users are un
 **Files:** src/strelitzia/scoring/preferences.py (modify), tests/test_preferences.py (modify)
 **What:** `load_preferences(conn, user_id)`, `save_preferences(conn, user_id, prefs)`: upsert on `user_id`.
 **Validate:** `pytest tests/test_preferences.py -q` → passes, with two users keeping separate preferences.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (already per-user since part 1, keyword `user_id`; test added)
 
 ### Task 2: scoring per user
 **Runs:** unattended

@@ -178,3 +178,21 @@ def test_save_and_load(tmp_path):
     save_preferences(conn, prefs)  # updates the one row
     assert load_preferences(conn) == prefs
     assert conn.execute("SELECT COUNT(*) FROM user_preferences").fetchone()[0] == 1
+
+
+def test_preferences_are_per_user(tmp_path):
+    from strelitzia import users
+
+    conn = init_db(tmp_path / "p.db")
+    owner = users.owner(conn)
+    alice = users.invite(conn, "alice@example.com")
+    owner_prefs = _prefs(salary=("dealbreaker", SALARY_FLOOR))
+    alice_prefs = _prefs(work_mode=("nice", ["remote"]))
+    save_preferences(conn, owner_prefs, user_id=owner.id)
+    save_preferences(conn, alice_prefs, user_id=alice.id)
+    save_preferences(conn, alice_prefs, user_id=alice.id)  # updates alice's row only
+    assert load_preferences(conn, owner.id) == owner_prefs
+    assert load_preferences(conn) == owner_prefs  # the owner by default
+    assert load_preferences(conn, alice.id) == alice_prefs
+    assert load_preferences(conn, users.invite(conn, "bob@example.com").id) == Preferences()
+    assert conn.execute("SELECT COUNT(*) FROM user_preferences").fetchone()[0] == 2
