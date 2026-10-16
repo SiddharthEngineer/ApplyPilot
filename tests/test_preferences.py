@@ -93,8 +93,6 @@ def test_remote_not_ok_needs_a_place():
     ("travel", 10, JobPosting(travel="Up to 25% travel"), 0.0),
     ("travel", 30, JobPosting(travel="Up to 25% travel"), 1.0),
     ("travel", 10, JobPosting(travel="Occasional"), 0.5),
-    ("company_blocklist", ["Initech"], JobPosting(company="initech"), 0.0),
-    ("company_blocklist", ["Initech"], JobPosting(company="Acme"), 1.0),
     ("seniority", ["senior"], JobPosting(seniority="unknown"), 0.5),
 ])
 def test_other_criteria(key, value, posting, score):
@@ -129,12 +127,6 @@ def test_qualifications_without_a_profile_are_unknown():
     comps = score_qualifications(None, JobPosting(education_level="phd", years_experience_min=10))
     assert [(c.key, c.score, c.dealbreaker_hit) for c in comps] == [("education", 0.5, False),
                                                                    ("experience", 0.5, False)]
-
-
-def test_company_falls_back_to_the_job_row():
-    prefs = _prefs(company_blocklist=("dealbreaker", ["Initech"]))
-    c = next(c for c in score_preferences(prefs, JobPosting(), company="Initech") if c.key == "company_blocklist")
-    assert c.dealbreaker_hit
 
 
 def test_travel_percent():
@@ -172,8 +164,7 @@ def test_all_dont_care_leaves_only_the_llm_layer():
 def test_defaults():
     prefs = Preferences()
     important = {k for k, c in prefs.criteria().items() if c.importance != "dont_care"}
-    assert important == {"salary", "locations", "role_category", "skills_match"}
-    assert prefs.skills_match.importance == "very_important"
+    assert important == {"salary", "locations", "role_category"}
     # Nothing is set yet, so the defaults alone give no score.
     assert combine(score_preferences(prefs, JobPosting(work_mode="onsite", salary_min=1))) == (None, [])
 

@@ -86,7 +86,7 @@ export default function PreferencesPage() {
   }
 
   const label = (key: string) => data.labels[key] ?? humanize(key);
-  const options = (key: string) => data.options[key] ?? [];
+  const options = (key: string) => (data.options[key] ?? []) as string[];
   const dirty = JSON.stringify(prefs) !== saved;
 
   function setCriterion<K extends CriterionKey>(key: K, patch: Partial<Preferences[K]>) {
@@ -211,17 +211,13 @@ export default function PreferencesPage() {
           selected={prefs.role_category.value} format={roleLabel} onChange={(v) => setValue('role_category', v)} />)}
       </Group>
 
-      <Group title="What the AI judges" hint="Claude rates each job on these against your resume. Changing the lists
-        below makes every assessment stale; changing how much each one matters is free.">
+      <Group title="What the AI judges" hint="Claude rates each job on these against your resume. Changing them makes
+        every assessment stale.">
         {listRow('skills_want', 'Skills I want to use', 'e.g. Python; Enter to add')}
         {listRow('skills_avoid', 'Skills I want to avoid', 'e.g. Excel macros')}
         {listRow('industries_favor', 'Industries I like', 'e.g. healthcare')}
         {listRow('industries_avoid', 'Industries to avoid', 'e.g. gambling')}
         {listRow('target_roles', 'Target roles', 'e.g. Data Engineer')}
-        {row('skills_match')}
-        {row('experience_match')}
-        {row('domain_interest')}
-        {row('red_flags')}
       </Group>
 
       <Group title="Role" advanced>
@@ -231,17 +227,6 @@ export default function PreferencesPage() {
           selected={prefs.employment_type.value} onChange={(v) => setValue('employment_type', v)} />)}
         {row('work_mode', <Chips label="Work modes" options={options('work_mode')} selected={prefs.work_mode.value}
           format={(m) => WORK_MODE_LABELS[m] ?? humanize(m)} onChange={(v) => setValue('work_mode', v)} />)}
-        {row('experience', (
-          <input type="number" min={0} step={1} aria-label="My years of experience" placeholder="My years"
-            value={prefs.experience.value ?? ''} onChange={(e) => setValue('experience', numberOrNull(e.target.value))} />
-        ))}
-        {row('education', (
-          <select aria-label="My education" value={prefs.education.value ?? ''}
-            onChange={(e) => setValue('education', e.target.value || null)}>
-            <option value="">Not set</option>
-            {options('education').map((o) => <option key={o} value={o}>{humanize(o)}</option>)}
-          </select>
-        ))}
       </Group>
 
       <Group title="Eligibility" advanced>
@@ -260,11 +245,6 @@ export default function PreferencesPage() {
             <span className="muted">% travel at most</span>
           </span>
         ))}
-      </Group>
-
-      <Group title="Companies to skip" advanced>
-        {row('company_blocklist', <TagInput label="Companies" values={prefs.company_blocklist.value}
-          placeholder="Company name; Enter to add" onChange={(v) => setValue('company_blocklist', v)} />)}
       </Group>
 
       <div className="save-bar">
