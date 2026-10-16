@@ -11,7 +11,8 @@ import type {
 } from '../types';
 
 type CriterionKey = { [K in keyof Preferences]: Preferences[K] extends Criterion ? K : never }[keyof Preferences];
-type ListKey = 'skills_want' | 'skills_avoid' | 'industries_favor' | 'industries_avoid' | 'target_roles';
+type ListKey = 'skills_want' | 'skills_avoid' | 'industries_favor' | 'industries_avoid' | 'target_roles'
+  | 'red_flags_counted';
 
 function ImportanceControl({ label, value, onChange }: {
   label: string; value: Importance; onChange: (v: Importance) => void;
@@ -91,6 +92,8 @@ export default function PreferencesPage() {
   const options = (key: string) => (data.options[key] ?? []) as string[];
   const rolesByField = (data.options.roles_by_field ?? {}) as Record<string, string[]>;
   const redFlags = (data.options.red_flags ?? []) as RedFlagOption[];
+  // The server's order, so unticking and re-ticking a flag isn't an edit.
+  const flagOrder = [...new Set([...redFlags.map((f) => f.value), ...prefs.red_flags_counted])];
   const dirty = JSON.stringify(prefs) !== saved;
 
   function setCriterion<K extends CriterionKey>(key: K, patch: Partial<Preferences[K]>) {
@@ -258,10 +261,8 @@ export default function PreferencesPage() {
           {redFlags.map((f) => (
             <label key={f.value} className="check">
               <input type="checkbox" checked={prefs.red_flags_counted.includes(f.value)}
-                onChange={(e) => setPrefs((p) => (p ? {
-                  ...p, red_flags_counted: e.target.checked
-                    ? [...p.red_flags_counted, f.value] : p.red_flags_counted.filter((v) => v !== f.value),
-                } : p))} />
+                onChange={(e) => setList('red_flags_counted', flagOrder.filter((v) => (v === f.value
+                  ? e.target.checked : prefs.red_flags_counted.includes(v))))} />
               <span>{f.label} <span className="muted">— {f.help}</span></span>
             </label>
           ))}

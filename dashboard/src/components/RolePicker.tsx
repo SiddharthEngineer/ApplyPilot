@@ -1,53 +1,43 @@
-import { useState } from 'react';
 import { roleLabel } from '../labels';
+import { TagInput } from './FormParts';
 
-/** Target roles: the suggested titles of each chosen job field as chips to tick, plus custom titles typed in. */
+const key = (role: string) => role.trim().toLowerCase();
+
+/** Target roles: the suggested titles of each chosen job field as chips to tick, plus custom titles typed in.
+ * Titles match case-insensitively, and a typed title that is a suggestion of any field is stored as the suggestion. */
 export default function RolePicker({ fields, rolesByField, value, onChange }: {
   fields: string[]; rolesByField: Record<string, string[]>; value: string[]; onChange: (v: string[]) => void;
 }) {
-  const [text, setText] = useState('');
   const groups = fields.map((f) => ({ field: f, roles: rolesByField[f] ?? [] })).filter((g) => g.roles.length);
-  const shown = new Set(groups.flatMap((g) => g.roles));
+  const shown = new Set(groups.flatMap((g) => g.roles.map(key)));
+  const canonical = new Map(Object.values(rolesByField).flat().map((r) => [key(r), r]));
+  const ticked = new Set(value.map(key));
   // Anything not offered as a suggestion right now (typed in, or from a field no longer chosen) is removable.
-  const custom = value.filter((v) => !shown.has(v));
-  const toggle = (role: string) => onChange(value.includes(role) ? value.filter((v) => v !== role) : [...value, role]);
-  const add = () => {
-    const typed = text.trim();
-    setText('');
-    if (!typed) return;
-    const same = (v: string) => v.toLowerCase() === typed.toLowerCase();
-    if (value.some(same)) return;
-    onChange([...value, [...shown].find(same) ?? typed]);
+  const custom = value.filter((v) => !shown.has(key(v)));
+  const toggle = (role: string) => onChange(ticked.has(key(role))
+    ? value.filter((v) => key(v) !== key(role)) : [...value, role]);
+  const editCustom = (next: string[]) => {
+    const removed = new Set(custom.filter((v) => !next.includes(v)));
+    const out = value.filter((v) => !removed.has(v));
+    for (const typed of next.filter((v) => !custom.includes(v))) {
+      if (!out.some((v) => key(v) === key(typed))) out.push(canonical.get(key(typed)) ?? typed);
+    }
+    if (removed.size || out.length !== value.length) onChange(out);
   };
 
   return (
-    <div className="role-picker">
+    <div className="role-picker" role="group" aria-label="Target roles">
       {groups.map((g) => (
         <div key={g.field} className="chips pick" role="group" aria-label={`${roleLabel(g.field)} roles`}>
           <span className="muted role-field">{roleLabel(g.field)}</span>
           {g.roles.map((r) => (
-            <button key={r} type="button" className="chip-toggle" aria-pressed={value.includes(r)}
+            <button key={r} type="button" className="chip-toggle" aria-pressed={ticked.has(key(r))}
               onClick={() => toggle(r)}>{r}</button>
           ))}
         </div>
       ))}
-      <div className="tag-input">
-        {custom.map((v) => (
-          <span key={v} className="chip">
-            {v}
-            <button type="button" className="chip-remove" aria-label={`Remove ${v}`}
-              onClick={() => onChange(value.filter((x) => x !== v))}>×</button>
-          </span>
-        ))}
-        <input aria-label="Add other role" value={text} placeholder="Add other role; Enter to add"
-          onChange={(e) => setText(e.target.value)} onBlur={add}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              add();
-            }
-          }} />
-      </div>
+      <TagInput label="Add other role" values={custom} placeholder="Add other role; Enter to add"
+        onChange={editCustom} />
     </div>
   );
 }
