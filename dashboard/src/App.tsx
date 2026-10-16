@@ -11,6 +11,7 @@ import JobsPage from './pages/JobsPage';
 import PanelPage from './pages/PanelPage';
 import PreferencesPage from './pages/PreferencesPage';
 import SignInPage from './pages/SignInPage';
+import UsersPage from './pages/UsersPage';
 import type { AuthMe } from './types';
 
 /** The sign-in gate: with login on, no session (or any 401) shows the sign-in screen instead of the app. */
@@ -34,6 +35,8 @@ function Shell({ me }: { me: AuthMe | null }) {
     getPanel().then((p) => setPanelDue(p.due)).catch(() => {}); // the reminder is optional
   }, []);
   useEffect(refreshPanelDue, [refreshPanelDue]);
+  // The Users page is for the owner, and only matters once other accounts can sign in.
+  const isOwner = Boolean(me?.enabled && me.user?.role === 'owner');
   function signOut() {
     logout().catch(() => {}).finally(() => window.location.reload());
   }
@@ -52,6 +55,7 @@ function Shell({ me }: { me: AuthMe | null }) {
             Panel{panelDue && <span className="nav-dot" role="img" aria-label="due" title={`Panel due: ${panelDue}`} />}
           </NavLink>
           <NavLink to="/claude-setup">Claude setup</NavLink>
+          {isOwner && <NavLink to="/users">Users</NavLink>}
         </nav>
         <button type="button" className="primary add-job-button" onClick={() => setAdding(true)}>Add job</button>
         {me?.enabled && me.user && (
@@ -70,6 +74,7 @@ function Shell({ me }: { me: AuthMe | null }) {
           <Route path="/preferences" element={<PreferencesPage />} />
           <Route path="/claude-setup" element={<ClaudeSetupPage />} />
           <Route path="/panel" element={<PanelPage onChange={refreshPanelDue} />} />
+          {isOwner && <Route path="/users" element={<UsersPage />} />}
           <Route path="*" element={<p className="notice">Page not found. <Link to="/">Back to jobs</Link></p>} />
         </Routes>
       </main>

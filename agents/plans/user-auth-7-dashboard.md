@@ -35,7 +35,7 @@ last login), `POST /app/api/admin/users` `{email, monthly_cap_usd?}` (invite), `
 `/app/api/auth/login`, and the not-invited message when `?auth=not_invited`). A 401 from any request shows the same page.
 The top bar shows the name and Sign out (POST logout, then reload). When auth is off, nothing changes.
 **Validate:** `cd dashboard && npm test -- --run` → passes, with a new test for the sign-in screen and 401 handling.
-**Status:** ✅ 2026-10-16 (Task 2 commit)
+**Status:** ✅ 2026-10-16 (8baf875)
 
 ### Task 3: Drive connect and the Users page
 **Runs:** unattended
@@ -43,7 +43,7 @@ The top bar shows the name and Sign out (POST logout, then reload). When auth is
 **What:** Setup page: "Connect Google Drive" (link to `connect_url`) or "Connected · Disconnect". Users page at `/users`,
 in the nav only for the owner: a table of users with spend and cap (editable inline), an invite form, Disable/Enable.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes and writes the bundle.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 3 commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
