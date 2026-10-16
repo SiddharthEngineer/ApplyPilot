@@ -3,14 +3,15 @@ import * as api from '../api';
 import { RELATION_LABELS } from '../labels';
 import type { ContactListItem, JobContact, JobDetail, Relation } from '../types';
 import BlurField from './BlurField';
+import ContactForm from './ContactForm';
 
 export const SEARCH_DEBOUNCE_MS = 250;
 const RELATIONS = Object.keys(RELATION_LABELS) as Relation[];
 
-/** Search-as-you-type over the shared contacts, with "Create '<text>'" at the bottom. */
+/** Search-as-you-type over the shared contacts; "Create new" opens the contact form, prefilled. */
 function ContactPicker({ job, onLinked, onCancel }: {
   job: JobDetail;
-  onLinked: (job: JobDetail, createdId?: string) => void;
+  onLinked: (job: JobDetail) => void;
   onCancel: () => void;
 }) {
   const [text, setText] = useState('');
@@ -18,6 +19,7 @@ function ContactPicker({ job, onLinked, onCancel }: {
   const [results, setResults] = useState<ContactListItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const linked = new Set(job.contacts.map((c) => c.id));
 
@@ -33,13 +35,11 @@ function ContactPicker({ job, onLinked, onCancel }: {
     };
   }, [text]);
 
-  async function link(fn: () => Promise<JobDetail>, created = false) {
+  async function link(fn: () => Promise<JobDetail>) {
     setBusy(true);
     setError(null);
     try {
-      const updated = await fn();
-      const newId = created ? updated.contacts.find((c) => !linked.has(c.id))?.id : undefined;
-      onLinked(updated, newId);
+      onLinked(await fn());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -48,6 +48,22 @@ function ContactPicker({ job, onLinked, onCancel }: {
 
   const name = text.trim();
   const company = job.company && job.company !== 'Unknown company' ? job.company : undefined;
+  if (creating) {
+    return (
+      <div className="picker">
+        <label className="field">
+          <span>Relation</span>
+          <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)}>
+            {RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABELS[r]}</option>)}
+          </select>
+        </label>
+        <ContactForm initial={{ name, company }} submitLabel="Create and link" onCancel={() => setCreating(false)}
+          onSubmit={async (fields) => {
+            onLinked(await api.linkContact(job.key, { contact: fields }, relation));
+          }} />
+      </div>
+    );
+  }
   return (
     <div className="picker">
       <div className="filter-row">
@@ -76,25 +92,26 @@ function ContactPicker({ job, onLinked, onCancel }: {
         ))}
         {name && (
           <li>
-            <button type="button" className="create" disabled={busy}
-              onClick={() => link(() => api.linkContact(job.key, { contact: { name, company } }, relation), true)}>
-              Create '{name}'
+            <button type="button" className="create" disabled={busy} onClick={() => setCreating(true)}>
+              Create new: '{name}'
             </button>
           </li>
         )}
       </ul>
+      {!name && (
+        <button type="button" className="link-button" disabled={busy} onClick={() => setCreating(true)}>New contact</button>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
     </div>
   );
 }
 
-function ContactCard({ contact, startEditing, onSave, onUnlink }: {
+function ContactCard({ contact, onSave, onUnlink }: {
   contact: JobContact;
-  startEditing: boolean;
   onSave: (fields: Partial<JobContact>) => void;
   onUnlink: () => void;
 }) {
-  const [editing, setEditing] = useState(startEditing);
+  const [editing, setEditing] = useState(false);
   const field = (label: string, key: 'name' | 'role' | 'email' | 'phone' | 'linkedin_url', type = 'text') => (
     <BlurField label={label} type={type} value={contact[key]}
       onSave={(v) => { if (key !== 'name' || v) onSave({ [key]: v }); }} />
@@ -138,7 +155,6 @@ function ContactCard({ contact, startEditing, onSave, onUnlink }: {
 /** The job's contacts as cards, with a picker to link an existing contact or create one. */
 export default function ContactsPanel({ job, onChange }: { job: JobDetail; onChange: (job: JobDetail) => void }) {
   const [picking, setPicking] = useState(false);
-  const [newId, setNewId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(fn: () => Promise<JobDetail>) {
@@ -158,16 +174,15 @@ export default function ContactsPanel({ job, onChange }: { job: JobDetail; onCha
       </div>
       {picking && (
         <ContactPicker job={job} onCancel={() => setPicking(false)}
-          onLinked={(updated, createdId) => {
+          onLinked={(updated) => {
             setPicking(false);
-            setNewId(createdId ?? null);
             onChange(updated);
           }} />
       )}
       {job.contacts.length ? (
         <ul className="contact-list">
           {job.contacts.map((c) => (
-            <ContactCard key={c.id} contact={c} startEditing={c.id === newId}
+            <ContactCard key={c.id} contact={c}
               onSave={(fields) => run(async () => {
                 await api.updateContact(c.id, fields);
                 return api.getJob(job.key);

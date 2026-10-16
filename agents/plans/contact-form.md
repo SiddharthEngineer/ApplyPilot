@@ -45,7 +45,7 @@ required, client-side checks matching the API, the API's 422 message shown inlin
 `ContactForm` prefilled with `{name, company}`. Submitting calls `linkContact(key, {contact: fields}, relation)`.
 Linking an existing contact is unchanged.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit; the panel tests live in `Workspace.test.tsx`, so they changed there)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

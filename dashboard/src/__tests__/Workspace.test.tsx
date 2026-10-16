@@ -186,26 +186,61 @@ describe('Intake on the job page', () => {
 });
 
 describe('Contacts panel', () => {
-  it('creates a contact and links it, then edits its email on blur', async () => {
+  it('creates a contact from the form, prefilled with the typed name and the company, and links it', async () => {
     const user = userEvent.setup();
-    const ana = { ...contact({ id: 'new1', email: null, role: null }), relation: 'recruiter' as const };
+    const ana = { ...contact({ id: 'new1', role: null }), relation: 'recruiter' as const };
     vi.mocked(api.linkContact).mockResolvedValue(jobDetail({ contacts: [ana] }));
     renderJob();
     await user.click(await screen.findByRole('button', { name: 'Add contact' }));
     await user.type(screen.getByLabelText('Find or create a contact'), 'Ana Ruiz');
     await waitFor(() => expect(api.listContacts).toHaveBeenLastCalledWith('Ana Ruiz', expect.anything()));
+    await user.click(screen.getByRole('button', { name: "Create new: 'Ana Ruiz'" }));
+    expect(api.linkContact).not.toHaveBeenCalled();
+
+    const form = screen.getByRole('form', { name: 'New contact' });
+    expect(within(form).getByLabelText('Name')).toHaveValue('Ana Ruiz');
+    expect(within(form).getByLabelText('Company')).toHaveValue('Acme');
     await user.selectOptions(screen.getByLabelText('Relation'), 'recruiter');
-    await user.click(screen.getByRole('button', { name: "Create 'Ana Ruiz'" }));
-    expect(api.linkContact).toHaveBeenCalledWith('abc123', { contact: { name: 'Ana Ruiz', company: 'Acme' } }, 'recruiter');
+    await user.type(within(form).getByLabelText('Email'), 'ana.acme.com');
+    await user.click(within(form).getByRole('button', { name: 'Create and link' }));
+    expect(within(form).getByRole('alert')).toHaveTextContent('Email must contain @.');
+    expect(api.linkContact).not.toHaveBeenCalled();
+    await user.clear(within(form).getByLabelText('Email'));
+    await user.type(within(form).getByLabelText('Email'), 'ana@acme.com');
+    await user.click(within(form).getByRole('button', { name: 'Create and link' }));
+    expect(api.linkContact).toHaveBeenCalledWith(
+      'abc123', { contact: { name: 'Ana Ruiz', company: 'Acme', email: 'ana@acme.com' } }, 'recruiter');
 
     const section = screen.getByRole('region', { name: 'Contacts' });
+    await waitFor(() => expect(within(section).queryByRole('form')).not.toBeInTheDocument());
     expect(within(section).getByText('Ana Ruiz')).toBeInTheDocument();
     expect(within(section).getByText('Recruiter')).toHaveClass('chip');
+    expect(within(section).getByRole('link', { name: 'ana@acme.com' })).toHaveAttribute('href', 'mailto:ana@acme.com');
+  });
+
+  it('opens a blank form from New contact, and goes back to the search on cancel', async () => {
+    const user = userEvent.setup();
+    renderJob();
+    await user.click(await screen.findByRole('button', { name: 'Add contact' }));
+    await user.click(screen.getByRole('button', { name: 'New contact' }));
+    expect(screen.getByLabelText('Name')).toHaveValue('');
+    expect(screen.getByLabelText('Company')).toHaveValue('Acme');
+    await user.click(within(screen.getByRole('form', { name: 'New contact' })).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Find or create a contact')).toBeInTheDocument();
+  });
+
+  it("edits a linked contact's email on blur", async () => {
+    const user = userEvent.setup();
+    const ana = { ...contact({ email: null }), relation: 'recruiter' as const };
+    vi.mocked(api.getJob).mockResolvedValue(jobDetail({ contacts: [ana] }));
     vi.mocked(api.updateContact).mockResolvedValue({ ...ana, email: 'ana@acme.com', jobs: [] });
+    renderJob();
+    const section = await screen.findByRole('region', { name: 'Contacts' });
+    await user.click(await within(section).findByRole('button', { name: 'Edit' }));
     vi.mocked(api.getJob).mockResolvedValue(jobDetail({ contacts: [{ ...ana, email: 'ana@acme.com' }] }));
-    await user.type(within(section).getByLabelText('Email'), 'ana@acme.com'); // a new contact opens in edit mode
+    await user.type(within(section).getByLabelText('Email'), 'ana@acme.com');
     await user.tab();
-    expect(api.updateContact).toHaveBeenCalledWith('new1', { email: 'ana@acme.com' });
+    expect(api.updateContact).toHaveBeenCalledWith('c1', { email: 'ana@acme.com' });
     expect(await within(section).findByRole('link', { name: 'ana@acme.com' })).toHaveAttribute('href', 'mailto:ana@acme.com');
   });
 
