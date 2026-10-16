@@ -1,5 +1,5 @@
 # Plan: User accounts, part 2: intake and the task queue per user
-**Status:** ❌ Not started
+**Status:** ✅ 2026-10-16 (all tasks done, PR open)
 **Risk:** review (rewrites every job-row read/write on the intake path)
 **Issue:** #47
 **Depends on:** user-auth-1-schema
