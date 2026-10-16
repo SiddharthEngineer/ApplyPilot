@@ -34,7 +34,7 @@ from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
 from strelitzia.scoring import workbench
 from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
-from strelitzia.web import auth, queries, tasks
+from strelitzia.web import admin, auth, queries, tasks
 
 PREFIX = "/app"
 CSRF_HEADER = "X-Strelitzia"
@@ -865,6 +865,7 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
                        max_age=auth.SESSION_MAX_AGE, same_site="lax", https_only=auth.secure_cookie())
     app.include_router(auth.router)
     app.include_router(auth.drive_router)
+    app.include_router(admin.router)
     app.include_router(api)
     _mount_ui(app, Path(static_dir) if static_dir else _default_static_dir())
     return app
