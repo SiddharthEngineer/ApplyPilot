@@ -85,7 +85,7 @@ describe('PreferencesPage', () => {
 
     const sent = vi.mocked(api.previewPreferences).mock.calls[0][0];
     expect(sent.salary).toEqual({ importance: 'dealbreaker', value: { min: 120000, currency: 'USD', period: 'year' } });
-    expect(api.savePreferences).toHaveBeenCalledWith(sent, false);
+    expect(api.savePreferences).toHaveBeenCalledWith(sent, false, 'stale');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(await screen.findByRole('status')).toHaveTextContent('Re-ranked 412 jobs.');
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -106,9 +106,28 @@ describe('PreferencesPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Re-assess' }));
     expect(vi.mocked(api.savePreferences).mock.calls[0][0].skills_want).toEqual(['Rust']);
     expect(vi.mocked(api.savePreferences).mock.calls[0][1]).toBe(true);
+    expect(vi.mocked(api.savePreferences).mock.calls[0][2]).toBe('stale');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(screen.getByText(/Re-ranked 412 jobs. Re-assessment queued./)).toBeInTheDocument();
     expect(screen.getByText(/Queued: re-assessment of your jobs/)).toBeInTheDocument();
+  });
+
+  it('the dialog checkbox re-assesses every active job, with its own count and cost', async () => {
+    vi.mocked(api.previewPreferences).mockImplementation(async (_prefs, scope) => (scope === 'active'
+      ? { reassess_needed: true, jobs_to_reassess: 900, estimated_usd: 1.2, skipped_unextracted: 3 }
+      : { reassess_needed: true, jobs_to_reassess: 412, estimated_usd: 0.4 }));
+    const user = renderPage();
+    await user.type(await screen.findByLabelText('Skills I want to use'), 'Rust{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = await screen.findByRole('dialog');
+    const box = within(dialog).getByRole('checkbox', { name: /Re-assess all active jobs, not only the ones these/ });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    expect(vi.mocked(api.previewPreferences).mock.calls.at(-1)?.[1]).toBe('active');
+    await waitFor(() => expect(dialog).toHaveTextContent('Re-assess 900 jobs with Claude, about $1.20'));
+    expect(dialog).toHaveTextContent('3 jobs skipped: not extracted yet');
+    await user.click(within(dialog).getByRole('button', { name: 'Re-assess' }));
+    expect(vi.mocked(api.savePreferences).mock.calls[0].slice(1)).toEqual([true, 'active']);
   });
 
   it('can save without re-assessing, or cancel', async () => {
@@ -123,7 +142,8 @@ describe('PreferencesPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await user.click(await screen.findByRole('button', { name: 'Save without re-assessing' }));
-    expect(api.savePreferences).toHaveBeenCalledWith(expect.objectContaining({ target_roles: ['Data Engineer'] }), false);
+    expect(api.savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ target_roles: ['Data Engineer'] }), false, 'stale');
   });
 
   it('a budget stop keeps the dialog open with the message', async () => {

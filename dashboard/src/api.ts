@@ -3,7 +3,7 @@ import type {
   AddJobInput, AddJobResult, AdminUser, AuthMe, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs,
   Facets, Interview, ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PanelGradeOutcome,
   PanelMode, PanelOverview, PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview,
-  Relation, SavePreferencesResult, Task, UserStatus,
+  ReassessScope, Relation, RescoreAllResult, RescorePreview, SavePreferencesResult, Task, UserStatus,
 } from './types';
 
 export const API_BASE = '/app/api';
@@ -163,17 +163,33 @@ export function getPreferences(signal?: AbortSignal): Promise<PreferencesRespons
   return request<PreferencesResponse>('/preferences', { signal });
 }
 
-/** What saving `prefs` would re-assess and roughly cost. Saves nothing. */
-export function previewPreferences(prefs: Preferences): Promise<ReassessPreview> {
-  return request<ReassessPreview>('/preferences/preview', { method: 'POST', body: JSON.stringify({ prefs }) });
+/** What saving `prefs` would re-assess (the jobs in `scope`) and roughly cost. Saves nothing. */
+export function previewPreferences(prefs: Preferences, scope: ReassessScope = 'stale'): Promise<ReassessPreview> {
+  return request<ReassessPreview>('/preferences/preview', {
+    method: 'POST',
+    body: JSON.stringify({ prefs, reassess_scope: scope }),
+  });
 }
 
-/** Save and re-rank now; with confirmReassess, also queue re-assessment of the jobs it makes stale. */
-export function savePreferences(prefs: Preferences, confirmReassess = false): Promise<SavePreferencesResult> {
+/** Save and re-rank now; with confirmReassess, also queue re-assessment of the jobs in `scope` (by default the
+ * ones it makes stale). */
+export function savePreferences(
+  prefs: Preferences, confirmReassess = false, scope: ReassessScope = 'stale',
+): Promise<SavePreferencesResult> {
   return request<SavePreferencesResult>('/preferences', {
     method: 'PUT',
-    body: JSON.stringify({ prefs, confirm_reassess: confirmReassess }),
+    body: JSON.stringify({ prefs, confirm_reassess: confirmReassess, reassess_scope: scope }),
   });
+}
+
+/** How many active (not rejected) jobs Rescore all would re-assess, and roughly what it costs. */
+export function rescorePreview(signal?: AbortSignal): Promise<RescorePreview> {
+  return request<RescorePreview>('/rescore/preview', { signal });
+}
+
+/** Queue re-assessment of every active job after the user confirmed the cost. A 402 means the budget is used up. */
+export function rescoreAll(): Promise<RescoreAllResult> {
+  return request<RescoreAllResult>('/rescore', { method: 'POST', body: JSON.stringify({ confirm: true }) });
 }
 
 const job = (key: string) => `/jobs/${encodeURIComponent(key)}`;

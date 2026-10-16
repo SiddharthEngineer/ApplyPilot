@@ -1,11 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../api';
 import JobsTable from '../components/JobsTable';
 import JobsPage from '../pages/JobsPage';
-import type { Status } from '../types';
+import type { Status, Task } from '../types';
 import { COLORS, FACETS, jobList, listItem } from './fixtures';
 
 vi.mock('../api');
@@ -136,5 +136,69 @@ describe('JobsPage', () => {
     vi.mocked(api.listJobs).mockRejectedValueOnce(new Error('boom'));
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load jobs: boom");
+  });
+
+  describe('Rescore all', () => {
+    const task = (state: Task['state'], error: string | null = null): Task => ({
+      id: 't9', url: null, kind: 'rescore_all', state, created_at: '2026-10-16T10:00:00+00:00',
+      started_at: state === 'queued' ? null : '2026-10-16T10:00:01+00:00',
+      finished_at: state === 'done' || state === 'error' ? '2026-10-16T10:00:30+00:00' : null, error, key: null,
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('shows the count, cost and skipped jobs, then queues and reloads the list when done', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.mocked(api.rescorePreview).mockResolvedValue({ jobs: 42, skipped_unextracted: 3, estimated_usd: 0.4 });
+      vi.mocked(api.rescoreAll).mockResolvedValue({ jobs: 42, skipped_unextracted: 3, estimated_usd: 0.4,
+        task: task('queued') });
+      vi.mocked(api.getTask).mockResolvedValueOnce(task('done'));
+      renderPage();
+      await screen.findByText('Company 1');
+      await user.click(screen.getByRole('button', { name: 'Rescore all' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('Re-assess 42 active jobs with Claude, about $0.40');
+      expect(dialog).toHaveTextContent('3 jobs skipped: not extracted yet');
+      expect(api.rescoreAll).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Re-assess' }));
+      expect(api.rescoreAll).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(await screen.findByRole('status')).toHaveTextContent('Queued: re-assessment of your active jobs');
+      const loads = vi.mocked(api.listJobs).mock.calls.length;
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(screen.getByRole('status')).toHaveTextContent('Finished re-assessment of your active jobs');
+      await waitFor(() => expect(vi.mocked(api.listJobs).mock.calls.length).toBe(loads + 1));
+    });
+
+    it('cancel queues nothing, and a failed task or budget stop shows as an error', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.mocked(api.rescorePreview).mockResolvedValue({ jobs: 2, skipped_unextracted: 0, estimated_usd: 0.001 });
+      renderPage();
+      await screen.findByText('Company 1');
+      await user.click(screen.getByRole('button', { name: 'Rescore all' }));
+      expect(await screen.findByRole('dialog')).not.toHaveTextContent('skipped');
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(api.rescoreAll).not.toHaveBeenCalled();
+
+      vi.mocked(api.rescoreAll).mockRejectedValueOnce(new Error('Monthly LLM budget reached'));
+      await user.click(screen.getByRole('button', { name: 'Rescore all' }));
+      await user.click(await screen.findByRole('button', { name: 'Re-assess' }));
+      expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('budget reached');
+
+      vi.mocked(api.rescoreAll).mockResolvedValueOnce({ jobs: 2, skipped_unextracted: 0, estimated_usd: 0.001,
+        task: task('queued') });
+      vi.mocked(api.getTask).mockResolvedValueOnce(task('error', 'The Claude API key is missing or was rejected'));
+      await user.click(screen.getByRole('button', { name: 'Re-assess' }));
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(screen.getByRole('status')).toHaveTextContent("Couldn't finish the re-assessment of your active jobs: "
+        + 'The Claude API key is missing');
+      expect(screen.getByRole('status')).toHaveAttribute('data-state', 'error');
+    });
   });
 });

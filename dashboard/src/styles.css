@@ -99,6 +99,7 @@ a.button:hover { filter: brightness(1.08); }
 .tag-hybrid { border-color: var(--badge-blue-fg); color: var(--badge-blue-fg); }
 
 .list-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.list-header-action { margin-left: auto; }
 .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .jobs-table { width: 100%; border-collapse: collapse; min-width: 900px; }
 .jobs-table th, .jobs-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
