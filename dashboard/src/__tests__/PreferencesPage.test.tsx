@@ -30,7 +30,8 @@ const RESPONSE: PreferencesResponse = {
     salary_period: ['year', 'month', 'hour'],
     importance: ['dont_care', 'nice', 'important', 'very_important', 'dealbreaker'],
     roles_by_field: { data_engineering: ['Data Engineer', 'Analytics Engineer'], other: [] },
-    red_flags: [{ value: 'mostly_sales', label: 'Mostly sales', help: 'the role is mainly selling despite its title' }],
+    red_flags: [{ value: 'mostly_sales', label: 'Mostly sales', help: 'the role is mainly selling despite its title' },
+      { value: 'vague_posting', label: 'Vague posting', help: 'too vague to tell what the job is' }],
   },
   labels: {
     salary: 'Salary', locations: 'Location', work_mode: 'Work mode', role_category: 'Job field', seniority: 'Seniority',
@@ -195,6 +196,10 @@ describe('PreferencesPage', () => {
     const box = within(flags).getByRole('checkbox', { name: /Mostly sales/ });
     expect(box).toBeChecked();
     expect(flags).toHaveTextContent('the role is mainly selling despite its title');
+    // Unticking and re-ticking keeps the server's order, so it is not an edit.
+    await user.click(box);
+    await user.click(box);
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     await user.click(box);
     vi.mocked(api.previewPreferences).mockResolvedValue({ reassess_needed: false, jobs_to_reassess: 0, estimated_usd: 0 });
     await user.click(screen.getByRole('button', { name: 'Save' }));

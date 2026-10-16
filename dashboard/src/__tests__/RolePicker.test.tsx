@@ -46,6 +46,19 @@ describe('RolePicker', () => {
     expect(spy).toHaveBeenLastCalledWith(['Backend Engineer', 'Software Engineer']);
   });
 
+  it('matches titles case-insensitively, splits on commas and stores suggestions in their own case', async () => {
+    const spy = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness fields={['software_engineering']} initial={['software engineer']} spy={spy} />);
+    expect(screen.getByRole('button', { name: 'Software Engineer' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'Remove software engineer' })).toBeNull();
+    // A suggestion of a field not chosen is stored as the suggestion; a comma separates titles.
+    await user.type(screen.getByLabelText('Add other role'), 'data engineer, Compiler Engineer{Enter}');
+    expect(spy).toHaveBeenLastCalledWith(['software engineer', 'Data Engineer', 'Compiler Engineer']);
+    await user.click(screen.getByRole('button', { name: 'Software Engineer' }));
+    expect(spy).toHaveBeenLastCalledWith(['Data Engineer', 'Compiler Engineer']);
+  });
+
   it('keeps roles from a field no longer chosen as removable chips', async () => {
     const spy = vi.fn();
     const user = userEvent.setup();

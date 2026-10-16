@@ -1,5 +1,5 @@
 # Plan: Preferences cleanup, part 3: regrouped Preferences page
-**Status:** 🚧 In progress
+**Status:** ✅ Done (2026-10-16)
 **Risk:** review (dashboard UI)
 **Issue:** #46
 **Depends on:** prefs-cleanup-2-roles
