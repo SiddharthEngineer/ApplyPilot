@@ -220,8 +220,11 @@ def parse_content_library(path: str | Path) -> ContentLibrary:
     Returns:
         A ContentLibrary instance with all roles and projects.
     """
-    path = Path(path)
-    content = path.read_text(encoding="utf-8")
+    return parse_content_library_text(Path(path).read_text(encoding="utf-8"))
+
+
+def parse_content_library_text(content: str) -> ContentLibrary:
+    """Parse content_library.md's text (as stored in a user's profile) into structured data."""
     lines = content.splitlines()
 
     # Find where role sections start (skip README section)

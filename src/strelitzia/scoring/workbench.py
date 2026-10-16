@@ -22,12 +22,13 @@ from pathlib import Path
 
 from strelitzia import config, tracking
 from strelitzia.database import Connection, job_company
-from strelitzia.scoring.content_library import ContentLibrary, parse_content_library
+from strelitzia.profile import load_profile
+from strelitzia.scoring.content_library import ContentLibrary, parse_content_library_text
 from strelitzia.scoring.resume_model import TailoredResume
 from strelitzia.scoring.targets import EvidenceMap, coverage, evidence_map, matches
 from strelitzia.scoring.template import (
+    fixed_from_data,
     fixed_roles_from_resume,
-    load_fixed,
     parse_base_resume,
     render_resume,
     resume_to_text,
@@ -477,20 +478,27 @@ def fix_prompt(errors: list[str]) -> str:
     return "\n".join(lines)
 
 
+class NoContentLibrary(LookupError):
+    """The user's profile has no content library yet."""
+
+
 @dataclass
 class Inputs:
-    """What a paste is checked and rendered against (loaded from ~/.strelitzia by default)."""
+    """What a paste is checked and rendered against (a user's profile, `Inputs.for_user`)."""
     library: ContentLibrary
     base_resume_text: str
     profile: dict
     fixed: dict
 
     @classmethod
-    def load(cls) -> Inputs:
-        if not config.CONTENT_LIBRARY_PATH.exists():
-            raise FileNotFoundError(f"No content library at {config.CONTENT_LIBRARY_PATH}")
-        base = config.RESUME_PATH.read_text(encoding="utf-8") if config.RESUME_PATH.exists() else ""
-        return cls(parse_content_library(config.CONTENT_LIBRARY_PATH), base, config.load_profile(), load_fixed())
+    def for_user(cls, conn: Connection, user_id: str) -> Inputs:
+        """The user's content library, resume text, profile (in profile.json's shape) and fixed resume blocks."""
+        profile = load_profile(conn, user_id)
+        if not profile.content_library_md.strip():
+            raise NoContentLibrary("No content library yet")
+        fixed = fixed_from_data(profile.extras.get("resume_fixed") or {}, profile.resume_text)
+        return cls(parse_content_library_text(profile.content_library_md), profile.resume_text,
+                   profile.as_profile_json(), fixed)
 
     def known_text(self) -> str:
         """The candidate's real material: library facts and the base resume."""
@@ -562,7 +570,7 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
         data = extract_result(text)
     except ValueError as e:
         return ImportOutcome(ok=False, errors=[str(e)], fix_prompt=fix_prompt([str(e)]))
-    inputs = inputs or Inputs.load()
+    inputs = inputs or Inputs.for_user(conn, job["user_id"])
     resume, errors, warnings = check_result(data, job, inputs)
     if errors:
         return ImportOutcome(ok=False, errors=errors, warnings=warnings, fix_prompt=fix_prompt(errors))
@@ -744,7 +752,7 @@ def publish_static_docs(client, conn: Connection, user_id: str, inputs: Inputs |
     from strelitzia.database import set_state
     from strelitzia.storage.drive_layout import claude_folder_path
 
-    inputs = inputs or Inputs.load()
+    inputs = inputs or Inputs.for_user(conn, user_id)
     known = published_static_docs(conn, user_id)
     urls, folder_id = {}, None
     for kind, name in STATIC_DOCS.items():
@@ -773,7 +781,7 @@ def publish_packet(client, conn: Connection, job: dict, inputs: Inputs | None = 
     """Write the job's packet Doc into its Drive folder and record it on the job. Returns (doc_id, url)."""
     from strelitzia.storage.drive_layout import clean_name, packet_folder_path
 
-    inputs = inputs or Inputs.load()
+    inputs = inputs or Inputs.for_user(conn, job["user_id"])
     packet = packet_for(job, inputs, inline=False)
     folder_id = client.ensure_folder_path(packet_folder_path(job))
     f = client.upsert_doc(folder_id, clean_name(packet.name, 160), packet.html, known_id=job.get("packet_doc_id"))

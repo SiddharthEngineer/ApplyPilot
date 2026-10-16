@@ -17,12 +17,13 @@ from workbench_helpers import POSTING, fake_render_pdf, good_result, inputs, job
 REAL_DRIVE_CLIENT = app_mod._drive_client
 URL = job()["url"]
 KEY = job_key(URL)
+_REAL_FOR_USER = wb.Inputs.__dict__["for_user"]
 
 
 @pytest.fixture(autouse=True)
 def _workbench(monkeypatch, tmp_path):
     monkeypatch.setattr(pdf_mod, "render_pdf", fake_render_pdf)
-    monkeypatch.setattr(wb.Inputs, "load", classmethod(lambda cls: inputs()))
+    monkeypatch.setattr(wb.Inputs, "for_user", classmethod(lambda cls, conn, user_id: inputs()))
     monkeypatch.setattr(config, "TAILORED_DIR", tmp_path / "tailored")
     monkeypatch.setattr(config, "COVER_LETTER_DIR", tmp_path / "cover")
     monkeypatch.setattr(app_mod, "_drive_client", lambda request: None)
@@ -217,6 +218,13 @@ def test_setup_reports_the_users_drive_and_the_connect_url(client, conn, per_use
     _connect(conn, users.owner(conn).id)
     s = client.get("/app/api/claude/setup").json()
     assert s["drive"] is True and s["drive_source"] == "user"
+
+
+def test_no_content_library_says_where_to_add_it(client, the_job, monkeypatch):
+    monkeypatch.setattr(wb.Inputs, "for_user", _REAL_FOR_USER)  # the owner's profile has no content library here
+    r = client.post(f"/app/api/jobs/{the_job}/packet")
+    assert r.status_code == 409 and r.json()["detail"] == (
+        "No content library yet. Add your content library on the Profile page.")
 
 
 def test_docs_without_drive_say_where_to_connect(client):

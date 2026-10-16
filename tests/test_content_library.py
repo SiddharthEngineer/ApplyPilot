@@ -11,6 +11,7 @@ from strelitzia.scoring.content_library import (
     _parse_dates,
     _parse_project,
     parse_content_library,
+    parse_content_library_text,
 )
 
 REAL_LIBRARY = Path(__file__).resolve().parent.parent / "personal" / "content_library.md"
@@ -280,3 +281,44 @@ class TestEdgeCases:
         assert len(lib.roles) == 1
         assert len(lib.roles[0].projects) == 1
         assert lib.roles[0].projects[0].name == "Project A"
+
+
+class TestStoredLibrary:
+    """The library stored in a user's profile is parsed from its text, like the file."""
+
+    TEXT = textwrap.dedent("""\
+        ## CURRENT ROLE — Test Role (Jan 2024–Present)
+
+        ### Project A (2024–2025)
+
+        - **Context:** Context here.
+        - **Angles:** DEVOPS, PIPELINE.
+    """)
+
+    def test_text_and_file_parse_the_same(self, tmp_path):
+        md = tmp_path / "lib.md"
+        md.write_text(self.TEXT, encoding="utf-8")
+        assert parse_content_library_text(self.TEXT) == parse_content_library(md)
+        assert parse_content_library_text(self.TEXT).roles[0].projects[0].name == "Project A"
+
+    def test_workbench_inputs_come_from_the_users_profile(self, tmp_path):
+        from strelitzia import users
+        from strelitzia.database import close_connection, init_db
+        from strelitzia.profile import UserProfile, save_profile
+        from strelitzia.scoring import workbench
+
+        conn = init_db(tmp_path / "t.db")
+        try:
+            uid = users.invite(conn, "someone@example.com").id
+            with pytest.raises(workbench.NoContentLibrary):
+                workbench.Inputs.for_user(conn, uid)
+            fixed = {"education": [{"heading": "Example University", "dates": "2020"}]}
+            save_profile(conn, uid, UserProfile(first_name="Sam", last_name="Sample", content_library_md=self.TEXT,
+                                                resume_text="Sam Sample\nresume", extras={"resume_fixed": fixed}))
+            got = workbench.Inputs.for_user(conn, uid)
+            assert got.library == parse_content_library_text(self.TEXT)
+            assert got.base_resume_text == "Sam Sample\nresume"
+            assert got.profile["personal"]["full_name"] == "Sam Sample" and "resume_fixed" not in got.profile
+            assert got.fixed["education"] == [{"heading": "Example University", "dates": "2020", "bullets": []}]
+        finally:
+            close_connection(tmp_path / "t.db")
