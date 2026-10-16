@@ -8,8 +8,9 @@
 Strelitzia is the workspace between finding a job (LinkedIn, Indeed, a company's site, anywhere) and applying for it.
 Paste a job's link into the dashboard: Strelitzia reads the posting, scores it against your resume with AI, prepares a
 packet for tailoring your resume and cover letter in your own Claude chat (and checks the result), and keeps your
-notes, contacts and interviews for each job. It can also
-crawl job boards for you (optional). **It never submits applications for you.** You decide where to apply, and you
+notes, contacts and interviews for each job. One server serves several people: the owner invites others by email,
+everyone signs in with Google and sees only their own jobs, and each invited user has a monthly Claude spend cap.
+**It never submits applications for you.** You decide where to apply, and you
 click submit.
 
 ### The name
@@ -27,17 +28,20 @@ git clone https://github.com/SiddharthEngineer/Strelitzia.git
 cd Strelitzia
 uv pip install -e ".[web,jobspy]"
 playwright install chromium
-strelitzia init          # one-time setup: resume, profile, searches, API key
-strelitzia doctor        # check your setup
+strelitzia init          # one-time server setup: the owner's resume, profile, searches, API key
+strelitzia doctor        # check the setup: database, sign-in and Drive keys, Claude
 strelitzia serve         # the dashboard at http://127.0.0.1:8765/app/
+strelitzia users invite friend@example.com --cap 5   # let someone else sign in (needs Google sign-in on)
 ```
 
 In the dashboard, click **Add job** and paste a posting's link. The job appears at once; within about a minute it has
 its title, company, salary and fit score. If the page can't be read (LinkedIn and Indeed often show a sign-in page), the
 job page asks you to paste the description instead.
 
-`strelitzia run` processes the jobs in bulk (enrich > score > extract). It no longer crawls job
-boards unless you ask: `strelitzia run --with-discover` (or `strelitzia run discover`).
+Everything you do with jobs (adding, scoring, tailoring, tracking, connecting Drive) happens in the dashboard, under
+the signed-in user. The CLI is an admin tool for whoever runs the server (see [CLI reference](#cli-reference)).
+Without Google sign-in configured, the dashboard has no login and every request acts as the owner; to turn sign-in on,
+see [Users and sign-in](#users-and-sign-in).
 
 For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate.sh`.
 
@@ -59,27 +63,24 @@ For development: `uv pip install -e ".[dev,web,jobspy]"`, then `scripts/validate
 
 | Stage | What happens |
 |-------|-------------|
-| **1. Discover** (optional) | Off by default: jobs come from the dashboard's **Add job**. With `--with-discover` (or `strelitzia run discover`), searches Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
+| **1. Discover** (optional) | Off: jobs come from the dashboard's **Add job**. The crawlers stay as library code (`strelitzia.pipeline`, `discovery/`) with no CLI command; they search Indeed and LinkedIn (via JobSpy), Greenhouse/Lever/Ashby company boards, 48 Workday portals, and 30 direct career sites. Glassdoor and ZipRecruiter are optional and need a proxy (see [Job sources](#job-sources)) |
 | **2. Enrich** | Fetches full job descriptions via JSON-LD, CSS selectors, or AI-powered extraction |
 | **3. Score** | Every job gets a 0-100 fit score: your Preferences page (salary, location, work mode, ...) scored in code, plus Claude's assessment of skills, experience and domain fit against your resume |
 | **4. Tailor in Claude** | On the job page, **Open in Claude** copies a prompt (and writes a packet Doc to Drive): the posting, each required and preferred qualification marked evidenced or not, and your allowed projects. You iterate in a claude.ai chat, then **Paste result**: Strelitzia checks it (every number against the facts it cites, no unsupported skills, no hidden text, banned words, cover-letter rules) and renders a one-page PDF, a DOCX and the cover-letter PDF. Never fabricates |
 | **5. Track** | In the dashboard you open the posting, apply yourself, and mark the job In progress, Submitted, Rejected or Heard back. Each job keeps notes, contacts (shared across jobs, on the Contacts page) and interviews with prep and debrief notes |
 
-**Extract** (`strelitzia run extract`) parses each enriched posting into structured fields: role category, seniority,
+**Extract** parses each enriched posting into structured fields: role category, seniority,
 employment type, work mode, locations, salary range, posted date and deadline, responsibilities, required and preferred
-qualifications, skills, education, years of experience, visa sponsorship and more. It sends one posting per request,
-all in one Message Batch (half price), and saves each result as it arrives. The full record is stored in `details_json`,
-and the filter fields get their own columns. Until a job has been extracted, `strelitzia classify` fills its role
-category, work mode and location from keyword rules (no LLM). In a full `strelitzia run`, extract runs after scoring,
-so scoring gets the monthly budget first.
-
-Each stage is independent. Run them all or pick what you need.
+qualifications, skills, education, years of experience, visa sponsorship and more. The dashboard runs it as part of
+each job's intake task. The full record is stored in `details_json`, and the filter fields get their own columns. Until
+a job has been extracted, keyword rules fill its role category, work mode and location (no LLM).
 
 ---
 
 ## Configuration
 
-Everything lives in the data directory, `~/.strelitzia` (created by `strelitzia init`; set `STRELITZIA_DIR` to move it).
+The server's files live in the data directory, `~/.strelitzia` (created by `strelitzia init`; set `STRELITZIA_DIR` to
+move it). Jobs, preferences, contacts and drafts are per user, in the database.
 `.env` holds only secrets and per-host settings (API key, monthly budget, model overrides, database URL); anything
 that isn't secret lives in a YAML file:
 
@@ -92,7 +93,7 @@ that isn't secret lives in a YAML file:
 | `config/ats_boards.yaml` | Greenhouse / Lever / Ashby company boards (23 preconfigured) |
 | `config/sites.yaml` | Direct career sites (30+), blocked sites, base URLs |
 | `content_library.md` | Raw facts per project, grouped by role: the only facts a tailored resume or letter may use |
-| `resume_template.html` | Optional: your resume layout (Jinja2), from `strelitzia template init` |
+| `resume_template.html` | Optional: your resume layout (Jinja2), starting from `src/strelitzia/config/resume_template.default.html` |
 | `resume_fixed.yaml` | Optional: header, education and per-role title/company/dates, copied verbatim into every tailored resume |
 | `cover_letter_template.html` | Optional: your cover-letter layout (Jinja2); see `src/strelitzia/config/cover_letter_template.default.html` |
 
@@ -100,9 +101,9 @@ that isn't secret lives in a YAML file:
 
 With a `content_library.md`, each tailored resume keeps your own resume's look and shape. Only the bullets and the skill order change per job.
 
-1. `strelitzia template init` writes `resume_fixed.yaml` from `resume.txt` (header, education, and each role's title, company, dates and tagline, verbatim) and a starter `resume_template.html`.
+1. Copy `src/strelitzia/config/resume_template.default.html` to `~/.strelitzia/resume_template.html`, and write `resume_fixed.yaml` (header, education, and each role's title, company, dates and tagline, verbatim from `resume.txt`). These files are set up by hand on the server for now: the CLI generator was removed with the per-user commands.
 2. Edit `resume_template.html` to match your resume (fonts, spacing, section rules). It's Jinja2 with `name`, `headline`, `contact`, `roles`, `education` and `skills`. Keep it one column, with no tables, text boxes or header/footer regions, so ATS parsers read it in order. See `src/strelitzia/config/resume_template.default.html` for the variables.
-3. `strelitzia template preview` renders your base resume through the template to `template_preview.pdf`. Compare it with your resume, and iterate until they match.
+3. Paste a draft for a job in the dashboard and compare its PDF with your resume; iterate until they match.
 
 Each draft has bullets per role (between your base resume's bullet count and two fewer, so the shape stays the same), and each bullet cites the library projects it draws on. Every number in a bullet must appear in those projects' facts. Output per job: `<job>.pdf` (always one page; bullets above a role's minimum are dropped if it overflows), `<job>.docx` (the same resume as a single-column Word file, which some Workday setups parse better), `<job>.json` (bullets with their `project_ids`), `<job>.txt`, and the cover letter as `<job>_CL.pdf`. On Linux, install `fonts-liberation` so Chromium has a Times New Roman–compatible font.
 
@@ -125,9 +126,6 @@ pick the model (Opus or Sonnet) per chat. Results come back by pasting, which wo
    in your library backs ("Not on your resume"; report-only, never written in).
 
 Marking a job Submitted records its draft and rules versions (`submitted_draft_version`, `submitted_rules_version`).
-In a terminal: `strelitzia workbench packet <key>` prints the full packet, and `strelitzia workbench import <key>
-<file>` checks and saves a reply (exit code 1 and the fix message if it fails; with `DRIVE_SYNC=1` the PDFs move to
-Drive).
 
 ### Cost and budget
 
@@ -179,50 +177,55 @@ mode Claude Code prefers `ANTHROPIC_API_KEY` over its subscription login, so the
 | Glassdoor, ZipRecruiter | off | Cloudflare returns HTTP 403 without a residential proxy. Set `PROXY` (or `proxy:` in `searches.yaml`) to enable them |
 | Google Jobs | off | JobSpy currently returns no Google results. `defaults.allow_unsupported: true` tries it anyway |
 
-`strelitzia discover --probe` checks every source with a tiny search (no DB writes) and prints `ok`, `empty`, `blocked` or `error` for each. During a crawl, a board that answers HTTP 403/429 is skipped for the rest of the run, and a board that returns 0 results is skipped after `site_fail_threshold` searches in a row (default 3, minimum 2).
+`strelitzia.discovery.jobspy.probe_boards` checks every source with a tiny search (no DB writes) and returns `ok`, `empty`, `blocked` or `error` for each. During a crawl, a board that answers HTTP 403/429 is skipped for the rest of the run, and a board that returns 0 results is skipped after `site_fail_threshold` searches in a row (default 3, minimum 2).
 
 ### Google Drive file library
 
 Strelitzia can move tailored resume and cover letter PDFs to your Google Drive, and writes the Claude Project Docs and
 each job's Claude packet there (see [Resumes and cover letters in Claude](#resumes-and-cover-letters-in-claude)). Files are filed as
-`Strelitzia/<Company>/<Role>/<YYYY-MM-DD>/` (set `DRIVE_ROOT_FOLDER` to use another top-level folder). This is useful
-when you run Strelitzia on more than one machine. Each job's Drive links are saved in the database (`resume_drive_url`,
+`Strelitzia/<Company>/<Role>/<YYYY-MM-DD>/` (set `DRIVE_ROOT_FOLDER` to use another top-level folder), in
+the Drive of the user the job belongs to. Each job's Drive links are saved in the database (`resume_drive_url`,
 `cover_letter_drive_url`). A local PDF is deleted only after Drive confirms the same checksum. Re-syncing, or
 re-tailoring the same job on the same day, updates the existing Drive file (Drive keeps the old version in its history)
 instead of adding a copy. Strelitzia asks for the `drive.file` permission, so it can only see the files it created.
 
-One-time Google setup (about 5 minutes, free):
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com), create a project (e.g. "Strelitzia"), then open
-   **APIs & Services → Library**, search for **Google Drive API** and click **Enable**.
-2. Open **Google Auth Platform** (called **OAuth consent screen** in older consoles) and click **Get started**. Use any
-   app name, your email as the support and contact email, and **External** as the audience.
-3. Under **Audience**, click **Publish app** and confirm. Without this, Google treats the app as "Testing" and your
-   sign-in expires every 7 days. `drive.file` isn't a sensitive permission, so no Google review is needed. You'll see an
-   "unverified app" warning when you sign in; click **Advanced → Go to (your app name)**.
-4. Under **Clients**, click **Create client**, choose **Desktop app**, then **Download JSON**. Save it as
-   `~/.strelitzia/google_client_secret.json` on every machine that runs Strelitzia (use the same client everywhere so
-   all machines see the same files). Treat this file like a password: don't commit it.
-
-Then, on each machine:
+Each user connects their own Drive on the dashboard's **Claude setup** page (**Connect Google Drive**, a separate
+consent after sign-in). The server needs Google sign-in on (see [Users and sign-in](#users-and-sign-in)), the Drive
+extra (`pip install -e ".[drive]"`) and `STRELITZIA_TOKEN_KEY`, a Fernet key that encrypts the stored tokens:
 
 ```bash
-pip install -e ".[drive]"
-strelitzia drive auth                    # opens a browser to sign in
-strelitzia drive sync                    # move existing PDFs to Drive
-strelitzia drive links --csv links.csv   # list the saved links
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-On a headless server, run `strelitzia drive auth --no-browser`. From your laptop, open a tunnel first with
-`ssh -N -L 8765:localhost:8765 <user>@<server>`, then open the printed URL in your laptop's browser. The dashboard
-moves a pasted draft's PDFs to Drive whenever Drive is authorized; to do the same after `strelitzia workbench import`,
-set `DRIVE_SYNC=1` in `.env`. `strelitzia doctor` shows whether Drive
-is authorized.
+Enable the **Google Drive API** in the same Google Cloud project as the sign-in client. `drive.file` isn't a sensitive
+permission, so no Google review is needed. A `~/.strelitzia/google_token.json` from an older install still works for
+the owner while the dashboard can't connect Drive, and is imported into the owner's account once the key is set.
+`strelitzia doctor` shows whether Drive connect is available.
+
+### Users and sign-in
+
+The dashboard's login is **off until `STRELITZIA_GOOGLE_CLIENT_ID` is set**: until then every request acts as the
+owner. To turn it on, create a Google OAuth client of type **Web application** and set in `.env`:
+
+| Setting | Value |
+|---|---|
+| `STRELITZIA_GOOGLE_CLIENT_ID`, `STRELITZIA_GOOGLE_CLIENT_SECRET` | The OAuth client |
+| `STRELITZIA_SESSION_SECRET` | A long random string (`openssl rand -hex 32`); changing it signs everyone out |
+| `STRELITZIA_OWNER_EMAIL` | The owner's Google email |
+| `STRELITZIA_PUBLIC_URL` | The URL users open, e.g. `https://jobs.example.com` (an https URL makes the cookie `Secure`) |
+
+Add `<PUBLIC_URL>/app/api/auth/callback` and `<PUBLIC_URL>/app/api/drive/callback` as authorized redirect URIs. With
+the client id set, the server refuses to start unless the other three keys are set too.
+
+Only the owner and invited emails can sign in. The owner manages accounts on the dashboard's **Users** page or with the
+CLI: `strelitzia users invite <email> [--cap 5]`, `users list`, `users cap <email> <usd>` and `users disable <email>`.
+An invite turns active on that person's first sign-in. Each invited user's Claude spend stops at their monthly cap;
+the owner has no cap, and `LLM_MONTHLY_BUDGET_USD` limits the whole server.
 
 ### Database
 
 Jobs are stored in a SQLite file, `~/.strelitzia/strelitzia.db`, by default. To share one job store between
-machines or processes (the CLI, cron jobs, the dashboard), point Strelitzia at Postgres instead:
+machines or processes, point Strelitzia at Postgres instead:
 
 ```bash
 pip install -e ".[postgres]"
@@ -239,6 +242,7 @@ to `<name>.db.bak-<date>` first, without changing it. To switch back to SQLite, 
 
 `strelitzia serve` runs the job dashboard at `http://127.0.0.1:8765/app/`: a filterable, sortable jobs table and a detail
 page per job, with the Claude workbench (Open in Claude, Paste result, Resume targeting) and the application's status.
+Every route works on the signed-in user's own jobs.
 The built UI ships in the package (`src/strelitzia/web/static/`), so Node is only needed to change it:
 
 ```bash
@@ -269,8 +273,9 @@ curl localhost:8765/app/api/health          # {"ok": true, "db": "postgresql", .
 - `POST /app/api/jobs/{key}/rescore` queues a fresh assessment. Poll `GET /app/api/tasks/{id}`. Tasks run one at a
   time on a background thread.
 
-Every POST/PATCH needs the header `X-Strelitzia: 1`. Put the server behind a reverse proxy with authentication;
-it has no login of its own.
+Every POST/PATCH needs the header `X-Strelitzia: 1`. With sign-in on, every `/app/api/*` route except `/health` and
+`/auth/*` needs a session (401 without one), and `/app/api/admin/users` is the owner's only. With sign-in off, put the
+server behind a reverse proxy with authentication.
 
 **UI development** (React + TypeScript + Vite, in `dashboard/`):
 
@@ -299,34 +304,19 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=$HOME -v $HOME/.strelitzia:$H
 
 ## CLI reference
 
+The CLI is for whoever runs the server. Per-user work (adding, scoring, tailoring and tracking jobs) is in the
+dashboard, so it always has a signed-in user.
+
 ```
-strelitzia init                          # First-time setup wizard
-strelitzia doctor                        # Verify setup, diagnose missing requirements
-strelitzia run [stages...]               # Run pipeline stages (or 'all', which skips discover)
-strelitzia run --with-discover           # Also crawl the job boards (discovery is off by default)
-strelitzia run --workers 4               # Parallel discovery/enrichment
-strelitzia run --stream                  # Concurrent stages (streaming mode)
-strelitzia run --dry-run                 # Preview without executing
-strelitzia run score --limit 20          # Score at most N jobs (a Message Batch; each score is saved as it arrives)
-strelitzia run score --sync              # One request per job: full price, no batch wait
-strelitzia run extract --limit 100       # Parse N postings into structured fields (a Message Batch; stops at the budget)
-strelitzia run extract --limit 3 --sync  # Parse a few postings right away
-strelitzia classify                      # Keyword role category / work mode / location for jobs not yet extracted (no LLM)
-strelitzia template init                 # Create resume_fixed.yaml + resume_template.html from resume.txt
-strelitzia template preview              # Render your base resume through the template (template_preview.pdf)
-strelitzia workbench packet <key>        # Print a job's full Claude packet (posting, qualifications, rules, library)
-strelitzia workbench import <key> <file> # Check a Claude reply and save it as the job's next draft (PDF, DOCX, letter)
-strelitzia run score --reset-errors      # Re-queue jobs whose scoring failed with an LLM error
-strelitzia run score --no-prefilter      # Also LLM-score jobs whose title shares no word with your queries/target role
-strelitzia discover --probe              # Check each job board (ok/empty/blocked/error) in seconds, no DB writes
-strelitzia drive auth [--no-browser]     # Sign in to Google Drive (see "Google Drive file library")
-strelitzia drive sync [--keep-local]     # Move tailored resume/cover letter PDFs to Drive, save links in the DB
-strelitzia drive links [--csv FILE]      # List each job's Drive links
-strelitzia status                        # Pipeline statistics
+strelitzia init                          # First-time server setup wizard (the owner's resume, profile, API key)
+strelitzia doctor                        # Check the database, sign-in and Drive keys, Claude key, models and spend
+strelitzia serve [--port 8765]           # Dashboard API + UI at /app/
 strelitzia db migrate [--from F --to URL]  # Copy the SQLite jobs into Postgres (rerunnable)
 strelitzia db verify  [--from F --to URL]  # Compare counts between the two
-strelitzia dashboard                     # Open the static HTML report
-strelitzia serve [--port 8765]           # Dashboard API + UI at /app/
+strelitzia users list                    # Every account: role, status, cap, spend this month, last sign-in
+strelitzia users invite <email> [--cap 5]  # Let an email sign in (monthly Claude cap in USD, default 5)
+strelitzia users cap <email> <usd>       # Change an account's monthly cap (the owner has none)
+strelitzia users disable <email>         # Stop an account from signing in (its data stays)
 ```
 
 ---
@@ -403,8 +393,8 @@ grep -ri "<your email or name>" tests/data          # expect no matches
 3. Run `scripts/validate.sh --full`.
 4. Open a PR: one change per PR, CI must pass.
 
-**Adding a Workday employer:** add an entry to `config/employers.yaml`, test with `strelitzia discover --employer "Name"`.
-**Adding a career site:** add an entry to `config/sites.yaml` with CSS selectors, test with `strelitzia discover --site "Name"`.
+**Adding a Workday employer:** add an entry to `config/employers.yaml`, with a test in `tests/`.
+**Adding a career site:** add an entry to `config/sites.yaml` with CSS selectors, with a test in `tests/`.
 
 ### Planned work and AI agents
 
