@@ -89,6 +89,7 @@ def test_smartextract_judge_does_not_swallow_stop(judge):
 
 
 def test_pipeline_wrapper_reports_budget_stop():
+    init_db()  # the pipeline's start does this; _run_score lists the users with jobs
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={"stopped": "budget"}):
         assert pipeline._run_score() == {"status": pipeline.BUDGET_STOPPED}
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={"scored": 1}):
@@ -104,3 +105,20 @@ def test_streaming_stage_does_not_rerun_after_budget_stop():
         pipeline._run_stage_streaming("score", tracker, MagicMock(is_set=MagicMock(return_value=False)))
     assert runner.call_count == 1
     assert tracker.get_results()["score"]["status"] == pipeline.BUDGET_STOPPED
+
+
+def test_pipeline_scores_every_user_and_one_capped_user_does_not_stop_the_stage(tmp_path, monkeypatch):
+    from strelitzia import database, users
+
+    monkeypatch.setattr(database, "DB_PATH", tmp_path / "users.db")  # a second user's job must not leak
+    conn = init_db()
+    owner, alice = users.owner(conn).id, users.invite(conn, "alice-stop@example.com").id
+    conn.execute("INSERT INTO jobs (user_id, url) VALUES (?, 'https://x/job/a')", (alice,))
+    conn.commit()
+
+    def run(user_id=None, **kwargs):
+        return {"stopped": "budget"} if user_id == alice else {"scored": 1}
+
+    with patch("strelitzia.scoring.scorer.run_scoring", side_effect=run) as scoring:
+        assert pipeline._run_score() == {"status": "ok"}
+    assert [c.kwargs["user_id"] for c in scoring.call_args_list] == [owner, alice]

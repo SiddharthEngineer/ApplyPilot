@@ -391,3 +391,14 @@ def test_a_capped_user_is_skipped_in_a_sync_run_too(conn):
     stats = _run(conn, fake, mode="sync", limit=0)
     assert stats["extracted"] == 7 and "stopped" not in stats and _url(9) not in fake.calls
     assert conn.execute("SELECT extracted_at FROM jobs WHERE user_id = ?", (other,)).fetchone()[0] is None
+
+
+def test_when_every_user_is_capped_extraction_reports_a_budget_stop(conn):
+    _capped_user(conn)
+
+    def check(estimate, conn_, user_id=None):
+        raise LLMStopRun("budget", "Your monthly Claude cap is reached", user_id=user_id)
+
+    fake = FakeLLM()
+    stats = _run(conn, fake, budget_error=check)
+    assert fake.batches == [] and stats["stopped"] == "budget" and stats["requests"] == 0

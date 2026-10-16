@@ -79,10 +79,11 @@ def test_no_targets_filters_nothing():
 
 
 def test_cli_flag_reaches_scoring():
-    from strelitzia import pipeline
+    from strelitzia import pipeline, users
+    owner = users.owner(init_db()).id  # the pipeline's start creates the DB; only the owner has jobs
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=False)
-    rs.assert_called_once_with(prefilter=False)
+    rs.assert_called_once_with(prefilter=False, user_id=owner)
 
 
 def test_limit_caps_llm_calls_after_prefilter(tmp_path):
@@ -99,21 +100,23 @@ def test_limit_caps_llm_calls_after_prefilter(tmp_path):
 
 
 def test_limit_reaches_scoring():
-    from strelitzia import pipeline
+    from strelitzia import pipeline, users
+    owner = users.owner(init_db()).id
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=True, limit=2)
-    rs.assert_called_once_with(prefilter=True, limit=2)
+    rs.assert_called_once_with(prefilter=True, limit=2, user_id=owner)
 
 
 def test_sync_flag_reaches_score_and_extract():
     from typer.testing import CliRunner
 
-    from strelitzia import pipeline
+    from strelitzia import pipeline, users
     from strelitzia.cli import app
 
+    owner = users.owner(init_db()).id
     with patch("strelitzia.scoring.scorer.run_scoring", return_value={}) as rs:
         pipeline._run_score(prefilter=True, sync=True)
-    rs.assert_called_once_with(prefilter=True, mode="sync")
+    rs.assert_called_once_with(prefilter=True, mode="sync", user_id=owner)
     with patch("strelitzia.enrichment.classify.run_classify"), \
             patch("strelitzia.enrichment.extract.run_extraction", return_value={}) as rx:
         pipeline._run_extract(limit=3, sync=True)
