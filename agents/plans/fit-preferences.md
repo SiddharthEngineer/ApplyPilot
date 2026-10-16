@@ -179,7 +179,7 @@ dashboard/src/components/Filters.tsx (modify), dashboard/src/components/JobsTabl
   record the numbers in this plan's Decisions.
 **Validate:** `pytest tests/test_eval_fit.py -q` → `sample` writes the CSV header and N rows spread across categories, `run` on a
 labelled fixture prints one row per model/effort with Spearman, good-in-top-10 and cost per 1,000; `scripts/validate.sh` green.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit). `run` also prints the pick (cheapest within 0.05 of the best); `--labels` defaults to `~/.strelitzia/eval/fit_labels.csv`. Eval spend is recorded as `scoring` in `llm_usage`.
 
 ## Validation
 - `scripts/validate.sh --full` passes.
