@@ -7,15 +7,33 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 ## Active
 
-None. R18 and R20-R24 are merged and archived (2026-10-16); what is left of them is manual steps M17, M18 and M20-M24.
+R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a time, merging after green CI (`AGENT_MERGE_POLICY=all`, user 2026-10-16). #19 is the user's, after the chain.
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
+| R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | ⏳ | - |
+| R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | ⏳ | R25 |
+| R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ⏳ | R26 |
+| R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | ⏳ | R27 |
+| R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | ⏳ | R28 |
+| R30 | Users 6: connect Drive per user (#47) | [user-auth-6-drive](plans/user-auth-6-drive.md) | review | ⏳ | R29 |
+| R31 | Users 7: sign-in screens, Users admin page (#47) | [user-auth-7-dashboard](plans/user-auth-7-dashboard.md) | review | ⏳ | R30 |
+| R32 | Users 8: admin-only CLI (#47) | [user-auth-8-cli](plans/user-auth-8-cli.md) | review | ⏳ | R31 |
+| R33 | Contact form with separate fields (#49) | [contact-form](plans/contact-form.md) | review | ⏳ | R32 |
+| R34 | Rescore all jobs (#45) | [rescore-all](plans/rescore-all.md) | review | ⏳ | R33 |
+| R35 | Profile 1: per-user profile in the DB (#48) | [profile-1-store](plans/profile-1-store.md) | review | ⏳ | R34 |
+| R36 | Profile 2: Profile page, resume parsing (#48) | [profile-2-page](plans/profile-2-page.md) | review | ⏳ | R35 |
+| R37 | Prefs cleanup 1: qualification rules, fixed weights (#46) | [prefs-cleanup-1-scoring](plans/prefs-cleanup-1-scoring.md) | review | ⏳ | R36 |
+| R38 | Prefs cleanup 2: job fields and role map (#46) | [prefs-cleanup-2-roles](plans/prefs-cleanup-2-roles.md) | review | ⏳ | R37 |
+| R39 | Prefs cleanup 3: regrouped Preferences page (#46) | [prefs-cleanup-3-page](plans/prefs-cleanup-3-page.md) | review | ⏳ | R38 |
 
 ## Manual steps (you)
 
 | ID | Step | Done |
 |---|---|---|
+| M25 | For R29/R30 (Google sign-in, Drive per user): in the **same** Google Cloud project as the Drive desktop client, publish the consent screen (scopes openid, email, profile, drive.file; no logo), create a Web OAuth client with redirect URIs `/app/api/auth/callback` and `/app/api/drive/callback` on `strelitzia` and `strelitzia-preprod.engineerfamily.net`, then put `STRELITZIA_GOOGLE_CLIENT_ID`, `_GOOGLE_CLIENT_SECRET`, `_OWNER_EMAIL`, `_PUBLIC_URL`, `_SESSION_SECRET`, `_TOKEN_KEY` in `~/.strelitzia/.env` (and auth-only keys with their own secrets in `~/.strelitzia-preprod/.env`). Login stays off until the client id is set. Covers M17's consent-screen part. | ☐ |
+| M26 | After R31: engineerfamily PR to drop nginx basic auth on prod `strelitzia` (keep it on preprod), deploy via the VPS make targets. | ☐ |
+| M27 | After R39: deploy prod (`make -C ~/src/engineerfamily strelitzia-deploy`). The R25 migration rewrites the jobs primary key on first start: take a `pg_dump` of `applypilot` first. Then sign in, invite a test account, and run the human test steps of R29-R39 on prod. | ☐ |
 | M2 | Obsolete (2026-10-16): discovery is off by default (R22) and jobs come in by manual upload. Decide whether to pay for a residential proxy. Without one, Glassdoor and ZipRecruiter stay disabled (Cloudflare 403). | ☑ |
 | M3 | Obsolete: replaced by M19, and the backlog was pruned on 2026-10-15. `strelitzia run score --reset-errors`, then `strelitzia run score`, to re-score jobs stuck at 0 (may take more than one day on the free tier). | ☑ |
 | M5 | Obsolete: R18 removed auto-apply (applications are tracked by hand in the dashboard). | ☑ |
