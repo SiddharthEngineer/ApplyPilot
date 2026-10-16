@@ -263,3 +263,41 @@ def test_budget_stop_holds_a_user_to_their_cap(conn):
     assert e.value.status_code == 402 and e.value.detail["month_spend"] == 4.5  # alice's own spend
     assert "your cap of $5.00" in e.value.detail["message"]
     budget_stop(conn, users.owner(conn).id, 1.0)  # the owner has no cap
+
+
+def test_rescore_all_preview_and_queue(client, conn):
+    conn.execute("UPDATE jobs SET user_status = 'rejected' WHERE url = ?", (URLS[2],))
+    add_extracted_job(conn, "https://e.com/unextracted", job_key=job_key("https://e.com/unextracted"),
+                      details_json=None)
+    conn.commit()
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        preview = client.get("/app/api/rescore/preview").json()
+        assert preview == {"jobs": 2, "skipped_unextracted": 1, "estimated_usd": 0.01}  # assessments are current
+        assert client.post("/app/api/rescore", json={}).status_code == 400
+        assert conn.execute("SELECT COUNT(*) FROM dashboard_tasks").fetchone()[0] == 0
+        r = client.post("/app/api/rescore", json={"confirm": True})
+    task = r.json()["task"]
+    assert r.status_code == 200 and task["kind"] == "rescore_all" and task["url"] is None
+    assert client.get(f"/app/api/tasks/{task['id']}").json()["state"] == "queued"
+
+
+def test_rescore_all_over_the_cap_returns_402_and_queues_nothing(client, conn, monkeypatch):
+    monkeypatch.setenv("LLM_MONTHLY_BUDGET_USD", "5")
+    _spend(conn, 4.99)
+    with patch.object(scorer, "estimate_cost", return_value=0.40):
+        r = client.post("/app/api/rescore", json={"confirm": True})
+    assert r.status_code == 402 and r.json()["detail"]["estimated_usd"] == 0.4
+    assert conn.execute("SELECT COUNT(*) FROM dashboard_tasks").fetchone()[0] == 0
+
+
+def test_preferences_reassess_scope_active(client, conn):
+    prefs = _prefs(client, salary=SALARY_DEALBREAKER)  # changes no assessment input: nothing is stale
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        stale = client.post("/app/api/preferences/preview", json={"prefs": prefs}).json()
+        active = client.post("/app/api/preferences/preview", json={"prefs": prefs, "reassess_scope": "active"}).json()
+        assert stale["jobs_to_reassess"] == 0 and active["jobs_to_reassess"] == 3 and active["reassess_needed"]
+        assert client.put("/app/api/preferences", json={"prefs": prefs, "confirm_reassess": True}).json()["task"] is None
+        task = client.put("/app/api/preferences", json={"prefs": prefs, "confirm_reassess": True,
+                                                        "reassess_scope": "active"}).json()["task"]
+    assert task["kind"] == "rescore_all"
+    assert client.put("/app/api/preferences", json={"prefs": prefs, "reassess_scope": "all"}).status_code == 422
