@@ -29,6 +29,7 @@ const RESPONSE: PreferencesResponse = {
     seniority: ['entry', 'mid', 'senior'], employment_type: ['full_time', 'contract'],
     salary_period: ['year', 'month', 'hour'],
     importance: ['dont_care', 'nice', 'important', 'very_important', 'dealbreaker'],
+    roles_by_field: { data_engineering: ['Data Engineer', 'Analytics Engineer'], other: [] },
     red_flags: [{ value: 'mostly_sales', label: 'Mostly sales', help: 'the role is mainly selling despite its title' }],
   },
   labels: {
@@ -145,7 +146,7 @@ describe('PreferencesPage', () => {
   it('can save without re-assessing, or cancel', async () => {
     vi.mocked(api.previewPreferences).mockResolvedValue({ reassess_needed: true, jobs_to_reassess: 3, estimated_usd: 0.001 });
     const user = renderPage();
-    await user.type(await screen.findByLabelText('Target roles'), 'Data Engineer{Enter}');
+    await user.type(await screen.findByLabelText('Add other role'), 'Data Engineer{Enter}');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('under $0.01');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -172,6 +173,9 @@ describe('PreferencesPage', () => {
   it('chips and toggles edit set values', async () => {
     const user = renderPage();
     await user.click(await screen.findByRole('button', { name: 'Data Engineering' }));
+    // Choosing a field offers its roles.
+    await user.click(within(screen.getByRole('group', { name: 'Data Engineering roles' }))
+      .getByRole('button', { name: 'Analytics Engineer' }));
     await user.click(within(screen.getByRole('group', { name: 'Work modes' })).getByRole('button', { name: 'Remote' }));
     await user.click(screen.getByText('Role requirements'));
     await user.click(screen.getByRole('checkbox', { name: 'I need visa sponsorship' }));
@@ -179,6 +183,7 @@ describe('PreferencesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     const sent = vi.mocked(api.previewPreferences).mock.calls[0][0];
     expect(sent.role_category.value).toEqual(['data_engineering']);
+    expect(sent.target_roles).toEqual(['Analytics Engineer']);
     expect(sent.work_mode.value).toEqual(['remote']);
     expect(sent.visa.value).toBe(true);
   });

@@ -39,7 +39,7 @@ Profile page: "Your experience, education and skills are on your Profile."
 **What:** `RolePicker({fields, rolesByField, value, onChange})`: chips grouped by selected field, ticked when in `value`, and a
 text box that adds a custom role on Enter. Custom roles show as removable chips. Rebuild the bundle.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

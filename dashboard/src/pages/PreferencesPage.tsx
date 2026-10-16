@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import Flower from '../components/Flower';
+import RolePicker from '../components/RolePicker';
 import { Group, TagInput } from '../components/FormParts';
 import TaskProgress from '../components/TaskProgress';
 import { humanize, IMPORTANCE_LABELS, IMPORTANCES, roleLabel, usd, WORK_MODE_LABELS } from '../labels';
@@ -88,6 +89,7 @@ export default function PreferencesPage() {
 
   const label = (key: string) => data.labels[key] ?? humanize(key);
   const options = (key: string) => (data.options[key] ?? []) as string[];
+  const rolesByField = (data.options.roles_by_field ?? {}) as Record<string, string[]>;
   const redFlags = (data.options.red_flags ?? []) as RedFlagOption[];
   const dirty = JSON.stringify(prefs) !== saved;
 
@@ -189,7 +191,11 @@ export default function PreferencesPage() {
       <Group title="Basics">
         {row('role_category', <Chips label="Job fields" options={options('role_category')}
           selected={prefs.role_category.value} format={roleLabel} onChange={(v) => setValue('role_category', v)} />)}
-        {listRow('target_roles', 'Target roles', 'e.g. Data Engineer')}
+        <div className="pref-row">
+          <div className="pref-label">Target roles</div>
+          <div className="pref-value"><RolePicker fields={prefs.role_category.value} rolesByField={rolesByField}
+            value={prefs.target_roles} onChange={(v) => setList('target_roles', v)} /></div>
+        </div>
         {row('salary', (
           <div className="inline-inputs">
             <input type="number" min={0} step={1000} aria-label="Minimum salary" placeholder="Minimum"
