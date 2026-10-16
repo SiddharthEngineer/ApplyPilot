@@ -2,11 +2,12 @@
 """Risk gate: may this branch merge to trunk without human review?
 
 Usage: python scripts/agent/gate.py <plan.md> [--base origin/trunk]
-       python scripts/agent/gate.py <plan.md> --plan   (no git: checks the plan's **Files:** lines, for /plan)
+       python scripts/agent/gate.py <plan.md> --plan   (no git: checks the plan's **Files:** lines and size, for /plan)
 
 The plan declares `**Risk:** low` or `**Risk:** review` (set with the user in /plan). A `low` plan still goes to
 review if the diff touches a high-risk path, is larger than the budget, or weakens tests. Prints JSON
 {"tier": "low"|"review", "reasons": [...]} and exits 0 for low, 1 for review, 2 on usage errors.
+`--plan` also prints "split": reasons the plan is over the size budget (empty when it fits). It doesn't change the tier.
 Standard library only.
 """
 
@@ -43,6 +44,12 @@ HIGH_RISK = [
 # Changed lines outside docs and tests that a low-risk change may have.
 CODE_LINE_BUDGET = 250
 DOC_OR_TEST = ["*.md", "agents/*", ".claude/commands/*", ".claude/agents/*", "tests/*"]
+
+# One plan = one unattended run. Past runs: plans touching <=14 files took 19-73 turns; 22-49 files took 100-180 turns
+# and most of a 5-hour usage window. Over any of these, /plan splits the plan into smaller ones.
+PLAN_FILE_BUDGET = 12
+PLAN_TASK_BUDGET = 4
+PLAN_BYTE_BUDGET = 10_000
 
 # Lines in a diff of tests/ that mean a test was weakened rather than added.
 WEAKENING = [
@@ -93,10 +100,25 @@ def planned_files(plan: Path) -> list[str]:
     return files
 
 
+def split_reasons(plan: Path, files: list[str]) -> list[str]:
+    text = plan.read_text()
+    tasks = len(re.findall(r"^### Task\b", text, re.MULTILINE))
+    size = len(text.encode())
+    reasons = []
+    if len(files) > PLAN_FILE_BUDGET:
+        reasons.append(f"{len(files)} planned files > budget {PLAN_FILE_BUDGET}")
+    if tasks > PLAN_TASK_BUDGET:
+        reasons.append(f"{tasks} tasks > budget {PLAN_TASK_BUDGET}")
+    if size > PLAN_BYTE_BUDGET:
+        reasons.append(f"{size} bytes > budget {PLAN_BYTE_BUDGET}")
+    return reasons
+
+
 def evaluate_plan(plan: Path) -> dict:
+    files = planned_files(plan)
     reasons = risk_reasons(plan)
-    reasons += [f"touches high-risk path {path}" for path in planned_files(plan) if matches(path, HIGH_RISK)]
-    return {"tier": "review" if reasons else "low", "reasons": reasons}
+    reasons += [f"touches high-risk path {path}" for path in files if matches(path, HIGH_RISK)]
+    return {"tier": "review" if reasons else "low", "reasons": reasons, "split": split_reasons(plan, files)}
 
 
 def evaluate(plan: Path, base: str) -> dict:

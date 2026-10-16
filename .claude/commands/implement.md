@@ -7,6 +7,14 @@ argument-hint: <agents/plans/<slug>.md> [--unattended]
 
 ## 0. Orient (keep it cheap)
 - Read the plan in full. Read only the files its **Context** and **Files** name, plus whatever you discover you need.
+- Everything you read stays in context and is re-sent on every later turn, so read narrowly:
+  - Locate with `grep -n`, then read the line range (Read with `offset`/`limit`, or `sed -n 120,180p`). Read a whole file
+    only when it's under ~150 lines or you're about to rewrite most of it. Never `cat` several source files in one command.
+  - Don't re-read a file you've already read or just edited; the Edit result is enough.
+  - Trim command output: `pytest -q -x … 2>&1 | tail -n 40`, `git diff --stat` before a full `git diff`, `| head` on listings.
+  - For a broad question ("where is X used", "how does the dashboard call this endpoint"), use the Agent tool with
+    `subagent_type: "Explore"` and `model: "opus"`, and ask for file:line answers. It reads in its own context and
+    returns only the summary.
 - `git status && git log --oneline -10`. If commits for some tasks already exist (a previous attempt), continue from
   the first task that isn't done, and don't redo work.
 - First run in a fresh worktree: `scripts/validate.sh --setup` (creates `.venv`). After that: `scripts/validate.sh`.

@@ -9,8 +9,8 @@
 #    AGENT_MAX_SESSION_USAGE (default 70%) the queue pauses until the 5-hour window resets.
 # 3. The agent runs `/implement <plan> --unattended` in its own worktree on branch agent/<slug>, validates,
 #    pushes and opens a PR, then writes a result file. It cannot merge.
-#    After you answer its question, the next run resumes that agent's session (`--resume <session_id>`),
-#    falling back to a fresh run if Claude can't find the session.
+#    After you answer its question, or after a run stopped at the usage limit, the next run resumes that agent's
+#    session (`--resume <session_id>`), falling back to a fresh run if Claude can't find the session.
 # 4. This script decides the merge: gate.py (plan risk + diff checks) and green CI → rebase-merge;
 #    otherwise the PR waits for preprod (preprod.sh) and you.
 #    AGENT_MERGE_POLICY=all (env file) merges every ready PR after green CI, whatever its tier, merges PRs already
@@ -28,6 +28,9 @@ STATE=${STRELITZIA_AGENT_STATE:-$HOME/.local/state/strelitzia-agent}
 GH_REPO=${GH_REPO:-SiddharthEngineer/Strelitzia}
 MAX_RUNTIME=${AGENT_MAX_RUNTIME:-3h}
 MERGE_POLICY=${AGENT_MERGE_POLICY:-gate}
+# Opus has a 1M-token window, so long runs never auto-compacted and re-sent 250-380k tokens of context every turn.
+# Compact at 200k instead (AGENT_COMPACT_WINDOW in the env file overrides it).
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=${AGENT_COMPACT_WINDOW:-200000}
 export STRELITZIA_AGENT_STATE=$STATE GH_REPO
 mkdir -p "$STATE/logs" "$STATE/results" "$STATE/worktrees"
 Q=(python3 "$HERE/buildqueue.py")
@@ -116,9 +119,10 @@ prompt="/implement agents/plans/$slug.md --unattended
 Result file: $result
 Notes from the queue (including the user's answers to earlier questions): $notes"
 
-# After an answer (`resume=1`), resume the session that asked instead of rebuilding its context.
+# After an answer (`resume=1`) or a usage-limit stop (`resume=limit`), resume that session instead of rebuilding its context.
 resume_id=
-[ "$("${Q[@]}" get "$slug" resume 2>/dev/null)" = 1 ] && resume_id=$("${Q[@]}" get "$slug" session_id 2>/dev/null)
+resume_why=$("${Q[@]}" get "$slug" resume 2>/dev/null)
+case $resume_why in 1|limit) resume_id=$("${Q[@]}" get "$slug" session_id 2>/dev/null) ;; esac
 
 # run_claude <prompt> [extra claude args]: one agent run in the worktree, appended to $log.
 run_claude() {
@@ -137,10 +141,14 @@ run_claude() {
 
 : > "$log"
 if [ -n "$resume_id" ]; then
-    answer=$(echo "$notes" | python3 -c 'import json,sys; n=json.load(sys.stdin); print(n[-1] if n else "")' 2>/dev/null)
-    say "$slug: run start, resuming session $resume_id (log $log)"
+    if [ "$resume_why" = limit ]; then
+        opener="Your previous run was stopped by the Claude usage limit. The work you committed or left in the worktree is still there."
+    else
+        opener="The user answered your question. $(echo "$notes" | python3 -c 'import json,sys; n=json.load(sys.stdin); print(n[-1] if n else "")' 2>/dev/null)"
+    fi
+    say "$slug: run start, resuming session $resume_id ($resume_why) (log $log)"
     echo "claude -p --resume $resume_id" >> "$log"
-    run_claude "The user answered your question. $answer
+    run_claude "$opener
 
 Result file: $result
 All queue notes: $notes
@@ -178,9 +186,11 @@ say "$slug: claude exit $code"
 if [ ! -f "$result" ] && grep -qiE 'usage limit|rate.limit|limit reached' "$log"; then
     attempts=$("${Q[@]}" get "$slug" attempts)
     "${Q[@]}" set "$slug" status=queued "attempts=$((attempts - 1))"
+    # Resume this session next time instead of redoing its work. An answer resume keeps `resume=1` (same session either way).
+    [ -n "$session_id" ] && [ "$resume_why" != 1 ] && "${Q[@]}" set "$slug" resume=limit
     "${Q[@]}" pause 5 >> "$STATE/runs.log"
     say "$slug: usage limit hit, queue paused 5h"
-    exit 0  # keeps `resume`, so the next tick resumes again
+    exit 0
 fi
 "${Q[@]}" unset "$slug" resume
 

@@ -216,7 +216,14 @@ def test_gate_plan_low_listing_high_risk_file_needs_review(tmp_path):
 
 def test_gate_plan_low_listing_tests_and_docs_stays_low(tmp_path):
     code, verdict = plan_gate(tmp_path, "tests/test_x.py (new), docs/notes.md (modify), `README.md` (modify)")
-    assert (code, verdict) == (0, {"tier": "low", "reasons": []})
+    assert (code, verdict) == (0, {"tier": "low", "reasons": [], "split": []})
+
+
+def test_gate_plan_over_size_budget_says_split_without_changing_tier(tmp_path):
+    files = ", ".join(f"tests/test_{i}.py (new)" for i in range(13))
+    code, verdict = plan_gate(tmp_path, files)
+    assert (code, verdict["tier"]) == (0, "low")
+    assert verdict["split"] == ["13 planned files > budget 12"]
 
 
 def test_planned_files_strips_suffixes_across_tasks(tmp_path):
