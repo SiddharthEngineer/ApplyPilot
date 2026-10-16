@@ -1,5 +1,5 @@
 # Plan: User accounts, part 4: contacts, tracking, workbench and panel per user
-**Status:** ❌ Not started
+**Status:** ✅ Done (2026-10-16)
 **Risk:** review (data isolation)
 **Issue:** #47
 **Depends on:** user-auth-3-scoring
