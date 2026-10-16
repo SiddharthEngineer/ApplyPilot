@@ -148,9 +148,9 @@ def test_recompute_only_the_given_urls(conn):
     add_extracted_job(conn, "https://e.com/2")
     _assess(conn, "https://e.com/1", reply(skills=5))
     _assess(conn, "https://e.com/2", reply(skills=5))
-    assert recompute_fit(conn, ["https://e.com/2"]) == 1
+    assert recompute_fit(conn, urls=["https://e.com/2"]) == 1
     assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == 100
-    assert recompute_fit(conn, []) == 0
+    assert recompute_fit(conn, urls=[]) == 0
 
 
 def test_migration_scales_old_scores(tmp_path):
@@ -249,3 +249,29 @@ def test_preferences_saved_during_a_run_win(conn, tmp_path):
 
     _run(conn, tmp_path, chat)
     assert _fit(conn, "https://e.com/1")[2] == ["salary"]
+
+
+def test_scoring_selects_and_ranks_only_the_users_jobs(conn):
+    from strelitzia import users
+
+    owner, alice = users.owner(conn).id, users.invite(conn, "alice@example.com").id
+    add_extracted_job(conn, "https://e.com/1")
+    add_extracted_job(conn, "https://e.com/1", user_id=alice)  # the same posting, tracked by both
+    add_extracted_job(conn, "https://e.com/2", user_id=alice)
+    for user in (owner, alice):
+        conn.execute("UPDATE jobs SET fit_assessment = ?, assessment_hash = '1:h' WHERE user_id = ?",
+                     (json.dumps(parse_assessment(reply(skills=5))), user))
+    conn.commit()
+    save_preferences(conn, Preferences.from_dict({"salary": {"importance": "dealbreaker", "value": {"min": 200000}}}),
+                     user_id=alice)
+    assert recompute_fit(conn, alice) == 2
+    flags = dict(conn.execute("SELECT user_id, fit_flags FROM jobs WHERE url = 'https://e.com/1'").fetchall())
+    assert flags == {owner: None, alice: '["salary"]'}  # alice's preferences, on alice's rows only
+
+    assert {j["url"] for j in scorer._select_jobs(conn, alice, "1:new", 0, False, True, None)} == \
+        {"https://e.com/1", "https://e.com/2"}
+    assert [j["user_id"] for j in scorer._select_jobs(conn, owner, "1:new", 0, False, True, None)] == [owner]
+    assert [j["user_id"] for j in scorer._select_jobs(conn, owner, "", 0, False, False, ["https://e.com/1"])] == \
+        [owner]
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        assert scorer.reassess_preview(conn, owner, Preferences(skills_want=["Rust"]))["jobs_to_reassess"] == 1

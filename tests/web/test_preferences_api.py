@@ -222,3 +222,25 @@ def test_preview_leaves_out_titles_the_prefilter_skips(client, conn):
 def test_a_reassessment_with_some_errors_still_succeeds():
     with patch.object(scorer, "run_scoring", return_value={"scored": 99, "errors": 1}):
         tasks.generate_for_job("u1", None, "reassess_all")
+
+
+def test_saving_preferences_reranks_none_of_another_users_jobs(client, conn):
+    """The owner's save re-ranks, previews and re-assesses the owner's jobs only."""
+    from strelitzia import users
+
+    other = users.invite(conn, "b@example.com").id
+    add_extracted_job(conn, URLS[1], user_id=other, job_key=job_key(URLS[1]), posting=LOW_PAY,
+                      fit_assessment=json.dumps(parse_assessment(reply(skills=4))), assessment_hash="1:old")
+    recompute_fit(conn, other)
+    before = conn.execute("SELECT fit_score, fit_flags FROM jobs WHERE user_id = ?", (other,)).fetchone()[:]
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        preview = client.post("/app/api/preferences/preview", json={"prefs": _prefs(client, skills_want=["Rust"])})
+    assert preview.json()["jobs_to_reassess"] == 3  # not B's stale job
+    r = client.put("/app/api/preferences", json={"prefs": _prefs(client, salary=SALARY_DEALBREAKER)})
+    assert r.json()["rescored"] == 3
+    assert conn.execute("SELECT fit_score, fit_flags FROM jobs WHERE user_id = ?", (other,)).fetchone()[:] == before
+    assert before[1] is None  # B has no salary dealbreaker
+    assert Preferences.from_dict(json.loads(conn.execute(
+        "SELECT prefs_json FROM user_preferences WHERE user_id = ?", (users.owner(conn).id,)).fetchone()[0])).salary \
+        .importance == "dealbreaker"
+    assert conn.execute("SELECT 1 FROM user_preferences WHERE user_id = ?", (other,)).fetchone() is None

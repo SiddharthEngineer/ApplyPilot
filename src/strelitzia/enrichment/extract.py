@@ -20,7 +20,7 @@ from typing import Literal
 from strelitzia.database import PENDING_EXTRACT_WHERE, get_connection, get_jobs_by_stage
 from strelitzia.enrichment.posting_model import EXTRACT_VERSION, JobPosting, posting_schema
 from strelitzia.enrichment.posting_prompt import build_extract_prompt, format_posting, job_id
-from strelitzia.llm import LLMStopRun, check_budget, estimate_cost, get_client
+from strelitzia.llm import LLMStopRun, acting_for, check_budget, estimate_cost, get_client
 from strelitzia.llm_batch import resume_open_batches, run_batch
 
 log = logging.getLogger(__name__)
@@ -144,13 +144,25 @@ class _Results:
 
 
 def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str]:
-    """One request per job. Returns (requests, stopped)."""
+    """One request per job, billed to the job's user. Returns (requests, stopped).
+
+    A user over their monthly cap keeps their remaining jobs pending; the other users' jobs go on.
+    """
     requests = consecutive_failures = 0
+    capped: set[str] = set()
     for i, job in enumerate(jobs, 1):
+        if job["user_id"] in capped:
+            continue
         requests += 1
         try:
-            posting = extract_one(job, today)
+            with acting_for(job["user_id"]):
+                posting = extract_one(job, today)
         except LLMStopRun as e:
+            if e.user_id:
+                log.warning("Extraction skips the rest of a user's jobs: %s", e)
+                capped.add(e.user_id)
+                requests -= 1
+                continue
             log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
             return requests - 1, e.reason
         except Exception as e:  # noqa: BLE001 -- one bad request must not lose the run
@@ -169,24 +181,40 @@ def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str
 
 def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: float,
                stats: dict) -> tuple[int, str]:
-    """All jobs in Message Batches, after a cost estimate and budget check. Returns (requests, stopped)."""
+    """All jobs in Message Batches, one per user (billed to them), each after a cost estimate and budget check.
+
+    Returns (requests, stopped). A user over their monthly cap keeps their jobs pending; the other users' go on.
+    """
     client = get_client("extract")
-    items = [(_custom_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
-                                               schema=posting_schema())) for j in jobs]
-    try:
-        estimate = estimate_cost("extract", [params for _, params in items], batch=True)
-        stats["estimate_usd"] = estimate
-        log.info("Extracting %d job(s) in a batch: estimated cost $%.2f (%s).", len(jobs), estimate, client.model)
-        check_budget(estimate, results.conn)
-        batch = run_batch("extract", items, results.on_batch_result, poll_seconds=poll_seconds,
-                          estimate_usd=estimate, conn=results.conn)
-    except LLMStopRun as e:
-        log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
-        return 0, e.reason
-    if batch["succeeded"] == 0 and batch["errored"] >= _MAX_CONSECUTIVE_FAILURES:
+    by_user: dict[str, list[dict]] = {}
+    for j in jobs:
+        by_user.setdefault(j["user_id"], []).append(j)
+    requests = succeeded = errored = 0
+    stats["estimate_usd"] = 0.0
+    for user_id, user_jobs in by_user.items():
+        items = [(_custom_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
+                                                   schema=posting_schema())) for j in user_jobs]
+        try:
+            estimate = estimate_cost("extract", [params for _, params in items], batch=True)
+            stats["estimate_usd"] += estimate
+            log.info("Extracting %d job(s) in a batch: estimated cost $%.2f (%s).", len(items), estimate,
+                     client.model)
+            check_budget(estimate, results.conn, user_id)
+            batch = run_batch("extract", items, results.on_batch_result, poll_seconds=poll_seconds,
+                              estimate_usd=estimate, conn=results.conn, user_id=user_id)
+        except LLMStopRun as e:
+            if e.user_id:
+                log.warning("Extraction skips a user's %d job(s): %s", len(items), e)
+                continue
+            log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
+            return requests, e.reason
+        requests += len(items)
+        succeeded += batch["succeeded"]
+        errored += batch["errored"]
+    if requests and succeeded == 0 and errored >= _MAX_CONSECUTIVE_FAILURES:
         log.error("Every request in the extraction batch failed.")
-        return len(items), "errors"
-    return len(items), ""
+        return requests, "errors"
+    return requests, ""
 
 
 def run_extraction(limit: int | None = None, conn=None, mode: Literal["batch", "sync"] = "batch",

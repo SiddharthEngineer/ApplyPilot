@@ -292,6 +292,8 @@ def _ensure_tables(conn: Connection) -> None:
 
 # Tables migrate_users gives a user_id (with the owner as the default); user_preferences and llm_usage already have one.
 USER_TABLES = ("status_events", "dashboard_tasks", "contacts", "job_contacts", "interviews", "drafts", "panel_runs")
+# Message Batches belong to the user they were submitted for (one batch per user); older ones are the owner's.
+_OWNED_TABLES = ("llm_batches", *USER_TABLES)
 
 
 def _owner_id(conn: Connection) -> str:
@@ -379,7 +381,7 @@ def migrate_users(conn: Connection) -> None:
     sure the indexes exist. Never drops data.
     """
     owner_id = _owner_id(conn)
-    for table in USER_TABLES:
+    for table in _OWNED_TABLES:
         if "user_id" not in table_columns(conn, table):
             # The default fills existing rows and any insert that doesn't name a user yet.
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT DEFAULT '{owner_id}'")
@@ -398,7 +400,7 @@ def migrate_users(conn: Connection) -> None:
         if newest:
             conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (?, ?, ?)",
                          (owner_id, newest[0], newest[1]))
-    for table in ("jobs", "llm_usage", *USER_TABLES):
+    for table in ("jobs", "llm_usage", *_OWNED_TABLES):
         conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (owner_id,))
 
     conn.execute("DROP INDEX IF EXISTS idx_jobs_job_key")

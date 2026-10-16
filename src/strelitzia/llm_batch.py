@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import anthropic
 
-from strelitzia import llm
+from strelitzia import llm, users
 from strelitzia.llm import LLMResponseError, get_client, record_usage, response_text
 
 log = logging.getLogger(__name__)
@@ -75,18 +75,19 @@ def _wait(client: llm.LLMClient, batch_id: str, poll_seconds: float, wait: bool 
         _sleep(poll_seconds)
 
 
-def _collect(client: llm.LLMClient, purpose: str, batch_id: str, on_result: OnResult, stats: dict, conn) -> None:
+def _collect(client: llm.LLMClient, purpose: str, batch_id: str, on_result: OnResult, stats: dict, conn,
+             user_id: str | None = None) -> None:
     """Stream an ended batch's results to on_result (any order, keyed by custom_id) and record their usage.
 
     Usage rows are keyed by batch and custom_id, so a collection cut short and repeated doesn't count twice. They are
-    priced at the stage's model (the one the requests named).
+    priced at the stage's model (the one the requests named) and billed to the batch's user.
     """
     for item in client.sdk.messages.batches.results(batch_id):
         text, error = None, None
         result = item.result
         if result.type == "succeeded":
             stats["cost_usd"] += record_usage(purpose, client.model, result.message.usage, batch=True, conn=conn,
-                                              row_id=f"{batch_id}:{item.custom_id}")
+                                              row_id=f"{batch_id}:{item.custom_id}", user_id=user_id)
             try:
                 text = response_text(result.message)
             except LLMResponseError as e:
@@ -107,12 +108,13 @@ def _new_stats() -> dict:
 
 
 def run_batch(purpose: str, items: list[tuple[str, dict]], on_result: OnResult, poll_seconds: float = 30,
-              estimate_usd: float = 0.0, conn=None) -> dict:
+              estimate_usd: float = 0.0, conn=None, user_id: str | None = None) -> dict:
     """Submit `items` (custom_id, Messages API params) as Message Batches, wait for them, and deliver every result.
 
     Returns {"batches", "succeeded", "errored", "callback_errors", "cost_usd", "still_open"}. The caller checks the
     budget first; `estimate_usd` is stored with the batches so it counts against the budget until they're collected.
-    `conn` holds the llm_batches and llm_usage tables (default: the job store).
+    `conn` holds the llm_batches and llm_usage tables (default: the job store). Every item is for `user_id` (default:
+    the user `llm.acting_for` names, else the owner): the batches and their usage are billed to that user.
     """
     ids = [cid for cid, _ in items]
     bad = [cid for cid in ids if not CUSTOM_ID.match(cid)]
@@ -124,6 +126,7 @@ def run_batch(purpose: str, items: list[tuple[str, dict]], on_result: OnResult, 
     if not items:
         return stats
     conn = conn or llm._ledger_conn()
+    user_id = user_id or llm.current_user() or users.owner(conn).id
     client = get_client(purpose)
     batch_ids = []
     for chunk in _chunks(items):
@@ -133,9 +136,9 @@ def run_batch(purpose: str, items: list[tuple[str, dict]], on_result: OnResult, 
         except anthropic.APIError as e:
             raise llm._api_error(e) from e
         conn.execute(
-            "INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count, estimate_usd) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (batch.id, purpose, _now(), "submitted", len(chunk), estimate_usd * len(chunk) / len(items)),
+            "INSERT INTO llm_batches (id, purpose, submitted_at, status, request_count, estimate_usd, user_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (batch.id, purpose, _now(), "submitted", len(chunk), estimate_usd * len(chunk) / len(items), user_id),
         )
         conn.commit()
         log.info("Submitted %s batch %s (%d requests)", purpose, batch.id, len(chunk))
@@ -143,34 +146,38 @@ def run_batch(purpose: str, items: list[tuple[str, dict]], on_result: OnResult, 
     for batch_id in batch_ids:
         try:
             _wait(client, batch_id, poll_seconds)
-            _collect(client, purpose, batch_id, on_result, stats, conn)
+            _collect(client, purpose, batch_id, on_result, stats, conn, user_id)
         except anthropic.APIError as e:  # the batch stays open; the next run's resume_open_batches collects it
             raise llm._api_error(e) from e
         stats["batches"] += 1
     return stats
 
 
-def open_batches(purpose: str | None = None, conn=None) -> list[dict]:
-    """Batches submitted but not yet collected (all purposes when `purpose` is None), oldest first."""
+def open_batches(purpose: str | None = None, conn=None, user_id: str | None = None) -> list[dict]:
+    """Batches submitted but not yet collected (all purposes when `purpose` is None, all users when `user_id` is),
+    oldest first."""
     sql = "SELECT * FROM llm_batches WHERE status = 'submitted'"
-    params: tuple = ()
+    params: list = []
     if purpose is not None:
         sql += " AND purpose = ?"
-        params = (purpose,)
+        params.append(purpose)
+    if user_id is not None:
+        sql += " AND user_id = ?"
+        params.append(user_id)
     rows = (conn or llm._ledger_conn()).execute(sql + " ORDER BY submitted_at, id", params).fetchall()
     return [dict(r) for r in rows]
 
 
 def resume_open_batches(purpose: str, on_result: OnResult, poll_seconds: float = 30, wait: bool = True,
-                        conn=None) -> dict:
-    """Collect the `purpose` batches a killed run left open. Same stats as run_batch.
+                        conn=None, user_id: str | None = None) -> dict:
+    """Collect the `purpose` batches a killed run left open (only `user_id`'s, when given). Same stats as run_batch.
 
     With wait=False (sync runs), only batches that have already ended are collected; the rest are counted in
     "still_open" and left for a later run.
     """
     stats = _new_stats()
     conn = conn or llm._ledger_conn()
-    pending = open_batches(purpose, conn)
+    pending = open_batches(purpose, conn, user_id)
     if not pending:
         return stats
     client = get_client(purpose)
@@ -188,7 +195,7 @@ def resume_open_batches(purpose: str, on_result: OnResult, poll_seconds: float =
             stats["still_open"] += 1
             continue
         try:
-            _collect(client, purpose, row["id"], on_result, stats, conn)
+            _collect(client, purpose, row["id"], on_result, stats, conn, row.get("user_id"))
         except anthropic.APIError as e:
             raise llm._api_error(e) from e
         stats["batches"] += 1

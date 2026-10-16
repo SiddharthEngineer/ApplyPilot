@@ -75,7 +75,7 @@ class FakeLLM:
             raise self.fail_calls[n]
         return json.dumps(_posting(**self.overrides.get(url, {})))
 
-    def run_batch(self, purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None):
+    def run_batch(self, purpose, items, on_result, poll_seconds=30, estimate_usd=0.0, conn=None, user_id=None):
         assert purpose == "extract"
         self.batches.append(items)
         for cid, _ in reversed(items):  # any order
@@ -332,8 +332,10 @@ def test_two_users_rows_for_one_posting_are_extracted_separately(conn):
     b_cid = f"{job_id({'url': _url(2)})}-{other}"
     fake = FakeLLM(batch_errors={b_cid: "expired"})
     stats = _run(conn, fake)
-    cids = [cid for cid, _ in fake.batches[0]]
-    assert len(cids) == len(set(cids)) == 8 and b_cid in cids and _cid(conn, 2) in cids
+    # One batch per user, so each is billed to its user.
+    assert len(fake.batches) == 2 and [[cid for cid, _ in b] for b in fake.batches if b_cid in dict(b)] == [[b_cid]]
+    cids = [cid for batch in fake.batches for cid, _ in batch]
+    assert len(cids) == len(set(cids)) == 8 and _cid(conn, 2) in cids
     assert stats["extracted"] == 7 and stats["errors"] == 1
 
     def row(user_id):

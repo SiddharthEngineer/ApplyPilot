@@ -37,7 +37,7 @@ the same budget-stop error the global budget gives today, and other users are un
 `(user_id, url)`. The preferences routes use `current_user(request).id`.
 **Validate:** `pytest tests/test_assessment.py tests/test_scoring_prefilter.py tests/web/test_preferences_api.py -q` → passes;
 saving user A's preferences re-ranks none of user B's jobs.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (also tags `llm_batches` with their user, one batch per user incl. extraction, since collecting a user's open scoring batches needs it; `recompute_fit(conn, user_id=None, urls=None, prefs=None)`, None = the owner)
 
 ### Task 3: usage per user and the cap
 **Runs:** unattended
