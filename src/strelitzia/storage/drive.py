@@ -117,6 +117,149 @@ def authorize(client_secret: Path, port: int = 8765, open_browser: bool = True) 
     return config.GOOGLE_TOKEN_PATH
 
 
+# -- Per-user tokens (the dashboard's Connect Google Drive) --------------------
+
+CONNECT_HINT = "Connect Google Drive on the Claude setup page"
+TOKEN_KEY_HINT = "STRELITZIA_TOKEN_KEY isn't set (a Fernet key, see agents/DEPLOY.md)"
+LEGACY_IMPORT_STATE = "drive_legacy_token_imported"
+
+
+def _fernet():
+    """The Fernet cipher for stored tokens, or None without STRELITZIA_TOKEN_KEY."""
+    key = config.env("TOKEN_KEY")
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+    try:
+        return Fernet(key.encode())
+    except ValueError as e:
+        raise DriveNotConfigured("STRELITZIA_TOKEN_KEY isn't a valid Fernet key") from e
+
+
+def save_user_token(conn, user_id: str, creds, *, refreshed: bool = False) -> None:
+    """Store the user's OAuth credentials, encrypted. Refuses (DriveNotConfigured) without TOKEN_KEY.
+
+    A refreshed token keeps the original connected_at.
+    """
+    from datetime import datetime, timezone
+
+    fernet = _fernet()
+    if fernet is None:
+        raise DriveNotConfigured(TOKEN_KEY_HINT)
+    token_enc = fernet.encrypt(creds.to_json().encode("utf-8")).decode("ascii")
+    conn.execute(
+        "INSERT INTO user_drive (user_id, token_enc, connected_at) VALUES (?, ?, ?) "
+        "ON CONFLICT (user_id) DO UPDATE SET token_enc = excluded.token_enc"
+        + ("" if refreshed else ", connected_at = excluded.connected_at"),
+        (user_id, token_enc, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def _stored_token(conn, user_id: str) -> dict | None:
+    """The user's decrypted token info, or None when they haven't connected Drive."""
+    import json
+
+    from cryptography.fernet import InvalidToken
+
+    row = _stored_token_row(conn, user_id)
+    if row is None:
+        return None
+    fernet = _fernet()
+    if fernet is None:
+        raise DriveNotConfigured(TOKEN_KEY_HINT)
+    try:
+        return json.loads(fernet.decrypt(row[0].encode("ascii")))
+    except (InvalidToken, ValueError) as e:
+        raise DriveNotConfigured(f"The stored Google token can't be read (was TOKEN_KEY changed?). {CONNECT_HINT} "
+                                 "again.") from e
+
+
+def load_user_credentials(conn, user_id: str):
+    """The user's Drive credentials, refreshed (and re-saved) when expired. Raises DriveNotConfigured."""
+    if not drive_libraries_installed():
+        raise DriveNotConfigured(INSTALL_HINT)
+    from google.auth.exceptions import RefreshError
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+
+    info = _stored_token(conn, user_id)
+    if info is None:
+        raise DriveNotConfigured(f"Google Drive isn't connected. {CONNECT_HINT}.")
+    creds = Credentials.from_authorized_user_info(info, SCOPES)
+    if creds.valid:
+        return creds
+    if not (creds.expired and creds.refresh_token):
+        raise DriveNotConfigured(f"The Google token can't be refreshed. {CONNECT_HINT} again.")
+    try:
+        creds.refresh(Request())
+    except RefreshError as e:
+        raise DriveNotConfigured(f"Google Drive access expired or was revoked. {CONNECT_HINT} again.") from e
+    save_user_token(conn, user_id, creds, refreshed=True)
+    return creds
+
+
+def disconnect(conn, user_id: str) -> None:
+    """Forget the user's Drive token (their files stay in their Drive)."""
+    conn.execute("DELETE FROM user_drive WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+
+def user_drive_status(conn, user_id: str) -> tuple[str, str]:
+    """("not_installed" | "not_configured" | "not_authorized" | "authorized", detail) without touching the network."""
+    if not drive_libraries_installed():
+        return "not_installed", INSTALL_HINT
+    if not config.env("TOKEN_KEY"):
+        return "not_configured", TOKEN_KEY_HINT
+    row = conn.execute("SELECT connected_at FROM user_drive WHERE user_id = ? AND token_enc IS NOT NULL",
+                       (user_id,)).fetchone()
+    if not row:
+        return "not_authorized", CONNECT_HINT
+    return "authorized", f"Connected {str(row[0] or '')[:10]}".strip()
+
+
+def import_legacy_token(conn) -> bool:
+    """Once: give the owner the CLI's token file (GOOGLE_TOKEN_PATH) if they have no stored token. The file stays.
+
+    Waits (returns False without marking itself done) until TOKEN_KEY is set and the file exists.
+    """
+    import json
+
+    from strelitzia import users
+    from strelitzia.database import get_state, set_state
+
+    if get_state(conn, LEGACY_IMPORT_STATE) or not config.env("TOKEN_KEY") or not config.GOOGLE_TOKEN_PATH.exists():
+        return False
+    owner_id = users.owner(conn).id
+    imported = False
+    if _stored_token_row(conn, owner_id) is None:
+        try:
+            info = json.loads(config.GOOGLE_TOKEN_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            log.warning("Couldn't read the Google token file for the owner import: %s", type(e).__name__)
+            return False
+        save_user_token(conn, owner_id, _TokenJson(info))
+        imported = True
+    set_state(conn, LEGACY_IMPORT_STATE, "1")
+    conn.commit()
+    return imported
+
+
+def _stored_token_row(conn, user_id: str):
+    return conn.execute("SELECT token_enc FROM user_drive WHERE user_id = ? AND token_enc IS NOT NULL",
+                        (user_id,)).fetchone()
+
+
+@dataclass(frozen=True)
+class _TokenJson:
+    """Token info that is already in authorized-user JSON form (the CLI's token file)."""
+    info: dict
+
+    def to_json(self) -> str:
+        import json
+        return json.dumps(self.info)
+
+
 # -- Client ------------------------------------------------------------------
 
 def _pdf_media(path: Path):
@@ -144,6 +287,13 @@ class DriveClient:
     @classmethod
     def from_credentials(cls) -> DriveClient:
         creds = load_credentials()
+        from googleapiclient.discovery import build
+        return cls(build("drive", "v3", credentials=creds, cache_discovery=False))
+
+    @classmethod
+    def for_user(cls, conn, user_id: str) -> DriveClient:
+        """A client on the user's own Drive (their connected token). Raises DriveNotConfigured."""
+        creds = load_user_credentials(conn, user_id)
         from googleapiclient.discovery import build
         return cls(build("drive", "v3", credentials=creds, cache_discovery=False))
 

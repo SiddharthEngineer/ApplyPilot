@@ -133,3 +133,150 @@ def test_import_without_google_libraries():
         "import strelitzia.storage.drive as d; assert not d.drive_libraries_installed()"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# -- Per-user token store (user-auth-6-drive Task 1) ---------------------------
+
+@pytest.fixture
+def token_key(monkeypatch):
+    """A Fernet key, and the Drive library check passing (google-auth, all these tests need, is in the web extra)."""
+    from cryptography.fernet import Fernet
+
+    from strelitzia.storage import drive as drive_mod
+    monkeypatch.setattr(drive_mod, "drive_libraries_installed", lambda: True)
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+
+
+@pytest.fixture
+def conn(tmp_path):
+    from strelitzia.database import init_db
+    c = init_db(tmp_path / "t.db")
+    yield c
+    c.close()
+
+
+def _creds(expired: bool = False):
+    from datetime import datetime, timedelta, timezone
+
+    from google.oauth2.credentials import Credentials
+    expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=-1 if expired else 1)
+    return Credentials(token="access-secret", refresh_token="refresh-secret", token_uri="https://oauth2.googleapis.com/token",
+                       client_id="cid", client_secret="csecret", scopes=["https://www.googleapis.com/auth/drive.file"],
+                       expiry=expiry)
+
+
+def _stored(conn, user_id):
+    row = conn.execute("SELECT token_enc FROM user_drive WHERE user_id = ?", (user_id,)).fetchone()
+    return row[0] if row else None
+
+
+def test_user_token_is_encrypted_at_rest(conn, token_key):
+    from strelitzia.storage.drive import load_user_credentials, save_user_token, user_drive_status
+    save_user_token(conn, "u1", _creds())
+    stored = _stored(conn, "u1")
+    assert stored and "refresh_token" not in stored and "refresh-secret" not in stored and "access-secret" not in stored
+    creds = load_user_credentials(conn, "u1")
+    assert creds.refresh_token == "refresh-secret" and creds.token == "access-secret"
+    assert user_drive_status(conn, "u1")[0] == "authorized"
+    assert user_drive_status(conn, "u2") == ("not_authorized", "Connect Google Drive on the Claude setup page")
+
+
+def test_save_refuses_without_token_key(conn, monkeypatch):
+    from strelitzia.storage.drive import save_user_token, user_drive_status
+    monkeypatch.delenv("STRELITZIA_TOKEN_KEY", raising=False)
+    monkeypatch.delenv("APPLYPILOT_TOKEN_KEY", raising=False)
+    with pytest.raises(DriveNotConfigured, match="TOKEN_KEY"):
+        save_user_token(conn, "u1", _creds())
+    assert _stored(conn, "u1") is None
+    assert user_drive_status(conn, "u1")[0] in ("not_configured", "not_installed")
+
+
+def test_missing_user_token(conn, token_key):
+    from strelitzia.storage.drive import DriveClient, load_user_credentials
+    with pytest.raises(DriveNotConfigured, match="Claude setup page"):
+        load_user_credentials(conn, "nobody")
+    with pytest.raises(DriveNotConfigured):
+        DriveClient.for_user(conn, "nobody")
+
+
+def test_expired_user_token_is_refreshed_and_resaved(conn, token_key, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from google.oauth2.credentials import Credentials
+
+    from strelitzia.storage.drive import load_user_credentials, save_user_token
+
+    def fake_refresh(self, request):
+        self.token = "new-access"
+        self.expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
+
+    monkeypatch.setattr(Credentials, "refresh", fake_refresh)
+    save_user_token(conn, "u1", _creds(expired=True))
+    before = _stored(conn, "u1")
+    assert load_user_credentials(conn, "u1").token == "new-access"
+    assert _stored(conn, "u1") != before
+    assert load_user_credentials(conn, "u1").token == "new-access"  # the refreshed token was saved
+
+
+def test_revoked_user_token(conn, token_key, monkeypatch):
+    from google.auth.exceptions import RefreshError
+    from google.oauth2.credentials import Credentials
+
+    from strelitzia.storage.drive import load_user_credentials, save_user_token
+
+    def revoked(self, request):
+        raise RefreshError("invalid_grant")
+
+    monkeypatch.setattr(Credentials, "refresh", revoked)
+    save_user_token(conn, "u1", _creds(expired=True))
+    with pytest.raises(DriveNotConfigured, match="Connect Google Drive"):
+        load_user_credentials(conn, "u1")
+
+
+def test_wrong_token_key_asks_to_reconnect(conn, token_key, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from strelitzia.storage.drive import load_user_credentials, save_user_token
+    save_user_token(conn, "u1", _creds())
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+    with pytest.raises(DriveNotConfigured, match="TOKEN_KEY"):
+        load_user_credentials(conn, "u1")
+
+
+def test_disconnect(conn, token_key):
+    from strelitzia.storage.drive import disconnect, save_user_token, user_drive_status
+    save_user_token(conn, "u1", _creds())
+    save_user_token(conn, "u2", _creds())
+    disconnect(conn, "u1")
+    assert user_drive_status(conn, "u1")[0] == "not_authorized"
+    assert user_drive_status(conn, "u2")[0] == "authorized"
+
+
+def test_owner_imports_legacy_token_file_once(conn, token_key, monkeypatch, tmp_path):
+    from strelitzia import config, users
+    from strelitzia.storage.drive import disconnect, import_legacy_token, load_user_credentials
+    token_file = tmp_path / "google_token.json"
+    token_file.write_text(_creds().to_json(), encoding="utf-8")
+    monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", token_file)
+    owner = users.owner(conn).id
+    assert import_legacy_token(conn) is True
+    assert load_user_credentials(conn, owner).refresh_token == "refresh-secret"
+    assert "refresh-secret" not in _stored(conn, owner)
+    assert token_file.exists()  # the CLI keeps its file
+    disconnect(conn, owner)
+    assert import_legacy_token(conn) is False  # once: a later disconnect sticks
+    assert _stored(conn, owner) is None
+
+
+def test_legacy_import_waits_for_token_key(conn, monkeypatch, tmp_path):
+    from strelitzia import config
+    from strelitzia.storage.drive import import_legacy_token
+    token_file = tmp_path / "google_token.json"
+    token_file.write_text(_creds().to_json(), encoding="utf-8")
+    monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", token_file)
+    monkeypatch.delenv("STRELITZIA_TOKEN_KEY", raising=False)
+    monkeypatch.delenv("APPLYPILOT_TOKEN_KEY", raising=False)
+    assert import_legacy_token(conn) is False
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+    assert import_legacy_token(conn) is True
