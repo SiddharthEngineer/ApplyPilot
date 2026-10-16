@@ -43,6 +43,7 @@ function renderJob() {
 }
 
 beforeEach(() => {
+  vi.mocked(api.getMe).mockResolvedValue({ enabled: false, user: null }); // login off: the app as before
   vi.mocked(api.getJob).mockResolvedValue(jobDetail());
   vi.mocked(api.listJobTasks).mockResolvedValue([]);
   vi.mocked(api.getFacets).mockResolvedValue(FACETS);

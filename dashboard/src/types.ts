@@ -464,3 +464,16 @@ export interface PanelRun {
 export type PanelGradeOutcome =
   | { ok: true; graded: number | null; run: PanelRun }
   | { ok: false; errors: string[] };
+
+/** The signed-in account (GET /auth/me). While login is off every request acts as the owner. */
+export interface AuthUser {
+  email: string;
+  name: string | null;
+  role: 'owner' | 'user';
+}
+
+export interface AuthMe {
+  /** Google sign-in is on (STRELITZIA_GOOGLE_CLIENT_ID is set on the server). */
+  enabled: boolean;
+  user: AuthUser | null;
+}

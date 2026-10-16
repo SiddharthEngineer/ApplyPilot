@@ -361,3 +361,11 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .panel-table { min-width: 640px; }
 .nav-dot { display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .panel-due { margin: 0 0 10px; }
+
+/* Sign-in screen and the signed-in user in the top bar */
+.user-menu { display: inline-flex; align-items: center; gap: 8px; }
+.user-name { color: var(--muted); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sign-in { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.sign-in-card { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 24rem; padding: 32px; text-align: center; }
+.sign-in-card h1 { margin: 0; }
+.sign-in-card .notice { padding: 0; }
