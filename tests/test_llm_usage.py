@@ -142,3 +142,57 @@ def test_ledger_on_both_backends(db_target):
     init_db(db_target)  # idempotent
     record_usage("tailor", "claude-sonnet-5-5", {"input_tokens": 500_000}, conn=c)
     assert month_spend(c) == pytest.approx(1.00)
+
+
+# ── Per-user spend and the monthly cap ────────────────────────────────────
+
+def test_a_user_at_their_cap_is_stopped_and_the_owner_with_the_same_spend_is_not(conn):
+    from strelitzia import users
+
+    owner, alice, bob = users.owner(conn).id, users.invite(conn, "alice@example.com").id, \
+        users.invite(conn, "bob@example.com").id
+    assert users.get(conn, alice).monthly_cap_usd == 5.0 and users.get(conn, owner).monthly_cap_usd is None
+    for user in (owner, alice):
+        record_usage("scoring", "claude-sonnet-5-5", {"input_tokens": 2_500_000}, user_id=user)  # $5.00
+    assert llm.user_month_spend(conn, alice) == pytest.approx(5.0) and month_spend(conn) == pytest.approx(10.0)
+    with pytest.raises(LLMStopRun) as e:
+        check_budget(0.0, conn, alice)
+    assert e.value.reason == "budget" and e.value.user_id == alice
+    assert "your cap of $5.00" in str(e.value) and "$5.00 spent" in str(e.value)
+    check_budget(0.0, conn, owner)  # uncapped
+    check_budget(4.99, conn, bob)  # other users' spend doesn't count against bob's cap
+    with pytest.raises(LLMStopRun):
+        check_budget(5.01, conn, bob)
+    with llm.acting_for(alice), pytest.raises(LLMStopRun):
+        check_budget()  # the acting user by default
+    check_budget()  # nobody in particular: only the (unset) global budget
+
+    users.set_cap(conn, alice, 20.0)  # the owner raised it
+    check_budget(1.0, conn, alice)
+    users.set_cap(conn, alice, None)
+    check_budget(100.0, conn, alice)
+
+
+def test_the_global_budget_still_stops_an_uncapped_owner(conn, monkeypatch):
+    from strelitzia import users
+
+    monkeypatch.setenv("LLM_MONTHLY_BUDGET_USD", "2")
+    record_usage("scoring", "claude-sonnet-5-5", {"input_tokens": 1_000_000}, user_id="someone")  # $2.00
+    with pytest.raises(LLMStopRun) as e:
+        check_budget(0.0, conn, users.owner(conn).id)
+    assert e.value.user_id is None and "LLM_MONTHLY_BUDGET_USD" in str(e.value)
+
+
+def test_chat_is_billed_to_the_acting_user_and_held_to_their_cap(conn):
+    from strelitzia import users
+
+    alice = users.invite(conn, "alice@example.com", cap=0.0002).id
+    client = _client(conn)
+    with llm.acting_for(alice):
+        assert client.user_id == alice
+        client.ask("q")
+        with pytest.raises(LLMStopRun):
+            client.ask("again")  # COST ($0.00023) is over the $0.0002 cap now
+    assert client.user_id is None
+    assert [r["user_id"] for r in _rows(conn)] == [alice]
+    assert client._sdk.messages.create.call_count == 1

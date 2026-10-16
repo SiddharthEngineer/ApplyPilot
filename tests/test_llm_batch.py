@@ -229,3 +229,37 @@ def test_resume_without_waiting_leaves_running_batches(conn):
     assert stats["still_open"] == 1 and stats["batches"] == 0
     assert fake.retrieves == {"msgbatch_x": 1}
     assert [b["id"] for b in open_batches("extract")] == ["msgbatch_x"]
+
+
+def test_a_batch_and_its_usage_belong_to_its_user(conn, monkeypatch):
+    from strelitzia import users
+
+    alice = users.invite(conn, "alice@example.com").id
+    fake = FakeBatches(polls=10**9)  # never ends during the first run
+    _install(fake)
+
+    def killed(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(llm_batch, "_sleep", killed)
+    with pytest.raises(KeyboardInterrupt):
+        run_batch("extract", _items(2), lambda *a: None, poll_seconds=0, estimate_usd=0.5, user_id=alice)
+    assert [b["user_id"] for b in open_batches("extract", conn)] == [alice]
+    assert open_batches("extract", conn, users.owner(conn).id) == []
+    assert llm.user_month_spend(conn, alice) == pytest.approx(0.5)  # reserved until collected
+
+    fake.polls = 0
+    owner = users.owner(conn).id
+    assert resume_open_batches("extract", lambda *a: None, poll_seconds=0, user_id=owner)["batches"] == 0
+    assert resume_open_batches("extract", lambda *a: None, poll_seconds=0, user_id=alice)["batches"] == 1
+    assert {r[0] for r in conn.execute("SELECT user_id FROM llm_usage").fetchall()} == {alice}
+    assert llm.user_month_spend(conn, alice) == pytest.approx(2 * (1000 * 0.10 + 100 * 0.50) / 1e6 / 2)
+    assert llm.user_month_spend(conn, owner) == 0
+
+
+def test_a_batch_defaults_to_the_acting_user(conn):
+    _install(FakeBatches())
+    with llm.acting_for("u1"):
+        run_batch("extract", _items(1), lambda *a: None, poll_seconds=0)
+    assert conn.execute("SELECT user_id FROM llm_batches").fetchone()[0] == "u1"
+    assert conn.execute("SELECT user_id FROM llm_usage").fetchone()[0] == "u1"

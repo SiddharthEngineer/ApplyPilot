@@ -348,3 +348,46 @@ def test_two_users_rows_for_one_posting_are_extracted_separately(conn):
     extract._save_posting(conn, other, _url(2), extract.parse_posting(json.dumps(_posting(team="B only"))))
     assert json.loads(row(other)["details_json"])["team"] == "B only"
     assert json.loads(row(users.owner(conn).id)["details_json"])["team"] is None
+
+
+def _capped_user(conn) -> str:
+    """User B with one pending job (job 9), over their cap."""
+    other = users.invite(conn, "b@example.com").id
+    conn.execute("INSERT INTO jobs (user_id, url, title, site, full_description, discovered_at) "
+                 "VALUES (?, ?, 'B job', 'indeed', 'Posting 9.', '2026-10-09')", (other, _url(9)))
+    conn.commit()
+    backfill_job_keys(conn)
+    return other
+
+
+def test_a_capped_users_batch_is_skipped_and_the_others_go_on(conn):
+    other = _capped_user(conn)
+
+    def check(estimate, conn_, user_id=None):
+        if user_id == other:
+            raise LLMStopRun("budget", "Your monthly Claude cap is reached", user_id=other)
+
+    fake = FakeLLM()
+    stats = _run(conn, fake, budget_error=check)
+    assert len(fake.batches) == 1 and len(fake.batches[0]) == 7 and "stopped" not in stats
+    assert stats["extracted"] == 7 and stats["requests"] == 7
+    assert {c.args[2] for c in fake.budget.call_args_list} == {users.owner(conn).id, other}
+    b = conn.execute("SELECT extracted_at, extract_attempts FROM jobs WHERE user_id = ?", (other,)).fetchone()
+    assert b[0] is None and not b[1]  # still pending, no attempt counted
+
+
+def test_a_capped_user_is_skipped_in_a_sync_run_too(conn):
+    other = _capped_user(conn)
+    fake = FakeLLM()
+    real_chat = fake.chat
+
+    def chat(messages, **kwargs):
+        from strelitzia.llm import current_user
+        if current_user() == other:
+            raise LLMStopRun("budget", "Your monthly Claude cap is reached", user_id=other)
+        return real_chat(messages, **kwargs)
+
+    fake.chat = chat
+    stats = _run(conn, fake, mode="sync", limit=0)
+    assert stats["extracted"] == 7 and "stopped" not in stats and _url(9) not in fake.calls
+    assert conn.execute("SELECT extracted_at FROM jobs WHERE user_id = ?", (other,)).fetchone()[0] is None
