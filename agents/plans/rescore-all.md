@@ -1,5 +1,5 @@
 # Plan: Rescore all jobs
-**Status:** ❌ Not started
+**Status:** 🟡 In progress
 **Risk:** review (queues paid LLM work)
 **Issue:** #45
 **Depends on:** contact-form
@@ -29,7 +29,7 @@ active jobs, not only the ones these changes affect".
 {jobs, skipped_unextracted, estimated_usd}`. New task kind `rescore_all` → `run_scoring(user_id, mode="batch", scope="active")`.
 **Validate:** `pytest tests/test_assessment.py tests/web/test_tasks.py -q` → passes: "active" includes current assessments and
 excludes rejected jobs.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: API
 **Runs:** unattended

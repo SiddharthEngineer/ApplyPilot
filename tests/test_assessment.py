@@ -275,3 +275,29 @@ def test_scoring_selects_and_ranks_only_the_users_jobs(conn):
         [owner]
     with patch.object(scorer, "estimate_cost", return_value=0.01):
         assert scorer.reassess_preview(conn, owner, Preferences(skills_want=["Rust"]))["jobs_to_reassess"] == 1
+
+
+def test_active_scope_includes_current_assessments_and_excludes_rejected(conn, tmp_path):
+    for i in range(3):
+        add_extracted_job(conn, f"https://e.com/{i}")
+    add_extracted_job(conn, "https://e.com/rejected", user_status="rejected")
+    add_extracted_job(conn, "https://e.com/unextracted", details_json=None)
+    add_extracted_job(conn, "https://e.com/unextracted-rejected", details_json=None, user_status="rejected")
+    _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=4))
+    assert client.chat.call_count == 4  # every assessment is current now
+
+    resume = tmp_path / "resume.txt"
+    with patch.object(scorer, "estimate_cost", return_value=0.01), \
+            patch.object(scorer, "load_resume_text", return_value=resume.read_text()):
+        owner = conn.execute("SELECT user_id FROM jobs LIMIT 1").fetchone()[0]
+        active = scorer.rescore_preview(conn, owner, "active")
+        stale = scorer.rescore_preview(conn, owner, "stale")
+    assert active == {"jobs": 3, "skipped_unextracted": 1, "estimated_usd": 0.01}
+    assert stale == {"jobs": 0, "skipped_unextracted": 1, "estimated_usd": 0.0}
+
+    _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
+    assert client.chat.call_count == 0  # nothing is stale
+    _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), scope="active")
+    assert client.chat.call_count == 3
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {25}
+    assert _fit(conn, "https://e.com/rejected")[0] == 75  # left alone

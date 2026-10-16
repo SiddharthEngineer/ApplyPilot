@@ -192,7 +192,17 @@ def test_generate_for_job_dispatches(monkeypatch):
     tasks.generate_for_job("u1", URLS[0], "intake")
     tasks.generate_for_job("u1", URLS[1], "rescore")
     tasks.generate_for_job("u1", None, "reassess_all")
-    assert calls == [("intake", URLS[0]), ("rescore", URLS[1]), ("reassess_all", None)]
+    tasks.generate_for_job("u1", None, "rescore_all")
+    assert calls == [("intake", URLS[0]), ("rescore", URLS[1]), ("reassess_all", None), ("rescore_all", None)]
+
+
+def test_rescore_all_runs_every_active_job_in_a_batch(monkeypatch):
+    calls = []
+    monkeypatch.setattr("strelitzia.scoring.scorer.run_scoring", lambda **kw: calls.append(kw) or {"scored": 2})
+    tasks.assess_task("u1", None, "rescore_all")
+    assert calls == [{"mode": "batch", "scope": "active", "user_id": "u1"}]
+    with pytest.raises(ValueError):
+        tasks.enqueue(None, "u1", URLS[0], "rescore_all")  # takes no job
 
 
 def test_runner_stops_cleanly(db_path):
