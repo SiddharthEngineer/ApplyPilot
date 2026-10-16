@@ -146,8 +146,10 @@ def _run_enrich(workers: int = 1) -> dict:
 BUDGET_STOPPED = "stopped: monthly LLM budget"
 AUTH_STOPPED = "stopped: Claude API key missing or rejected"
 OVERLOAD_STOPPED = "stopped: Claude API overloaded"
+NO_RESUME_STOPPED = "stopped: no resume in the profile"
 # A stage that stopped early on purpose (LLMStopRun.reason -> status); the rest of its jobs wait for the next run.
-_STOP_STATUS = {"budget": BUDGET_STOPPED, "auth": AUTH_STOPPED, "overloaded": OVERLOAD_STOPPED}
+_STOP_STATUS = {"budget": BUDGET_STOPPED, "auth": AUTH_STOPPED, "overloaded": OVERLOAD_STOPPED,
+                "no_resume": NO_RESUME_STOPPED}
 STOPPED_STATUSES = tuple(_STOP_STATUS.values())
 
 

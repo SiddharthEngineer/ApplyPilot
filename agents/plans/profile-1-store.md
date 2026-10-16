@@ -1,5 +1,5 @@
 # Plan: Profile, part 1: per-user profile, resume and content library in the database
-**Status:** ❌ Not started
+**Status:** ✅ Done (2026-10-16)
 **Risk:** review (moves the scoring and workbench inputs from files to the DB)
 **Issue:** #48
 **Depends on:** rescore-all

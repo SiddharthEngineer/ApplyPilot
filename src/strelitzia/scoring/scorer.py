@@ -437,9 +437,6 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
 def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool, mode: Literal["batch", "sync"],
                  poll_seconds: float, urls: list[str] | None, reassess: bool, scope: Scope = "stale") -> dict:
     resume_text = load_resume_text(conn, user_id)
-    if not resume_text.strip():
-        log.warning("Scoring stopped: there is no resume text in the profile to assess jobs against.")
-        return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": "no_resume"}
     prefs = load_preferences(conn, user_id)
     key = assessment_key(prefs, resume_text)
     extra: dict = {}
@@ -453,6 +450,9 @@ def _run_scoring(conn, user_id: str, limit: int, rescore: bool, prefilter: bool,
         log.warning("Scoring stopped: could not collect open batches (%s).", e)
         return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": e.reason}
 
+    if not resume_text.strip():  # after the open batches: they were paid for with the resume they were sent with
+        log.warning("Scoring stopped: there is no resume text in the profile to assess jobs against.")
+        return {"scored": 0, "errors": 0, "elapsed": 0.0, "distribution": [], "stopped": "no_resume", **extra}
     jobs = _select_jobs(conn, user_id, key, limit, rescore, reassess, urls, scope)
     if not jobs:
         log.info("No extracted jobs waiting for an assessment.")

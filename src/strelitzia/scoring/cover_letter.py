@@ -31,7 +31,7 @@ def letter_text(paragraphs: list[str], profile: dict) -> str:
 
 
 def letter_html(paragraphs: list[str], profile: dict, job: dict, template_path: Path | None = None,
-                today: datetime | None = None) -> str:
+                today: datetime | None = None, fixed: dict | None = None) -> str:
     """The letter through the user's cover-letter template, else the packaged one."""
     from jinja2 import Environment, StrictUndefined
 
@@ -41,7 +41,7 @@ def letter_html(paragraphs: list[str], profile: dict, job: dict, template_path: 
     if template_path is None:
         user = config.COVER_LETTER_TEMPLATE_PATH
         template_path = user if user.exists() else DEFAULT_TEMPLATE_PATH
-    header = load_fixed().get("header") or {}
+    header = (fixed if fixed is not None else load_fixed()).get("header") or {}
     today = today or datetime.now()
     env = Environment(autoescape=True, undefined=StrictUndefined, trim_blocks=True, lstrip_blocks=True)
     return env.from_string(Path(template_path).read_text(encoding="utf-8")).render(
@@ -57,12 +57,12 @@ def letter_html(paragraphs: list[str], profile: dict, job: dict, template_path: 
 
 
 def render_pdf(paragraphs: list[str], profile: dict, job: dict, path: Path | str,
-               template_path: Path | None = None) -> Path:
+               template_path: Path | None = None, fixed: dict | None = None) -> Path:
     """Render the letter to a PDF through its HTML template (Playwright). Returns the PDF path."""
     from strelitzia.scoring import pdf as pdf_mod
 
     path = Path(path)
-    pdf_mod.render_pdf(letter_html(paragraphs, profile, job, template_path), str(path))
+    pdf_mod.render_pdf(letter_html(paragraphs, profile, job, template_path, fixed=fixed), str(path))
     return path
 
 
