@@ -26,11 +26,10 @@ log = logging.getLogger(__name__)
 
 # What a user can pick on the Profile page ("unknown" is for postings that don't say).
 PROFILE_EDUCATION_LEVELS: tuple[str, ...] = tuple(e for e in EDUCATION_LEVELS if e != "unknown")
-# profile.json's free-text education_level, matched in this order.
-_EDUCATION_WORDS = (("phd", ("phd", "ph.d", "doctor")), ("masters", ("master", "msc", "m.sc", "mba")),
-                    ("bachelors", ("bachelor", "bsc", "b.sc", "b.a", "b.s", "undergrad")),
-                    ("associate", ("associate",)), ("high_school", ("high school", "secondary", "ged")),
-                    ("none", ("none",)))
+# profile.json's free-text education_level: whole words (dots dropped, so "M.B.A." is "mba"), checked in this order.
+_EDUCATION_WORDS = (("phd", r"phd|doctorate|doctoral|doctor"), ("masters", r"masters?|mba|msc|ms|ma|meng|mph"),
+                    ("bachelors", r"bachelors?|bsc|bs|ba|beng|undergraduate"), ("associate", r"associates?"),
+                    ("high_school", r"high school|secondary|ged"), ("none", r"none"))
 PDF_MIME = "application/pdf"
 
 
@@ -80,11 +79,11 @@ class UserProfile:
     def as_profile_json(self) -> dict:
         """The profile in profile.json's shape (`personal`, `experience`, `skills_boundary`, plus the extras)."""
         out = copy.deepcopy({k: v for k, v in self.extras.items() if k != "resume_fixed"})
-        personal = out.setdefault("personal", {})
+        personal = out["personal"] = out.get("personal") if isinstance(out.get("personal"), dict) else {}
         personal.update(full_name=self.full_name, email=self.email, phone=self.phone,
                         linkedin_url=self.linkedin_url, github_url=self.github_url,
                         city=self.location, province_state="")
-        experience = out.setdefault("experience", {})
+        experience = out["experience"] = out.get("experience") if isinstance(out.get("experience"), dict) else {}
         years = self.years_experience
         experience.update(
             current_job_title=self.current_job_title,
@@ -127,11 +126,12 @@ def resume_text(conn, user_id: str | None = None) -> str:
     return (row[0] or "") if row else ""
 
 
-def load_profile(conn, user_id: str | None = None) -> UserProfile:
-    """The user's profile (the owner's by default), or an empty one."""
+def load_profile(conn, user_id: str | None = None, with_file: bool = False) -> UserProfile:
+    """The user's profile (the owner's by default), or an empty one. The uploaded file's bytes only `with_file`."""
+    file_col = "resume_file" if with_file else "NULL"
     row = conn.execute(
-        "SELECT data_json, resume_text, content_library_md, resume_file_name, resume_mime, resume_file "
-        "FROM user_profiles WHERE user_id = ?", (_user(conn, user_id),)).fetchone()
+        "SELECT data_json, resume_text, content_library_md, resume_file_name, resume_mime, "
+        f"{file_col} FROM user_profiles WHERE user_id = ?", (_user(conn, user_id),)).fetchone()
     if row is None:
         return UserProfile()
     try:
@@ -177,8 +177,9 @@ def _education(text) -> str | None:
     text = str(text or "").strip().lower()
     if text in PROFILE_EDUCATION_LEVELS:
         return text
-    for level, words in _EDUCATION_WORDS:
-        if any(w in text for w in words):
+    words = re.sub(r"[^a-z ]", "", text.replace(".", "").replace("'", "").replace("-", " "))
+    for level, pattern in _EDUCATION_WORDS:
+        if re.search(rf"\b(?:{pattern})\b", words):
             return level
     return None
 
@@ -218,14 +219,15 @@ def _read(path) -> str | None:
         return None
 
 
-def import_owner_files(conn) -> bool:
+def import_owner_files(conn, force: bool = False) -> bool:
     """Import profile.json, resume.txt (and resume.pdf), content_library.md and resume_fixed.yaml from the app
     directory into the owner's profile, once: only when the owner has no profile row and at least one file exists.
+    `force` (`strelitzia init`, which just rewrote the files) replaces an existing row.
 
     Returns whether anything was imported.
     """
     owner_id = users.owner(conn).id
-    if has_profile(conn, owner_id):
+    if has_profile(conn, owner_id) and not force:
         return False
     profile_json, resume = _read(config.PROFILE_PATH), _read(config.RESUME_PATH)
     library, fixed = _read(config.CONTENT_LIBRARY_PATH), _read(config.RESUME_FIXED_PATH)

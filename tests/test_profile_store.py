@@ -51,14 +51,15 @@ def test_round_trip(conn):
                     resume_text="Bo Sample\nresume", content_library_md="## CURRENT ROLE\n")
     store.save_profile(conn, uid, p)
     store.save_resume_file(conn, uid, "bo.pdf", store.PDF_MIME, b"%PDF-1.4 \x00\xff", "Bo Sample\nfrom the pdf")
-    got = store.load_profile(conn, uid)
+    got = store.load_profile(conn, uid, with_file=True)
+    assert store.load_profile(conn, uid).resume_file is None  # the bytes only when asked
     assert got.resume_file == b"%PDF-1.4 \x00\xff"
     assert (got.resume_file_name, got.resume_mime, got.resume_text) == ("bo.pdf", store.PDF_MIME,
                                                                          "Bo Sample\nfrom the pdf")
     assert got.data() == p.data() and got.content_library_md == p.content_library_md
     # Saving the fields again keeps the file; another user's profile is untouched.
     store.save_profile(conn, uid, got)
-    assert store.load_profile(conn, uid).resume_file == b"%PDF-1.4 \x00\xff"
+    assert store.load_profile(conn, uid, with_file=True).resume_file == b"%PDF-1.4 \x00\xff"
     assert store.load_profile(conn, users.owner(conn).id) == UserProfile()
 
 
@@ -66,6 +67,21 @@ def test_unknown_values_are_dropped():
     p = UserProfile.from_data({"education_level": "unknown", "years_experience": "about 3", "skills": "x",
                                "extras": [], "nonsense": 1})
     assert (p.education_level, p.years_experience, p.skills, p.extras) == (None, 3.0, [], {})
+
+
+@pytest.mark.parametrize(("text", "level"), [
+    ("Bachelor's Degree", "bachelors"), ("M.B.A.", "masters"), ("MSc Physics", "masters"), ("PhD", "phd"),
+    ("High School Diploma", "high_school"), ("Associate's", "associate"), ("Self-managed learning", None),
+    ("bachelors", "bachelors"), ("", None),
+])
+def test_education_text_is_mapped(text, level):
+    assert store._education(text) == level
+
+
+def test_null_sections_dont_break_the_profile_json():
+    p = store.from_profile_json({"personal": None, "experience": None, "skills_boundary": None})
+    out = p.as_profile_json()
+    assert out["personal"]["full_name"] == "" and out["experience"]["current_job_title"] == ""
 
 
 def test_as_profile_json_has_the_profile_json_shape():
@@ -90,7 +106,7 @@ def test_import_owner_files(files, db_target):
     (files / "resume_fixed.yaml").write_text(yaml.safe_dump(FAKE_FIXED), encoding="utf-8")
     conn = init_db(db_target)  # the import runs on start
     try:
-        p = store.load_profile(conn)
+        p = store.load_profile(conn, with_file=True)
         assert (p.first_name, p.last_name, p.email) == ("Ada", "Example Tester", "ada@example.com")
         assert (p.location, p.current_job_title, p.years_experience) == ("Springfield, ST", "Widget Engineer", 4.0)
         assert p.education_level == "masters" and p.skills == ["Python", "SQL", "Git"]
@@ -102,6 +118,9 @@ def test_import_owner_files(files, db_target):
         (files / "resume.txt").write_text("changed", encoding="utf-8")
         assert store.import_owner_files(conn) is False
         assert store.load_profile(conn).resume_text.startswith("Ada Example Tester")
+        # `strelitzia init` rewrote the files: it replaces the row.
+        assert store.import_owner_files(conn, force=True) is True
+        assert store.load_profile(conn).resume_text == "changed"
     finally:
         close_connection(db_target)
 

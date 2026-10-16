@@ -548,6 +548,18 @@ def _setup_ai_features(existing_env: dict[str, str] | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _save_to_database() -> None:
+    """Copy the files just written into the owner's profile in the database, which scoring and the workbench read."""
+    from strelitzia.database import init_db
+    from strelitzia.profile import import_owner_files
+
+    try:
+        import_owner_files(init_db(), force=True)
+        console.print("[green]Profile, resume and content library saved to the database.[/green]")
+    except Exception as e:  # noqa: BLE001 - the files are written; the next start imports them if the DB was empty
+        console.print(f"[yellow]Couldn't save the profile to the database ({e}).[/yellow]")
+
+
 def run_wizard() -> None:
     """Run the full interactive setup wizard."""
     # Load any existing configs so prompts can pre-fill saved values
@@ -594,6 +606,8 @@ def run_wizard() -> None:
     # Step 2: Profile
     _setup_profile(existing=existing_profile)
     console.print()
+
+    _save_to_database()
 
     # Step 3: Search config
     _setup_searches(existing=existing_searches)

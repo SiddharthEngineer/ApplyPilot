@@ -657,8 +657,9 @@ def render_outputs(resume: TailoredResume, data: dict, job: dict, inputs: Inputs
         html = render_resume(resume, inputs.profile, fixed=inputs.fixed)
         problems = validate_visible(html) + validate_pdf_text(staged["resume"], html)
         if letter:
-            letter_html = cover_letter.letter_html(letter["paragraphs"], inputs.profile, job)
-            cover_letter.render_pdf(letter["paragraphs"], inputs.profile, job, staged["cover_letter"])
+            letter_html = cover_letter.letter_html(letter["paragraphs"], inputs.profile, job, fixed=inputs.fixed)
+            cover_letter.render_pdf(letter["paragraphs"], inputs.profile, job, staged["cover_letter"],
+                                    fixed=inputs.fixed)
             problems += [f"Cover letter: {p}" for p in
                          validate_visible(letter_html) + validate_pdf_text(staged["cover_letter"], letter_html)]
         if problems:
