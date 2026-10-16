@@ -26,7 +26,7 @@ and change their cap.
 last login), `POST /app/api/admin/users` `{email, monthly_cap_usd?}` (invite), `PATCH /app/api/admin/users/{id}`
 `{status?, monthly_cap_usd?}`, `DELETE` = set status `disabled` (never deletes data). The owner can't disable themself.
 **Validate:** `pytest tests/web/test_admin_api.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 1 commit)
 
 ### Task 2: sign-in and the user menu
 **Runs:** unattended
