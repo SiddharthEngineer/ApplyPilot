@@ -58,27 +58,29 @@ def list_users(conn) -> list[User]:
     return [User(*tuple(r)) for r in rows]
 
 
-def owner(conn) -> User:
-    """The owner account, created on first call from STRELITZIA_OWNER_EMAIL (else owner@localhost)."""
-    row = conn.execute(
+def _owner_row(conn):
+    return conn.execute(
         f"SELECT {_COLUMNS} FROM users WHERE role = 'owner' ORDER BY created_at LIMIT 1"
     ).fetchone()
+
+
+def owner(conn) -> User:
+    """The owner account, created on first call from STRELITZIA_OWNER_EMAIL (else owner@localhost)."""
+    row = _owner_row(conn)
     if row:
         return User(*tuple(row))
     email = _norm(env("OWNER_EMAIL") or FALLBACK_OWNER_EMAIL)
-    existing = by_email(conn, email)
-    if existing:  # an invited address that turns out to be the owner's: promote it
-        conn.execute("UPDATE users SET role = 'owner', status = 'active', monthly_cap_usd = NULL WHERE id = ?",
-                     (existing.id,))
-        conn.commit()
-        return get(conn, existing.id)
-    user = User(uuid.uuid4().hex, email, None, "owner", "active", None)
+    # Two processes starting on a fresh database both get here: the second insert is a no-op.
     conn.execute(
-        "INSERT INTO users (id, email, name, role, status, monthly_cap_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user.id, user.email, user.name, user.role, user.status, user.monthly_cap_usd, _now()),
+        "INSERT INTO users (id, email, role, status, monthly_cap_usd, created_at) "
+        "VALUES (?, ?, 'owner', 'active', NULL, ?) ON CONFLICT (email) DO NOTHING",
+        (uuid.uuid4().hex, email, _now()),
     )
+    # An invited address that turns out to be the owner's is promoted.
+    conn.execute("UPDATE users SET role = 'owner', status = 'active', monthly_cap_usd = NULL WHERE email = ?",
+                 (email,))
     conn.commit()
-    return user
+    return User(*tuple(_owner_row(conn)))
 
 
 def invite(conn, email: str, cap: float | None = DEFAULT_CAP_USD) -> User:

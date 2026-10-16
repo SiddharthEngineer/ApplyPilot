@@ -173,6 +173,7 @@ def test_users_migration_keeps_column_defaults(tmp_path):
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT)")
     conn.execute("INSERT INTO jobs VALUES ('u1', 'A')")
+    conn.execute("CREATE INDEX idx_jobs_title ON jobs (title)")
     conn.commit()
     conn.close()
 
@@ -184,3 +185,5 @@ def test_users_migration_keeps_column_defaults(tmp_path):
     assert len({r[3] for r in rows}) == 1 and rows[0][3]
     pk = sorted((r[5], r[1]) for r in conn.execute("PRAGMA table_info(jobs)").fetchall() if r[5])
     assert [name for _, name in pk] == ["user_id", "url"]
+    indexes = {r[1] for r in conn.execute("PRAGMA index_list(jobs)").fetchall()}
+    assert {"idx_jobs_title", "idx_jobs_user_job_key"} <= indexes and "idx_jobs_job_key" not in indexes

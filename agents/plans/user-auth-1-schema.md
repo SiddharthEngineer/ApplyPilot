@@ -1,5 +1,5 @@
 # Plan: User accounts, part 1: users table and per-user job rows
-**Status:** ❌ Not started
+**Status:** ✅ 2026-10-16 (all tasks done, PR open)
 **Risk:** review (schema migration of the live jobs table, including a primary-key change)
 **Issue:** #47
 
@@ -38,7 +38,7 @@ role is `owner|user`, status is `invited|active|disabled`. Emails are stored low
 (returns None for an email that isn't invited), `set_status`, `set_cap`, `list_users(conn)`. `DEFAULT_CAP_USD = 5.0`.
 The owner's cap is None (no cap).
 **Validate:** `pytest tests/test_users.py -q` → passes, including invite→activate, an un-invited email → None, case-insensitive emails.
-**Status:** ✅ 2026-10-16 (Task 1 commit)
+**Status:** ✅ 2026-10-16 066a305
 
 ### Task 2: user_id on every per-user table, owner backfill, composite job key
 **Runs:** unattended
@@ -50,7 +50,7 @@ then rebuild/alter `jobs` to `PRIMARY KEY (user_id, url)` and replace `idx_jobs_
 **Validate:** `pytest tests/test_database.py tests/test_database_pg.py -q` → passes: a test builds an old-shape DB with jobs
 and side rows, runs `init_db` twice, and checks every row belongs to the owner, the row count is unchanged, and two
 users can insert the same url.
-**Status:** ✅ 2026-10-16 (Task 2 commit)
+**Status:** ✅ 2026-10-16 5dc46ed
 
 ### Task 3: job helpers take a user
 **Runs:** unattended
@@ -60,7 +60,7 @@ users can insert the same url.
 `ON CONFLICT (user_id, url)`. Callers that don't pass a user yet keep working (None = all users) until parts 2–4 thread it.
 `backfill_job_keys` stays per row. The seed script uses `users.owner(conn).id`.
 **Validate:** `scripts/validate.sh` → green.
-**Status:** ✅ 2026-10-16 (Task 3 commit)
+**Status:** ✅ 2026-10-16 1c55303
 
 ## Validation
 - `scripts/validate.sh --full` passes.
