@@ -40,7 +40,7 @@ with the fields above plus `extras: dict`; `load_profile(conn, user_id) -> UserP
 `save_profile(conn, user_id, profile)`, `save_resume_file(conn, user_id, name, mime, data, text)`,
 `import_owner_files(conn)` (once, when the owner has no row and the files exist), `UserProfile.as_profile_json() -> dict`.
 **Validate:** `pytest tests/test_profile_store.py -q` → passes: round trip, and the import of a fake profile.json/resume/library in tmp_path.
-**Status:** ❌
+**Status:** ✅ 2026-10-16
 
 ### Task 2: scoring reads the DB profile
 **Runs:** unattended
