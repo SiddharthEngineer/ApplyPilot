@@ -40,6 +40,11 @@ describe('SignInPage', () => {
   });
 });
 
+it('explains a disabled account', () => {
+  render(<MemoryRouter initialEntries={['/?auth=disabled']}><SignInPage /></MemoryRouter>);
+  expect(screen.getByRole('alert')).toHaveTextContent('disabled');
+});
+
 describe('App sign-in gate', () => {
   it('shows the sign-in screen when login is on and nobody is signed in', async () => {
     vi.mocked(api.getMe).mockResolvedValue({ enabled: true, user: null });

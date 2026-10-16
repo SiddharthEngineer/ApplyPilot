@@ -2,7 +2,7 @@
 
 Login is on only when STRELITZIA_GOOGLE_CLIENT_ID is set. While it's unset every request acts as the owner, as before
 accounts existed. With it on, the owner (STRELITZIA_OWNER_EMAIL) and invited emails get a session cookie holding their
-user id; anyone else is sent back to /app/?auth=not_invited.
+user id; anyone else is sent back to /app/?auth=not_invited (a disabled account to ?auth=disabled).
 """
 
 from __future__ import annotations
@@ -202,7 +202,8 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     user = _sign_in(_conn(request), info["email"], info.get("name"))
     request.session.clear()
     if user is None:
-        return _back("not_invited")
+        known = users.by_email(_conn(request), info["email"])
+        return _back("disabled" if known and known.status == "disabled" else "not_invited")
     request.session["uid"] = user.id
     return _back()
 

@@ -222,8 +222,9 @@ def test_disabled_user_gets_401(auth_on, client, conn, google):
     users.set_status(conn, friend.id, "disabled")
     assert client.get("/app/api/whoami").status_code == 401
     assert client.get("/app/api/auth/me").json()["user"] is None
-    # and they can't sign back in
-    assert sign_in(client).headers["location"] == "/app/?auth=not_invited"
+    # and they can't sign back in, and are told why
+    assert sign_in(client).headers["location"] == "/app/?auth=disabled"
+    assert client.get("/app/api/whoami").status_code == 401
 
 
 def test_logout_ends_the_session(auth_on, client, google):

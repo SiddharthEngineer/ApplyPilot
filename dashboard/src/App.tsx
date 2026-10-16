@@ -37,6 +37,7 @@ function Shell({ me }: { me: AuthMe | null }) {
   useEffect(refreshPanelDue, [refreshPanelDue]);
   // The Users page is for the owner, and only matters once other accounts can sign in.
   const isOwner = Boolean(me?.enabled && me.user?.role === 'owner');
+  const loader = <div className="loader-state" aria-live="polite" aria-busy="true"><Flower variant="loader" size={64} />Loading…</div>;
   function signOut() {
     logout().catch(() => {}).finally(() => window.location.reload());
   }
@@ -74,7 +75,7 @@ function Shell({ me }: { me: AuthMe | null }) {
           <Route path="/preferences" element={<PreferencesPage />} />
           <Route path="/claude-setup" element={<ClaudeSetupPage />} />
           <Route path="/panel" element={<PanelPage onChange={refreshPanelDue} />} />
-          {isOwner && <Route path="/users" element={<UsersPage />} />}
+          {(isOwner || !me) && <Route path="/users" element={isOwner ? <UsersPage /> : loader} />}
           <Route path="*" element={<p className="notice">Page not found. <Link to="/">Back to jobs</Link></p>} />
         </Routes>
       </main>

@@ -5,6 +5,7 @@ import Flower from '../components/Flower';
 // The ?auth= outcome the sign-in callback (web/auth.py) redirects back with.
 const AUTH_OUTCOMES: Record<string, string> = {
   not_invited: "This Google account isn't invited. Ask the owner to invite your email, then sign in again.",
+  disabled: "This account has been disabled. Ask the owner to enable it again.",
   unverified: "Google hasn't verified this account's email address, so it can't sign in.",
   error: "Couldn't sign you in. Try again.",
 };
