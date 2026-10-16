@@ -238,5 +238,8 @@ case "$new" in
         notify "blocked after $("${Q[@]}" get "$slug" attempts) attempt(s)" "Log: $log (on the VPS). Last result: $(cat "$result" 2>/dev/null || echo none)" ;;
 esac
 
+# Cap the Docker build cache: each `validate.sh --full` rebuilds strelitzia-validate, and a busted dependency layer
+# adds ~750 MB, so a chain of runs could fill the disk. Recent layers stay, so rebuilds stay fast.
+docker builder prune -f --keep-storage "${AGENT_BUILD_CACHE_KEEP:-3GB}" >> "$STATE/runs.log" 2>&1 || true
 "$HERE/preprod.sh" tick >> "$STATE/runs.log" 2>&1
 exit 0
