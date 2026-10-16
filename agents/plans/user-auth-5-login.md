@@ -36,7 +36,7 @@ invited → activate; else redirect to `/app/?auth=not_invited`), `POST /app/api
 auth is off it returns `users.owner(conn)`; when on and there's no valid active user it raises 401.
 **Validate:** `pytest tests/web/test_auth.py -q` → passes with Google's token endpoint and `verify_oauth2_token` mocked:
 the owner and invited users get a session, an uninvited email doesn't, a bad state is rejected, disabled users get 401.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: wire it into the app
 **Runs:** unattended
