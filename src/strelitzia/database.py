@@ -16,6 +16,7 @@ from strelitzia import config, users
 from strelitzia.config import DB_PATH
 from strelitzia.db_pg import PgConnection
 from strelitzia.enrichment.posting_model import EXTRACT_VERSION
+from strelitzia.profile import import_owner_files
 
 # Either backend: sqlite3 (default) or Postgres (STRELITZIA_DATABASE_URL), which exposes the same API.
 Connection: TypeAlias = sqlite3.Connection | PgConnection
@@ -194,6 +195,7 @@ def init_db(db_path: Path | str | None = None) -> Connection:
     ensure_columns(conn)
     migrate_users(conn)
     backfill_job_keys(conn)
+    import_owner_files(conn)
 
     return conn
 
@@ -288,6 +290,12 @@ def _ensure_tables(conn: Connection) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS user_drive (user_id TEXT PRIMARY KEY, token_enc TEXT, root_folder_id TEXT, "
         "connected_at TEXT)"
+    )
+    # A user's profile, resume and content library (strelitzia.profile); data_json holds the profile fields.
+    blob = "BYTEA" if backend_name(conn) == "postgresql" else "BLOB"
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT PRIMARY KEY, data_json TEXT, resume_text TEXT, "
+        f"content_library_md TEXT, resume_file {blob}, resume_file_name TEXT, resume_mime TEXT, updated_at TEXT)"
     )
     # Small app-wide key/value state, e.g. the hashes of the Claude Project Docs (strelitzia.scoring.workbench).
     conn.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
