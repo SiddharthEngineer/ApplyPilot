@@ -41,7 +41,7 @@ for other users' ids; inserts set it.
 to `where_clause`. Add a two-user API test helper in `tests/web/web_helpers.py` (seed a second user and swap
 `current_user` with a dependency override or monkeypatch).
 **Validate:** `pytest tests/web -q` → passes, including a test that user B's GETs on user A's job, contact and interview are 404.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (`web_helpers.second_user`/`act_as` monkeypatch `current_user`; the workspace, tracking and panel routes already moved in Tasks 1-2; cross-user panel runs are covered in `test_panel_api.py` too)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

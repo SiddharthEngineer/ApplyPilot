@@ -9,3 +9,17 @@ def add_job(conn, url="https://example.com/jobs/1", **cols):
     conn.execute(f"INSERT INTO jobs ({names}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
     conn.commit()
     return url
+
+
+def second_user(conn, email="b@example.com"):
+    """Seed a second (invited) user and return it."""
+    from strelitzia import users
+
+    return users.invite(conn, email)
+
+
+def act_as(monkeypatch, user):
+    """Make every API request act as `user` (until login exists, requests act as the owner)."""
+    from strelitzia.web import app as app_mod
+
+    monkeypatch.setattr(app_mod, "current_user", lambda request: user)
