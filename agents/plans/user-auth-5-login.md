@@ -53,7 +53,7 @@ Test fixtures run with auth off, plus one fixture that turns it on with a fake s
 **Files:** .env.example (modify), agents/DEPLOY.md (modify)
 **What:** Document the env keys above, the redirect URIs, and that login is off until the client id is set.
 **Validate:** `grep -c STRELITZIA_GOOGLE_CLIENT_ID .env.example` → 1.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
