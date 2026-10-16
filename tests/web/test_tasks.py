@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from web_helpers import add_job
 
+from strelitzia import users
 from strelitzia.database import get_connection, init_db, job_key
 from strelitzia.llm import LLMStopRun
 from strelitzia.web import tasks
@@ -32,6 +33,7 @@ class FakeGenerate:
 
     def __init__(self, fail=None, delay=0.05):
         self.calls = []
+        self.users = []
         self.fail = fail or {}
         self.delay = delay
         self.active = 0
@@ -45,6 +47,7 @@ class FakeGenerate:
         try:
             time.sleep(self.delay)
             self.calls.append((url, kind))
+            self.users.append(user_id)
             if url in self.fail:
                 raise self.fail[url]
         finally:
@@ -87,7 +90,7 @@ def test_generation_kinds_are_gone(tclient, conn):
     assert tclient.post(f"/app/api/jobs/{job_key(URLS[0])}/generate", json={}).status_code in (404, 405)
     for kind in ("resume", "cover", "both"):
         with pytest.raises(ValueError):
-            tasks.enqueue(conn, URLS[0], kind)
+            tasks.enqueue(conn, "u1", URLS[0], kind)
 
 
 def test_tasks_run_one_at_a_time_in_order(tclient, gen):
@@ -158,7 +161,7 @@ def test_a_waiting_duplicate_is_not_queued_twice(db_path):
     with TestClient(create_app(db=db_path, run_tasks=False), headers=HEADERS) as c:
         a = _queue(c, URLS[0]).json()["id"]
         b = _queue(c, URLS[0]).json()["id"]
-        intake = tasks.enqueue(conn, URLS[0], "intake")["id"]
+        intake = tasks.enqueue(conn, users.owner(conn).id, URLS[0], "intake")["id"]
         listed = c.get(f"/app/api/jobs/{job_key(URLS[0])}/tasks").json()
     assert a == b != intake
     assert {t["id"] for t in listed} == {intake, a}
@@ -218,3 +221,27 @@ def test_a_leftover_generation_task_errors_in_the_queue(db_path):
     with TestClient(create_app(db=db_path, generate=tasks.generate_for_job), headers=HEADERS) as c:
         task = wait_for(c, "old")
     assert task["state"] == "error" and "Open in Claude" in task["error"]
+
+
+def test_tasks_belong_to_a_user(db_path, gen):
+    """Dedupe is per user, the runner passes the task's user, and another user's tasks and jobs are 404."""
+    init_db(db_path)
+    conn = get_connection(db_path)
+    owner, other = users.owner(conn).id, users.invite(conn, "b@example.com").id
+    add_job(conn, URLS[0], job_key=job_key(URLS[0]))
+    add_job(conn, URLS[0], job_key=job_key(URLS[0]), user_id=other)
+    add_job(conn, URLS[1], job_key=job_key(URLS[1]), user_id=other)
+    mine = tasks.enqueue(conn, owner, URLS[0], "rescore")
+    theirs = tasks.enqueue(conn, other, URLS[0], "rescore")
+    assert mine["id"] != theirs["id"] and theirs["user_id"] == other
+    assert tasks.enqueue(conn, other, URLS[0], "rescore")["id"] == theirs["id"]
+    assert tasks.enqueue(conn, other, None, "reassess_all")["id"] != tasks.enqueue(conn, owner, None, "reassess_all")["id"]
+    with TestClient(create_app(db=db_path, run_tasks=False), headers=HEADERS) as c:
+        assert c.get(f"/app/api/tasks/{theirs['id']}").status_code == 404
+        assert c.get(f"/app/api/tasks/{mine['id']}").json()["key"] == job_key(URLS[0])
+        assert [t["id"] for t in c.get(f"/app/api/jobs/{job_key(URLS[0])}/tasks").json()] == [mine["id"]]
+        assert c.get(f"/app/api/jobs/{job_key(URLS[1])}").status_code == 404  # only B has it
+        assert c.post(f"/app/api/jobs/{job_key(URLS[1])}/rescore").status_code == 404
+    runner = TaskRunner(db_path, generate=gen)
+    runner.run_one(conn, tasks.get_task(conn, theirs["id"]))
+    assert gen.users == [other] and tasks.get_task(conn, theirs["id"])["state"] == "done"
