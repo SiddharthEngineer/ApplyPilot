@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../api';
-import PreferencesPage, { usd } from '../pages/PreferencesPage';
+import { usd } from '../labels';
+import PreferencesPage from '../pages/PreferencesPage';
 import type { Preferences, PreferencesResponse, Task } from '../types';
 
 vi.mock('../api');

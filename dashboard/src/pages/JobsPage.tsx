@@ -7,8 +7,8 @@ import Hero from '../components/Hero';
 import JobsTable from '../components/JobsTable';
 import TaskProgress from '../components/TaskProgress';
 import type { Facets, JobList, JobQuery, RescorePreview, Task } from '../types';
+import { usd } from '../labels';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
-import { usd } from './PreferencesPage';
 
 const CLEAR_ALL_SOURCES: Partial<JobQuery> = {
   status: undefined, role: undefined, work_mode: undefined, location: undefined, found_from: undefined,
@@ -29,6 +29,8 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
   const [rescoreBusy, setRescoreBusy] = useState(false);
   const [rescoreError, setRescoreError] = useState<string | null>(null);
   const [rescoreTask, setRescoreTask] = useState<Task | null>(null);
+  const [rescoreNote, setRescoreNote] = useState<string | null>(null);
+  const rescoring = rescoreTask?.state === 'queued' || rescoreTask?.state === 'running';
   // Without a source in the URL, show the jobs the user added when there are any.
   const hasManual = (facets?.source?.find((s) => s.value === 'manual')?.count ?? 0) > 0;
   const shown: JobQuery = query.source === undefined && hasManual ? { ...query, source: ['manual'] } : query;
@@ -61,6 +63,7 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
   async function openRescore() {
     setRescoreBusy(true);
     setRescoreError(null);
+    setRescoreNote(null);
     try {
       setRescore(await rescorePreview());
     } catch (err) {
@@ -82,6 +85,7 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
       const res = await rescoreAll();
       setRescore(null);
       setRescoreTask(res.task);
+      setRescoreNote(res.task ? null : 'Nothing was queued: there are no active jobs to re-assess.');
     } catch (err) {
       setRescoreError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -106,11 +110,13 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
             {total ? `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}` : '0 jobs'}
           </span>
         )}
-        <button type="button" className="list-header-action" disabled={rescoreBusy} onClick={openRescore}>
+        <button type="button" className="list-header-action" disabled={rescoreBusy || rescoring}
+          onClick={openRescore}>
           Rescore all
         </button>
       </div>
       {rescoreError && !rescore && <p className="notice error" role="alert">{rescoreError}</p>}
+      {rescoreNote && <p className="notice" role="status">{rescoreNote}</p>}
       {rescoreTask && (
         <TaskProgress task={rescoreTask} onFinish={(t) => {
           setRescoreTask(t);

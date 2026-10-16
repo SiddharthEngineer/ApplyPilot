@@ -1,5 +1,5 @@
 # Plan: Rescore all jobs
-**Status:** 🟡 In progress
+**Status:** ✅ Done (2026-10-16, PR open)
 **Risk:** review (queues paid LLM work)
 **Issue:** #45
 **Depends on:** contact-form

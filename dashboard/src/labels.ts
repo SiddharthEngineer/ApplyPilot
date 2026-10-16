@@ -98,3 +98,8 @@ export function localDate(value: string | null | undefined): string {
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
+
+/** An LLM cost estimate: "about $0.40", or "under $0.01" for tiny runs. */
+export function usd(value: number): string {
+  return value < 0.01 ? 'under $0.01' : `about $${value.toFixed(2)}`;
+}

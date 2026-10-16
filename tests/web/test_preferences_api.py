@@ -279,6 +279,12 @@ def test_rescore_all_preview_and_queue(client, conn):
     task = r.json()["task"]
     assert r.status_code == 200 and task["kind"] == "rescore_all" and task["url"] is None
     assert client.get(f"/app/api/tasks/{task['id']}").json()["state"] == "queued"
+    conn.execute("UPDATE dashboard_tasks SET state = 'running' WHERE id = ?", (task["id"],))
+    conn.commit()
+    with patch.object(scorer, "estimate_cost", return_value=0.01):
+        again = client.post("/app/api/rescore", json={"confirm": True}).json()["task"]
+    assert again["id"] == task["id"]  # not a second paid run while the first is going
+    assert conn.execute("SELECT COUNT(*) FROM dashboard_tasks").fetchone()[0] == 1
 
 
 def test_rescore_all_over_the_cap_returns_402_and_queues_nothing(client, conn, monkeypatch):

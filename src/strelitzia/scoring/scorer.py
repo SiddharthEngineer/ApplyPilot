@@ -293,10 +293,11 @@ def _not_rejected() -> str:
 def _select_jobs(conn, user_id: str, key: str, limit: int, rescore: bool, reassess: bool,
                  urls: list[str] | None, scope: Scope = "stale") -> list[dict]:
     """The user's jobs this run assesses. `scope="active"` (Rescore all) is every extracted job that isn't rejected,
-    whatever its assessment."""
+    whatever its assessment (jobs that keep failing are left out, as in a re-assessment)."""
     mine = f"user_id = ? AND {_EXTRACTED}"
     if scope == "active" and urls is None:
         rows = conn.execute(f"SELECT * FROM jobs WHERE {mine} AND {_not_rejected()} "
+                            f"AND COALESCE(score_attempts, 0) < {MAX_SCORE_ATTEMPTS} "
                             "ORDER BY fit_score DESC NULLS LAST, url", (user_id,)).fetchall()
     elif urls is not None:
         if not urls:
