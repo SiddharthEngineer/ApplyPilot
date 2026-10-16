@@ -2,8 +2,9 @@
 import type {
   AddJobInput, AddJobResult, AdminUser, AuthMe, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs,
   Facets, Interview, ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PanelGradeOutcome,
-  PanelMode, PanelOverview, PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview,
-  ReassessScope, Relation, RescoreAllResult, RescorePreview, SavePreferencesResult, Task, UserStatus,
+  PanelMode, PanelOverview, PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ProfileResponse,
+  ProfileSave, ReassessPreview, ReassessScope, Relation, RescoreAllResult, RescorePreview, ResumeUploadResult,
+  SavePreferencesResult, Task, UserStatus,
 } from './types';
 
 export const API_BASE = '/app/api';
@@ -324,3 +325,26 @@ export function updateUser(
 export function disableUser(id: string): Promise<AdminUser> {
   return request<AdminUser>(`/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+export function getProfile(signal?: AbortSignal): Promise<ProfileResponse> {
+  return request<ProfileResponse>('/profile', { signal });
+}
+
+export function saveProfile(profile: ProfileSave): Promise<ProfileResponse> {
+  return request<ProfileResponse>('/profile', { method: 'PUT', body: JSON.stringify(profile) });
+}
+
+/** Upload a PDF or DOCX resume: it's stored, and the answer holds Claude's draft for the empty profile fields. */
+export async function uploadResume(file: File): Promise<ResumeUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/profile/resume`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'X-Strelitzia': '1' },
+    body: form,
+  });
+  if (!res.ok) throw await failure(res);
+  return (await res.json()) as ResumeUploadResult;
+}
+
+export const RESUME_DOWNLOAD_URL = `${API_BASE}/profile/resume`;

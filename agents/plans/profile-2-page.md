@@ -51,7 +51,7 @@ Resume (upload, current file, "Parsing…", and the draft shown highlighted unti
 and a parse-error message from the API). The page header line from the Goal. Rebuild the bundle into `src/strelitzia/web/static`.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes; add `dashboard/src/__tests__/ProfilePage.test.tsx`
 covering the draft review (draft values show but aren't saved until Save).
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
