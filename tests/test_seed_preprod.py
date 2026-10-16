@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from strelitzia import tracking
-from strelitzia.database import close_connection
+from strelitzia import tracking, users
+from strelitzia.database import close_connection, init_db
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "seed_preprod.py"
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
@@ -48,6 +48,8 @@ def test_seed_covers_every_stage_and_status(seed_mod, db, capsys):
     rows = _rows(db)
     assert len(rows) == 18
     assert all(r["job_key"] for r in rows)
+    owner_id = users.owner(init_db(db)).id
+    assert {r["user_id"] for r in rows} == {owner_id}
     assert sum("example.com" in r["url"] for r in rows) == 12
 
     assert any(r["full_description"] is None for r in rows)  # discovered only

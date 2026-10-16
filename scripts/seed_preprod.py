@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from strelitzia import tracking
+from strelitzia import tracking, users
 from strelitzia.config import env
 from strelitzia.database import init_db, job_key
 
@@ -127,12 +127,14 @@ def build_jobs(postings_dir: Path, now: datetime) -> list[dict]:
 
 
 def seed(conn, jobs: list[dict]) -> int:
-    """Delete every job, status event and dashboard task, then insert `jobs` and apply their user statuses."""
+    """Delete every job, status event and dashboard task, then insert `jobs` (the owner's) and apply their statuses."""
+    owner_id = users.owner(conn).id
     for table in ("dashboard_tasks", "status_events", "jobs"):
         conn.execute(f"DELETE FROM {table}")
     for job in jobs:
         row = {k: v for k, v in job.items() if not k.startswith("_")}
         row["job_key"] = job_key(row["url"])
+        row["user_id"] = owner_id
         cols = ", ".join(row)
         conn.execute(f"INSERT INTO jobs ({cols}) VALUES ({', '.join('?' for _ in row)})", tuple(row.values()))
     conn.commit()

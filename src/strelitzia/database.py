@@ -632,7 +632,7 @@ def job_company(job: dict) -> str:
     return "Unknown company"
 
 
-def get_stats(conn: Connection | None = None) -> dict:
+def get_stats(conn: Connection | None = None, user_id: str | None = None) -> dict:
     """Return job counts by pipeline stage.
 
     Provides a snapshot of how many jobs are at each stage, useful for
@@ -640,6 +640,7 @@ def get_stats(conn: Connection | None = None) -> dict:
 
     Args:
         conn: Database connection. Uses get_connection() if None.
+        user_id: Count only this user's jobs; None = every user.
 
     Returns:
         Dictionary with keys:
@@ -651,106 +652,77 @@ def get_stats(conn: Connection | None = None) -> dict:
         conn = get_connection()
 
     stats: dict = {}
+    mine, params = ("user_id = ?", (user_id,)) if user_id else ("1=1", ())
 
-    # Total jobs
-    stats["total"] = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    def count(where: str = "1=1") -> int:
+        return conn.execute(f"SELECT COUNT(*) FROM jobs WHERE ({where}) AND {mine}", params).fetchone()[0]
+
+    stats["total"] = count()
 
     # By site breakdown
     rows = conn.execute(
-        "SELECT site, COUNT(*) as cnt FROM jobs GROUP BY site ORDER BY cnt DESC"
+        f"SELECT site, COUNT(*) as cnt FROM jobs WHERE {mine} GROUP BY site ORDER BY cnt DESC", params
     ).fetchall()
     stats["by_site"] = [(row[0], row[1]) for row in rows]
 
     # Enrichment stage
-    stats["pending_detail"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL"
-    ).fetchone()[0]
-
-    stats["with_description"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL"
-    ).fetchone()[0]
-
-    stats["detail_errors"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE detail_error IS NOT NULL"
-    ).fetchone()[0]
+    stats["pending_detail"] = count("detail_scraped_at IS NULL")
+    stats["with_description"] = count("full_description IS NOT NULL")
+    stats["detail_errors"] = count("detail_error IS NOT NULL")
 
     # Scoring stage
-    stats["scored"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE fit_score IS NOT NULL"
-    ).fetchone()[0]
-
-    stats["unscored"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs "
-        f"WHERE {PENDING_SCORE_WHERE}"
-    ).fetchone()[0]
+    stats["scored"] = count("fit_score IS NOT NULL")
+    stats["unscored"] = count(PENDING_SCORE_WHERE)
 
     # Score distribution
     dist_rows = conn.execute(  # fit_score is 0-100: bands of ten (70 = 70-79; 100 is its own band)
         "SELECT (fit_score / 10) * 10 AS band, COUNT(*) as cnt FROM jobs "
-        "WHERE fit_score IS NOT NULL "
-        "GROUP BY band ORDER BY band DESC"
+        f"WHERE fit_score IS NOT NULL AND {mine} "
+        "GROUP BY band ORDER BY band DESC",
+        params,
     ).fetchall()
     stats["score_distribution"] = [(row[0], row[1]) for row in dist_rows]
 
     # Tailoring stage
-    stats["tailored"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL"
-    ).fetchone()[0]
-
-    stats["untailored_eligible"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs "
-        f"WHERE fit_score >= {DEFAULT_MIN_SCORE} AND {UNFLAGGED_WHERE} AND full_description IS NOT NULL "
+    stats["tailored"] = count("tailored_resume_path IS NOT NULL")
+    stats["untailored_eligible"] = count(
+        f"fit_score >= {DEFAULT_MIN_SCORE} AND {UNFLAGGED_WHERE} AND full_description IS NOT NULL "
         "AND tailored_resume_path IS NULL"
-    ).fetchone()[0]
-
-    stats["tailor_exhausted"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs "
-        "WHERE COALESCE(tailor_attempts, 0) >= 5 "
-        "AND tailored_resume_path IS NULL"
-    ).fetchone()[0]
+    )
+    stats["tailor_exhausted"] = count("COALESCE(tailor_attempts, 0) >= 5 AND tailored_resume_path IS NULL")
 
     # Cover letter stage
-    stats["with_cover_letter"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE cover_letter_path IS NOT NULL"
-    ).fetchone()[0]
-
-    stats["cover_exhausted"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs "
-        "WHERE COALESCE(cover_attempts, 0) >= 5 "
-        "AND (cover_letter_path IS NULL OR cover_letter_path = '')"
-    ).fetchone()[0]
+    stats["with_cover_letter"] = count("cover_letter_path IS NOT NULL")
+    stats["cover_exhausted"] = count(
+        "COALESCE(cover_attempts, 0) >= 5 AND (cover_letter_path IS NULL OR cover_letter_path = '')"
+    )
 
     # Applications: tracked in the dashboard (user_status). applied_at is only set on jobs the removed auto-apply stage sent.
     applied = "(COALESCE(user_status, '') IN ('submitted', 'rejected', 'heard_back') OR applied_at IS NOT NULL)"
-    stats["applied"] = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {applied}").fetchone()[0]
-
-    stats["apply_errors"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE apply_error IS NOT NULL"
-    ).fetchone()[0]
-
-    stats["ready_to_apply"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs "
-        "WHERE tailored_resume_path IS NOT NULL "
-        f"AND NOT {applied} "
-        "AND application_url IS NOT NULL"
-    ).fetchone()[0]
+    stats["applied"] = count(applied)
+    stats["apply_errors"] = count("apply_error IS NOT NULL")
+    stats["ready_to_apply"] = count(
+        f"tailored_resume_path IS NOT NULL AND NOT {applied} AND application_url IS NOT NULL"
+    )
 
     return stats
 
 
 def store_jobs(conn: Connection, jobs: list[dict],
-               site: str, strategy: str) -> tuple[int, int]:
-    """Store discovered jobs, skipping duplicates by URL.
+               site: str, strategy: str, user_id: str | None = None) -> tuple[int, int]:
+    """Store discovered jobs for a user, skipping urls the user already has.
 
     Args:
         conn: Database connection.
         jobs: List of job dicts with keys: url, title, salary, description, location.
         site: Source site name (e.g. "RemoteOK", "Dice").
         strategy: Extraction strategy used (e.g. "json_ld", "api_response", "css_selectors").
+        user_id: Whose jobs these are; None = the owner's (until every caller passes a user).
 
     Returns:
         Tuple of (new_count, duplicate_count).
     """
+    user_id = user_id or users.owner(conn).id
     now = datetime.now(timezone.utc).isoformat()
     new = 0
     existing = 0
@@ -759,15 +731,15 @@ def store_jobs(conn: Connection, jobs: list[dict],
         url = job.get("url")
         if not url:
             continue
-        try:
-            conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, job_key) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now, job_key(url)),
-            )
+        cur = conn.execute(
+            "INSERT INTO jobs (user_id, url, title, salary, description, location, site, strategy, discovered_at, "
+            "job_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, url) DO NOTHING",
+            (user_id, url, job.get("title"), job.get("salary"), job.get("description"),
+             job.get("location"), site, strategy, now, job_key(url)),
+        )
+        if cur.rowcount == 1:
             new += 1
-        except IntegrityError:
+        else:
             existing += 1
 
     conn.commit()
@@ -777,7 +749,8 @@ def store_jobs(conn: Connection, jobs: list[dict],
 def get_jobs_by_stage(conn: Connection | None = None,
                       stage: str = "discovered",
                       min_score: int | None = None,
-                      limit: int = 100) -> list[dict]:
+                      limit: int = 100,
+                      user_id: str | None = None) -> list[dict]:
     """Fetch jobs filtered by pipeline stage.
 
     Args:
@@ -785,6 +758,7 @@ def get_jobs_by_stage(conn: Connection | None = None,
         stage: One of "discovered", "enriched", "scored", "tailored", "applied".
         min_score: Minimum fit_score filter (only relevant for scored+ stages).
         limit: Maximum number of rows to return.
+        user_id: Only this user's jobs; None = every user's.
 
     Returns:
         List of job dicts.
@@ -823,6 +797,10 @@ def get_jobs_by_stage(conn: Connection | None = None,
         where += " AND fit_score >= ?"
         params.append(min_score)
 
+    if user_id:
+        where = f"({where}) AND user_id = ?"
+        params.append(user_id)
+
     query = f"SELECT * FROM jobs WHERE {where} ORDER BY fit_score DESC NULLS LAST, discovered_at DESC"
     if limit > 0:
         query += " LIMIT ?"
@@ -837,17 +815,23 @@ def get_jobs_by_stage(conn: Connection | None = None,
     return []
 
 
-def get_jobs_by_urls(conn: Connection | None, urls: list[str]) -> list[dict]:
-    """These jobs (those with a description), in the order given: a single-job tailor or cover run from the dashboard."""
+def get_jobs_by_urls(conn: Connection | None, urls: list[str], user_id: str | None = None) -> list[dict]:
+    """These jobs (those with a description), in the order given: a single-job tailor or cover run from the dashboard.
+
+    user_id: only this user's rows; None = any user's (one row per url, whichever comes first).
+    """
     if conn is None:
         conn = get_connection()
     if not urls:
         return []
+    mine, params = (" AND user_id = ?", [user_id]) if user_id else ("", [])
     rows = conn.execute(
-        f"SELECT * FROM jobs WHERE url IN ({', '.join('?' * len(urls))}) AND full_description IS NOT NULL",
-        list(urls),
+        f"SELECT * FROM jobs WHERE url IN ({', '.join('?' * len(urls))}) AND full_description IS NOT NULL{mine}",
+        [*urls, *params],
     ).fetchall()
-    by_url = {row["url"]: dict(row) for row in rows}
+    by_url: dict[str, dict] = {}
+    for row in rows:
+        by_url.setdefault(row["url"], dict(row))
     return [by_url[u] for u in dict.fromkeys(urls) if u in by_url]
 
 
