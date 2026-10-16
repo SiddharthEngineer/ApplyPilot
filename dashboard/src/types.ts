@@ -508,3 +508,38 @@ export interface AdminUser {
   month_spend_usd: number;
   last_login_at: string | null;
 }
+
+/** The fields the Profile page edits (GET/PUT /profile). */
+export interface ProfileFields {
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  linkedin_url: string;
+  github_url: string;
+  location: string;
+  current_job_title: string;
+  years_experience: number | null;
+  education_level: string | null;
+  skills: string[];
+}
+
+export interface ProfileResponse {
+  profile: ProfileFields;
+  /** Scoring has a resume text to read (uploaded, or imported from resume.txt). */
+  has_resume: boolean;
+  resume_file_name: string | null;
+  content_library_md: string;
+  /** Why the workbench can't use the content library, or null. */
+  content_library_error: string | null;
+  options: { education_level: string[] };
+}
+
+/** PUT /profile: the fields plus the content library. */
+export type ProfileSave = ProfileFields & { content_library_md: string };
+
+/** POST /profile/resume: the stored resume, and Claude's draft for the fields that were empty (not saved yet). */
+export interface ResumeUploadResult extends ProfileResponse {
+  draft: Partial<ProfileFields>;
+  parse_error: string | null;
+}

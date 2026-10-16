@@ -10,6 +10,7 @@ import JobPage from './pages/JobPage';
 import JobsPage from './pages/JobsPage';
 import PanelPage from './pages/PanelPage';
 import PreferencesPage from './pages/PreferencesPage';
+import ProfilePage from './pages/ProfilePage';
 import SignInPage from './pages/SignInPage';
 import UsersPage from './pages/UsersPage';
 import type { AuthMe } from './types';
@@ -51,6 +52,7 @@ function Shell({ me }: { me: AuthMe | null }) {
         <nav className="nav" aria-label="Main">
           <NavLink to="/" end>Jobs</NavLink>
           <NavLink to="/contacts">Contacts</NavLink>
+          <NavLink to="/profile">Profile</NavLink>
           <NavLink to="/preferences">Preferences</NavLink>
           <NavLink to="/panel">
             Panel{panelDue && <span className="nav-dot" role="img" aria-label="due" title={`Panel due: ${panelDue}`} />}
@@ -72,6 +74,7 @@ function Shell({ me }: { me: AuthMe | null }) {
           <Route path="/" element={<JobsPage panelDue={panelDue} />} />
           <Route path="/jobs/:key" element={<JobPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/preferences" element={<PreferencesPage />} />
           <Route path="/claude-setup" element={<ClaudeSetupPage />} />
           <Route path="/panel" element={<PanelPage onChange={refreshPanelDue} />} />
