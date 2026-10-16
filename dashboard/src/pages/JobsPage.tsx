@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getFacets, listJobs } from '../api';
+import { getFacets, listJobs, rescoreAll, rescorePreview } from '../api';
 import Filters from '../components/Filters';
 import Flower from '../components/Flower';
 import Hero from '../components/Hero';
 import JobsTable from '../components/JobsTable';
-import type { Facets, JobList, JobQuery } from '../types';
+import TaskProgress from '../components/TaskProgress';
+import type { Facets, JobList, JobQuery, RescorePreview, Task } from '../types';
 import { DEFAULT_SORT, PAGE_SIZE, useQueryState } from '../useQueryState';
+import { usd } from './PreferencesPage';
 
 const CLEAR_ALL_SOURCES: Partial<JobQuery> = {
   status: undefined, role: undefined, work_mode: undefined, location: undefined, found_from: undefined,
@@ -21,6 +23,12 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
   const [loading, setLoading] = useState(true);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [facetsLoaded, setFacetsLoaded] = useState(false);
+  const [reload, setReload] = useState(0);
+  // Rescore all: the confirm dialog's preview, then the queued task.
+  const [rescore, setRescore] = useState<RescorePreview | null>(null);
+  const [rescoreBusy, setRescoreBusy] = useState(false);
+  const [rescoreError, setRescoreError] = useState<string | null>(null);
+  const [rescoreTask, setRescoreTask] = useState<Task | null>(null);
   // Without a source in the URL, show the jobs the user added when there are any.
   const hasManual = (facets?.source?.find((s) => s.value === 'manual')?.count ?? 0) > 0;
   const shown: JobQuery = query.source === undefined && hasManual ? { ...query, source: ['manual'] } : query;
@@ -48,7 +56,38 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
       });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, facetsLoaded]);
+  }, [queryKey, facetsLoaded, reload]);
+
+  async function openRescore() {
+    setRescoreBusy(true);
+    setRescoreError(null);
+    try {
+      setRescore(await rescorePreview());
+    } catch (err) {
+      setRescoreError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRescoreBusy(false);
+    }
+  }
+
+  function closeRescore() {
+    setRescore(null);
+    setRescoreError(null);
+  }
+
+  async function confirmRescore() {
+    setRescoreBusy(true);
+    setRescoreError(null);
+    try {
+      const res = await rescoreAll();
+      setRescore(null);
+      setRescoreTask(res.task);
+    } catch (err) {
+      setRescoreError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRescoreBusy(false);
+    }
+  }
 
   const sort = query.sort ?? DEFAULT_SORT;
   const page = query.page ?? 1;
@@ -67,7 +106,41 @@ export default function JobsPage({ panelDue = null }: { panelDue?: string | null
             {total ? `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}` : '0 jobs'}
           </span>
         )}
+        <button type="button" className="list-header-action" disabled={rescoreBusy} onClick={openRescore}>
+          Rescore all
+        </button>
       </div>
+      {rescoreError && !rescore && <p className="notice error" role="alert">{rescoreError}</p>}
+      {rescoreTask && (
+        <TaskProgress task={rescoreTask} onFinish={(t) => {
+          setRescoreTask(t);
+          if (t.state === 'done') setReload((n) => n + 1);
+        }} />
+      )}
+      {rescore && (
+        <div className="dialog-backdrop">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="rescore-title">
+            <h2 id="rescore-title">Rescore all jobs?</h2>
+            {rescore.jobs ? (
+              <p>
+                Re-assess {rescore.jobs.toLocaleString()} active jobs with Claude, {usd(rescore.estimated_usd)}
+                {' '}(takes up to an hour). Rejected jobs are left out.
+              </p>
+            ) : (
+              <p>There are no active jobs to re-assess.</p>
+            )}
+            {rescore.skipped_unextracted > 0 && (
+              <p className="muted">{rescore.skipped_unextracted.toLocaleString()} jobs skipped: not extracted yet.</p>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="primary" disabled={rescoreBusy || !rescore.jobs}
+                onClick={confirmRescore}>Re-assess</button>
+              <button type="button" disabled={rescoreBusy} onClick={closeRescore}>Cancel</button>
+            </div>
+            {rescoreError && <p className="error" role="alert">{rescoreError}</p>}
+          </div>
+        </div>
+      )}
       {panelDue && (
         <p className="stale-note panel-due" role="status">
           Panel due: {panelDue}. <Link to="/panel">Run the resume panel</Link>

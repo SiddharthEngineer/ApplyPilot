@@ -46,7 +46,7 @@ then enqueue `rescore_all`, returning the task. `PUT /preferences` takes `reasse
 count) → confirm → TaskProgress until done, then reload the list. Preferences dialog: the checkbox above, which re-fetches the
 preview for the chosen scope. Rebuild the bundle into `src/strelitzia/web/static`.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

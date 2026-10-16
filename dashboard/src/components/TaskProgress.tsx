@@ -7,6 +7,7 @@ export const POLL_MS = 3000;
 const KIND_LABELS: Record<Task['kind'], string> = {
   rescore: 'assessment',
   reassess_all: 're-assessment of your jobs',
+  rescore_all: 're-assessment of your active jobs',
   intake: 'posting',
 };
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addJob, ApiError, jobsQueryString, linkContact, listJobs, onUnauthorized, openPacket, pasteResult, putDescription,
-  rescore, savePreferences, setStatus,
+  rescore, rescoreAll, savePreferences, setStatus,
 } from '../api';
 import type { Preferences } from '../types';
 
@@ -97,7 +97,20 @@ describe('api', () => {
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('/app/api/preferences');
     expect(init.method).toBe('PUT');
-    expect(JSON.parse(init.body)).toEqual({ prefs: { skills_want: ['Rust'] }, confirm_reassess: true });
+    expect(JSON.parse(init.body)).toEqual({ prefs: { skills_want: ['Rust'] }, confirm_reassess: true,
+      reassess_scope: 'stale' });
+    const again = mockFetch(200, { prefs: {}, rescored: 0, task: null });
+    await savePreferences({ skills_want: ['Rust'] } as unknown as Preferences, true, 'active');
+    expect(JSON.parse(again.mock.calls[0][1].body).reassess_scope).toBe('active');
+  });
+
+  it('Rescore all confirms the cost in the request', async () => {
+    const fetch = mockFetch(200, { jobs: 1, skipped_unextracted: 0, estimated_usd: 0.01, task: null });
+    await rescoreAll();
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('/app/api/rescore');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ confirm: true });
   });
 
   it('sends hide_flagged=false when flagged jobs are shown', () => {

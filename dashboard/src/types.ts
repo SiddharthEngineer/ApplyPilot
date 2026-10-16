@@ -301,6 +301,23 @@ export interface ReassessPreview {
   reassess_needed: boolean;
   jobs_to_reassess: number;
   estimated_usd: number;
+  /** Only with reassess_scope "active": jobs left out because they aren't extracted yet. */
+  skipped_unextracted?: number;
+}
+
+/** "stale": only the jobs whose assessment is out of date. "active": every job that isn't rejected. */
+export type ReassessScope = 'stale' | 'active';
+
+/** GET /rescore/preview: what Rescore all would re-assess (active jobs) and roughly cost. */
+export interface RescorePreview {
+  jobs: number;
+  skipped_unextracted: number;
+  estimated_usd: number;
+}
+
+/** POST /rescore */
+export interface RescoreAllResult extends RescorePreview {
+  task: Task | null;
 }
 
 export interface SavePreferencesResult {
@@ -309,7 +326,7 @@ export interface SavePreferencesResult {
   task: Task | null;
 }
 
-export type TaskKind = 'rescore' | 'reassess_all' | 'intake';
+export type TaskKind = 'rescore' | 'reassess_all' | 'rescore_all' | 'intake';
 export type TaskState = 'queued' | 'running' | 'done' | 'error';
 
 export interface Task {

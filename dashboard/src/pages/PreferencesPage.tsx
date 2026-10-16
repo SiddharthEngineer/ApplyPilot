@@ -3,7 +3,9 @@ import * as api from '../api';
 import Flower from '../components/Flower';
 import TaskProgress from '../components/TaskProgress';
 import { humanize, IMPORTANCE_LABELS, IMPORTANCES, roleLabel, WORK_MODE_LABELS } from '../labels';
-import type { Criterion, Importance, Preferences, PreferencesResponse, ReassessPreview, Task } from '../types';
+import type {
+  Criterion, Importance, Preferences, PreferencesResponse, ReassessPreview, ReassessScope, Task,
+} from '../types';
 
 type CriterionKey = { [K in keyof Preferences]: Preferences[K] extends Criterion ? K : never }[keyof Preferences];
 type ListKey = 'skills_want' | 'skills_avoid' | 'industries_favor' | 'industries_avoid' | 'target_roles';
@@ -108,6 +110,7 @@ export default function PreferencesPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ReassessPreview | null>(null);
+  const [scope, setScope] = useState<ReassessScope>('stale');
   const [task, setTask] = useState<Task | null>(null);
 
   useEffect(() => {
@@ -169,7 +172,7 @@ export default function PreferencesPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.savePreferences(prefs, confirmReassess);
+      const res = await api.savePreferences(prefs, confirmReassess, scope);
       setPrefs(res.prefs);
       setSaved(JSON.stringify(res.prefs));
       setConfirm(null);
@@ -182,11 +185,27 @@ export default function PreferencesPage() {
     }
   }
 
+  /** The dialog's "Re-assess all active jobs" checkbox: re-fetch the count and cost for the chosen scope. */
+  async function changeScope(next: ReassessScope) {
+    if (!prefs) return;
+    setScope(next);
+    setBusy(true);
+    setError(null);
+    try {
+      setConfirm(await api.previewPreferences(prefs, next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onSave() {
     if (!prefs) return;
     setBusy(true);
     setError(null);
     setMessage(null);
+    setScope('stale');
     try {
       const preview = await api.previewPreferences(prefs);
       if (preview.reassess_needed && preview.jobs_to_reassess > 0) {
@@ -314,8 +333,17 @@ export default function PreferencesPage() {
               Re-assess {confirm.jobs_to_reassess.toLocaleString()} jobs with Claude, {usd(confirm.estimated_usd)}
               {' '}(takes up to an hour). Preference-only changes apply now for free.
             </p>
+            {!!confirm.skipped_unextracted && (
+              <p className="muted">{confirm.skipped_unextracted.toLocaleString()} jobs skipped: not extracted yet.</p>
+            )}
+            <label className="check">
+              <input type="checkbox" checked={scope === 'active'} disabled={busy}
+                onChange={(e) => changeScope(e.target.checked ? 'active' : 'stale')} />
+              Re-assess all active jobs, not only the ones these changes affect
+            </label>
             <div className="dialog-actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => save(true)}>Re-assess</button>
+              <button type="button" className="primary" disabled={busy || !confirm.jobs_to_reassess}
+                onClick={() => save(true)}>Re-assess</button>
               <button type="button" disabled={busy} onClick={() => save(false)}>Save without re-assessing</button>
               <button type="button" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
             </div>
