@@ -113,9 +113,9 @@ export default function ClaudeSetupPage() {
           )}
           {setup.drive_source === 'user' && (
             <p className="muted small">
-              Drive connected: files go to a Strelitzia folder in your Drive ({setup.drive_detail}).{' '}
-              {setup.connect_url && <a href={setup.connect_url}>Reconnect</a>}{' '}
-              <button type="button" disabled={busy} onClick={disconnect}>Disconnect</button>
+              <strong>Connected</strong> · files go to a Strelitzia folder in your Drive ({setup.drive_detail}).{' '}
+              <button type="button" disabled={busy} onClick={disconnect}>Disconnect</button>{' '}
+              {setup.connect_url && <a href={setup.connect_url}>Reconnect</a>}
             </p>
           )}
         </li>

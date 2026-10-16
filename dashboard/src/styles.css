@@ -369,3 +369,9 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .sign-in-card { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 24rem; padding: 32px; text-align: center; }
 .sign-in-card h1 { margin: 0; }
 .sign-in-card .notice { padding: 0; }
+
+/* The owner's Users page */
+.invite-form { display: flex; align-items: flex-end; gap: 8px; margin: 12px 0 16px; }
+.invite-form .field { flex: 0 1 320px; }
+.users-table { min-width: 720px; }
+.cap-input { width: 7rem; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }

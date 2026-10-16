@@ -477,3 +477,17 @@ export interface AuthMe {
   enabled: boolean;
   user: AuthUser | null;
 }
+
+/** A row on the owner's Users page (GET /admin/users). */
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'owner' | 'user';
+  status: 'invited' | 'active' | 'disabled';
+  /** USD per calendar month; null = no cap. */
+  monthly_cap_usd: number | null;
+  /** Claude spend so far this month, including open batches at their estimate. */
+  month_spend_usd: number;
+  last_login_at: string | null;
+}
