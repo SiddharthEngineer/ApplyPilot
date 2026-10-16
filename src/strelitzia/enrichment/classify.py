@@ -227,18 +227,20 @@ def run_classify(conn=None, only_missing: bool = False) -> dict:
     if conn is None:
         conn = get_connection()
     where = "extracted_at IS NULL" + (" AND role_category IS NULL" if only_missing else "")
-    rows = conn.execute(f"SELECT url, title, location, full_description, description FROM jobs WHERE {where}").fetchall()
+    rows = conn.execute(
+        f"SELECT user_id, url, title, location, full_description, description FROM jobs WHERE {where}"
+    ).fetchall()
     updates = []
     by_category: dict[str, int] = {}
-    for url, title, location, full_desc, desc in rows:
+    for user_id, url, title, location, full_desc, desc in rows:
         category = classify_title(title or "")
         loc = parse_location(location)
         mode = classify_work_mode(location, full_desc or desc)
         by_category[category] = by_category.get(category, 0) + 1
-        updates.append((category, mode, loc.city, loc.state, loc.country, url))
+        updates.append((category, mode, loc.city, loc.state, loc.country, user_id, url))
     conn.executemany(
         "UPDATE jobs SET role_category = ?, work_mode = ?, location_city = ?, location_state = ?, "
-        "location_country = ?, category_source = 'heuristic' WHERE url = ? AND extracted_at IS NULL",
+        "location_country = ?, category_source = 'heuristic' WHERE user_id = ? AND url = ? AND extracted_at IS NULL",
         updates,
     )
     conn.commit()

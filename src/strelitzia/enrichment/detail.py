@@ -82,13 +82,13 @@ def resolve_url(raw_url: str, site: str) -> str | None:
 
 def resolve_all_urls(conn: Connection) -> dict:
     """Resolve all relative URLs in the database. Returns stats."""
-    rows = conn.execute("SELECT url, site FROM jobs").fetchall()
+    rows = conn.execute("SELECT user_id, url, site FROM jobs").fetchall()
     resolved = 0
     failed = 0
     already_absolute = 0
 
     for row in rows:
-        url, site = row[0], row[1]
+        user_id, url, site = row[0], row[1], row[2]
         if url.startswith("http://") or url.startswith("https://"):
             already_absolute += 1
             continue
@@ -96,10 +96,10 @@ def resolve_all_urls(conn: Connection) -> dict:
         new_url = resolve_url(url, site)
         if new_url and new_url != url:
             try:
-                conn.execute("UPDATE jobs SET url = ? WHERE url = ?", (new_url, url))
+                conn.execute("UPDATE jobs SET url = ? WHERE user_id = ? AND url = ?", (new_url, user_id, url))
                 resolved += 1
             except IntegrityError:
-                conn.execute("DELETE FROM jobs WHERE url = ?", (url,))
+                conn.execute("DELETE FROM jobs WHERE user_id = ? AND url = ?", (user_id, url))
                 resolved += 1
         else:
             failed += 1
@@ -107,15 +107,15 @@ def resolve_all_urls(conn: Connection) -> dict:
     # Also resolve relative application_urls
     app_resolved = 0
     rows = conn.execute(
-        "SELECT url, site, application_url FROM jobs "
+        "SELECT user_id, url, site, application_url FROM jobs "
         "WHERE application_url IS NOT NULL AND application_url != '' "
         "AND application_url NOT LIKE 'http%'"
     ).fetchall()
     for row in rows:
-        url, site, app_url = row[0], row[1], row[2]
+        user_id, url, site, app_url = row[0], row[1], row[2], row[3]
         new_app = resolve_url(app_url, site)
         if new_app and new_app != app_url:
-            conn.execute("UPDATE jobs SET application_url = ? WHERE url = ?", (new_app, url))
+            conn.execute("UPDATE jobs SET application_url = ? WHERE user_id = ? AND url = ?", (new_app, user_id, url))
             app_resolved += 1
 
     conn.commit()
@@ -127,7 +127,7 @@ def resolve_wttj_urls(conn: Connection) -> int:
     """Re-fetch WTTJ Algolia API to get proper detail URLs and fix slug-as-title.
     Returns count of URLs updated."""
     wttj_jobs = conn.execute(
-        "SELECT url, title FROM jobs WHERE site = 'WelcomeToTheJungle'"
+        "SELECT user_id, url, title FROM jobs WHERE site = 'WelcomeToTheJungle'"
     ).fetchall()
 
     if not wttj_jobs:
@@ -171,30 +171,30 @@ def resolve_wttj_urls(conn: Connection) -> int:
 
     updated = 0
     for row in wttj_jobs:
-        old_url, old_title = row[0], row[1]
+        user_id, old_url, old_title = row[0], row[1], row[2]
         slug = old_url.split("_DFNS_")[0] if "_DFNS_" in old_url else old_url
         match = slug_map.get(slug) or slug_map.get(old_url)
         if match:
             try:
                 conn.execute(
-                    "UPDATE jobs SET url = ?, title = ? WHERE url = ?",
-                    (match["url"], match["name"] or old_title, old_url),
+                    "UPDATE jobs SET url = ?, title = ? WHERE user_id = ? AND url = ?",
+                    (match["url"], match["name"] or old_title, user_id, old_url),
                 )
                 updated += 1
             except IntegrityError:
-                conn.execute("DELETE FROM jobs WHERE url = ?", (old_url,))
+                conn.execute("DELETE FROM jobs WHERE user_id = ? AND url = ?", (user_id, old_url))
                 updated += 1
         else:
             for s, data in slug_map.items():
                 if s in old_url or old_url in s:
                     try:
                         conn.execute(
-                            "UPDATE jobs SET url = ?, title = ? WHERE url = ?",
-                            (data["url"], data["name"] or old_title, old_url),
+                            "UPDATE jobs SET url = ?, title = ? WHERE user_id = ? AND url = ?",
+                            (data["url"], data["name"] or old_title, user_id, old_url),
                         )
                         updated += 1
                     except IntegrityError:
-                        conn.execute("DELETE FROM jobs WHERE url = ?", (old_url,))
+                        conn.execute("DELETE FROM jobs WHERE user_id = ? AND url = ?", (user_id, old_url))
                         updated += 1
                     break
 
@@ -628,7 +628,7 @@ def scrape_site_batch(
 ) -> dict:
     """Process all jobs for one site using shared browser context.
 
-    If conn is None, creates its own DB connection.
+    `jobs` holds (user_id, url, title) tuples. If conn is None, creates its own DB connection.
     """
     stats: dict = {"processed": 0, "ok": 0, "partial": 0, "error": 0, "tiers": {1: 0, 2: 0, 3: 0}}
 
@@ -646,7 +646,7 @@ def scrape_site_batch(
 
     try:
         with detail_page() as page:
-            for i, (url, title) in enumerate(jobs):
+            for i, (user_id, url, title) in enumerate(jobs):
                 log.info("[%d/%d] %s", i + 1, len(jobs), title[:50] if title else url[:50])
 
                 result = scrape_detail_page(page, url)
@@ -670,15 +670,15 @@ def scrape_site_batch(
                 if status in ("ok", "partial"):
                     stats[status] += 1
                     conn.execute(
-                        "UPDATE jobs SET full_description = ?, application_url = ?, "
-                        "detail_scraped_at = ?, detail_error = NULL WHERE url = ?",
-                        (result.get("full_description"), result.get("application_url"), now, url),
+                        "UPDATE jobs SET full_description = ?, detail_scraped_at = ?, detail_error = NULL, "
+                        "application_url = ? WHERE user_id = ? AND url = ?",
+                        (result.get("full_description"), now, result.get("application_url"), user_id, url),
                     )
                 else:
                     stats["error"] += 1
                     conn.execute(
-                        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ? WHERE url = ?",
-                        (result.get("error", "unknown"), now, url),
+                        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ? WHERE user_id = ? AND url = ?",
+                        (result.get("error", "unknown"), now, user_id, url),
                     )
 
                 conn.commit()
@@ -709,7 +709,7 @@ def _run_detail_scraper(
     skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
     where = f"WHERE detail_scraped_at IS NULL AND {skip_filter}"
     rows = conn.execute(
-        f"SELECT url, title, site FROM jobs {where} ORDER BY site"
+        f"SELECT user_id, url, title, site FROM jobs {where} ORDER BY site"
     ).fetchall()
 
     if not rows:
@@ -718,10 +718,10 @@ def _run_detail_scraper(
 
     site_jobs: dict[str, list[tuple]] = {}
     for row in rows:
-        url, title, site = row[0], row[1], row[2]
+        user_id, url, title, site = row[0], row[1], row[2], row[3]
         if sites and site not in sites:
             continue
-        site_jobs.setdefault(site, []).append((url, title))
+        site_jobs.setdefault(site, []).append((user_id, url, title))
 
     log.info("Pending: %d jobs across %d sites (workers=%d)", len(rows), len(site_jobs), workers)
     for site, jobs in site_jobs.items():

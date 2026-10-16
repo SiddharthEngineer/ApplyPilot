@@ -38,7 +38,7 @@ two rows, and B's intake never changes A's row.
 **What:** Every UPDATE/SELECT by url also matches `user_id` from the job row. A function that took `urls` also takes `user_id`.
 **Validate:** `pytest tests/test_posting_extract.py tests/test_posting_classify.py tests/test_enrich_smoke.py -q` → passes; a
 two-user test shows extraction writes only the targeted row.
-**Status:** ❌
+**Status:** ✅ 2026-10-16
 
 ### Task 3: tasks carry a user
 **Runs:** unattended

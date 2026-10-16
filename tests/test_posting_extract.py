@@ -320,3 +320,29 @@ def test_extract_uses_haiku_by_default(monkeypatch):
     assert resolve_model("extract")[0] == "claude-haiku-5-5"
     monkeypatch.setenv("LLM_EXTRACT_MODEL", "claude-sonnet-5-5")
     assert resolve_model("extract")[0] == "claude-sonnet-5-5"
+
+
+def test_two_users_rows_for_one_posting_are_extracted_separately(conn):
+    """B's row for job 2 gets its own request (a distinct custom_id) and only B's result; A's row only A's."""
+    other = users.invite(conn, "b@example.com").id
+    conn.execute("INSERT INTO jobs (user_id, url, title, site, full_description, discovered_at) "
+                 "VALUES (?, ?, 'B copy', 'indeed', 'B pasted this.', '2026-10-09')", (other, _url(2)))
+    conn.commit()
+    backfill_job_keys(conn)
+    b_cid = f"{job_id({'url': _url(2)})}-{other}"
+    fake = FakeLLM(batch_errors={b_cid: "expired"})
+    stats = _run(conn, fake)
+    cids = [cid for cid, _ in fake.batches[0]]
+    assert len(cids) == len(set(cids)) == 8 and b_cid in cids and _cid(conn, 2) in cids
+    assert stats["extracted"] == 7 and stats["errors"] == 1
+
+    def row(user_id):
+        return dict(conn.execute("SELECT * FROM jobs WHERE user_id = ? AND url = ?", (user_id, _url(2))).fetchone())
+
+    a, b = row(users.owner(conn).id), row(other)
+    assert a["extracted_at"] and a["extract_attempts"] in (None, 0) and a["extract_error"] is None
+    assert b["extracted_at"] is None and b["extract_attempts"] == 1 and b["extract_error"] == "LLM error: expired"
+
+    extract._save_posting(conn, other, _url(2), extract.parse_posting(json.dumps(_posting(team="B only"))))
+    assert json.loads(row(other)["details_json"])["team"] == "B only"
+    assert json.loads(row(users.owner(conn).id)["details_json"])["team"] is None
