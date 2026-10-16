@@ -26,7 +26,7 @@ and change their cap.
 last login), `POST /app/api/admin/users` `{email, monthly_cap_usd?}` (invite), `PATCH /app/api/admin/users/{id}`
 `{status?, monthly_cap_usd?}`, `DELETE` = set status `disabled` (never deletes data). The owner can't disable themself.
 **Validate:** `pytest tests/web/test_admin_api.py -q` → passes.
-**Status:** ✅ 2026-10-16 (Task 1 commit)
+**Status:** ✅ 2026-10-16 (1fa72db)
 
 ### Task 2: sign-in and the user menu
 **Runs:** unattended
@@ -35,7 +35,7 @@ last login), `POST /app/api/admin/users` `{email, monthly_cap_usd?}` (invite), `
 `/app/api/auth/login`, and the not-invited message when `?auth=not_invited`). A 401 from any request shows the same page.
 The top bar shows the name and Sign out (POST logout, then reload). When auth is off, nothing changes.
 **Validate:** `cd dashboard && npm test -- --run` → passes, with a new test for the sign-in screen and 401 handling.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 2 commit)
 
 ### Task 3: Drive connect and the Users page
 **Runs:** unattended

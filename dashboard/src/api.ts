@@ -1,8 +1,8 @@
 // Typed fetch helpers for /app/api. Mutating calls send `X-Strelitzia: 1` (the server's CSRF check).
 import type {
-  AddJobInput, AddJobResult, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets, Interview,
-  ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PanelGradeOutcome, PanelMode, PanelOverview,
-  PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview, Relation,
+  AddJobInput, AddJobResult, AuthMe, ClaudeSetup, Contact, ContactFields, ContactListItem, ContactWithJobs, Facets,
+  Interview, ImportResult, InterviewFields, JobDetail, JobList, JobQuery, PacketResult, PanelGradeOutcome, PanelMode,
+  PanelOverview, PanelRun, PanelWinner, PasteOutcome, Preferences, PreferencesResponse, ReassessPreview, Relation,
   SavePreferencesResult, Task, UserStatus,
 } from './types';
 
@@ -28,6 +28,19 @@ async function errorMessage(res: Response): Promise<string> {
   return `${res.status} ${res.statusText}`.trim();
 }
 
+type UnauthorizedListener = () => void;
+let unauthorized: UnauthorizedListener | null = null;
+
+/** Call `listener` whenever a request comes back 401 (the session ended): the app shows the sign-in screen. */
+export function onUnauthorized(listener: UnauthorizedListener | null): void {
+  unauthorized = listener;
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  if (res.status === 401) unauthorized?.();
+  return new ApiError(res.status, await errorMessage(res));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -36,7 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (init?.body !== undefined) headers['Content-Type'] = 'application/json';
   }
   const res = await fetch(API_BASE + path, { ...init, headers });
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  if (!res.ok) throw await failure(res);
   return (await res.json()) as T;
 }
 
@@ -96,7 +109,7 @@ export async function pasteResult(key: string, text: string): Promise<PasteOutco
       return { ok: false, errors: body.errors, warnings: body.warnings ?? [], fix_prompt: body.fix_prompt ?? '' };
     }
   }
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  if (!res.ok) throw await failure(res);
   return { ok: true, ...((await res.json()) as ImportResult) };
 }
 
@@ -241,7 +254,7 @@ async function postPanelGrade(id: string, body: object): Promise<PanelGradeOutco
     const err = await res.clone().json().catch(() => null);
     if (err && Array.isArray(err.errors)) return { ok: false, errors: err.errors };
   }
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  if (!res.ok) throw await failure(res);
   return { ok: true, ...((await res.json()) as { graded: number | null; run: PanelRun }) };
 }
 
@@ -255,4 +268,16 @@ export async function pickPanelItem(id: string, item: number, winner: PanelWinne
   const out = await postPanelGrade(id, { grader: 'you', item, winner });
   if (!out.ok) throw new ApiError(422, out.errors[0]);
   return out.run;
+}
+
+/** Whether sign-in is on and who is signed in (never a 401: user is null without a session). */
+export function getMe(signal?: AbortSignal): Promise<AuthMe> {
+  return request<AuthMe>('/auth/me', { signal });
+}
+
+/** The Google sign-in page (a full-page redirect through the server). */
+export const LOGIN_URL = `${API_BASE}/auth/login`;
+
+export function logout(): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/auth/logout', { method: 'POST' });
 }

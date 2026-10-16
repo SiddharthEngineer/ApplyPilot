@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addJob, ApiError, jobsQueryString, linkContact, listJobs, openPacket, pasteResult, putDescription, rescore, savePreferences,
-  setStatus,
+  addJob, ApiError, jobsQueryString, linkContact, listJobs, onUnauthorized, openPacket, pasteResult, putDescription,
+  rescore, savePreferences, setStatus,
 } from '../api';
 import type { Preferences } from '../types';
 
@@ -125,5 +125,25 @@ describe('api', () => {
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('/app/api/jobs/k1/contacts');
     expect(JSON.parse(init.body)).toEqual({ contact: { name: 'Ana' }, relation: 'recruiter' });
+  });
+});
+
+describe('401 handling', () => {
+  afterEach(() => onUnauthorized(null));
+
+  it('tells the app when a request comes back 401, and still throws', async () => {
+    const listener = vi.fn();
+    onUnauthorized(listener);
+    mockFetch(401, { detail: 'Not signed in' });
+    await expect(listJobs()).rejects.toMatchObject({ status: 401, message: 'Not signed in' });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves other errors alone', async () => {
+    const listener = vi.fn();
+    onUnauthorized(listener);
+    mockFetch(403, { detail: 'Only the owner can manage users' });
+    await expect(listJobs()).rejects.toBeInstanceOf(ApiError);
+    expect(listener).not.toHaveBeenCalled();
   });
 });
