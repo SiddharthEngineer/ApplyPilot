@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from strelitzia import pipeline
+from strelitzia import pipeline, users
 from strelitzia.database import MAX_EXTRACT_ATTEMPTS, backfill_job_keys, init_db
 from strelitzia.enrichment import extract
 from strelitzia.enrichment.posting_model import EXTRACT_VERSION, posting_schema
@@ -33,6 +33,11 @@ def conn(tmp_path):
     c.commit()
     backfill_job_keys(c)
     return c
+
+
+def _cid(conn, i: int) -> str:
+    """The batch custom_id of the owner's job i."""
+    return f"{job_id({'url': _url(i)})}-{users.owner(conn).id}"
 
 
 def _posting(**overrides) -> dict:
@@ -127,7 +132,7 @@ def test_batch_round_trip(conn):
     assert stats["mode"] == "batch" and stats["extracted"] == 7 and stats["errors"] == 0 and stats["requests"] == 7
     assert fake.calls == [] and len(fake.batches) == 1
     items = fake.batches[0]
-    assert [cid for cid, _ in items] == [job_id({"url": _url(i)}) for i in (3, 1, 6, 5, 4, 2, 0)]
+    assert [cid for cid, _ in items] == [_cid(conn, i) for i in (3, 1, 6, 5, 4, 2, 0)]
     params = items[0][1]
     assert params["output_config"]["format"] == {"type": "json_schema", "schema": posting_schema()}
     assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
@@ -172,8 +177,8 @@ def test_sync_request_sends_schema_and_job_url():
 
 
 def test_batch_errors_count_attempts(conn):
-    bad = job_id({"url": _url(3)})
-    invalid = job_id({"url": _url(1)})
+    bad = _cid(conn, 3)
+    invalid = _cid(conn, 1)
     fake = FakeLLM(batch_errors={bad: "errored: overloaded_error: busy"}, bad_replies={invalid})
     stats = _run(conn, fake)
     assert stats["extracted"] == 5 and stats["errors"] == 2
@@ -184,7 +189,7 @@ def test_batch_errors_count_attempts(conn):
 
 
 def test_failed_jobs_wait_for_a_later_run_until_out_of_attempts(conn):
-    bad = job_id({"url": _url(3)})
+    bad = _cid(conn, 3)
     _run(conn, FakeLLM(batch_errors={bad: "expired"}))
     assert _row(conn, 3)["extract_attempts"] == 1
     fake = FakeLLM()
@@ -202,8 +207,8 @@ def test_resumed_results_are_saved_by_job_key(conn):
     conn.commit()
 
     def resume(purpose, on_result, poll_seconds=30, wait=True, conn=None):
-        on_result(job_id({"url": _url(4)}), json.dumps(_posting(team="Resumed")), None)
-        on_result(job_id({"url": _url(5)}), json.dumps(_posting(team="Stale")), None)  # extracted since: skipped
+        on_result(job_id({"url": _url(4)}), json.dumps(_posting(team="Resumed")), None)  # before user accounts
+        on_result(_cid(conn, 5), json.dumps(_posting(team="Stale")), None)  # extracted since: skipped
         on_result("ffffffffffff", json.dumps(_posting()), None)  # a job deleted since
         return {"batches": 1, "still_open": 0}
 
@@ -263,7 +268,7 @@ def test_repeated_request_failures_stop_the_run(conn):
 
 
 def test_a_batch_where_everything_failed_reports_errors(conn):
-    fake = FakeLLM(batch_errors={job_id({"url": _url(i)}): "expired" for i in range(7)})
+    fake = FakeLLM(batch_errors={_cid(conn, i): "expired" for i in range(7)})
     assert _run(conn, fake)["stopped"] == "errors"
 
 

@@ -351,7 +351,7 @@ def reassess_preview(conn, new_prefs: Preferences) -> dict:
 
 def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
                 mode: Literal["batch", "sync"] = "batch", poll_seconds: float = 30,
-                urls: list[str] | None = None, reassess: bool = False) -> dict:
+                urls: list[str] | None = None, reassess: bool = False, user_id: str | None = None) -> dict:
     """Assess pending jobs with Claude, then recompute every job's fit score from the assessments and preferences.
 
     Pending means extracted and never assessed. Each result is written to the DB as soon as it arrives, so a run
@@ -370,6 +370,7 @@ def run_scoring(limit: int = 0, rescore: bool = False, prefilter: bool = True,
         urls: Assess exactly these jobs (the dashboard's Rescore), whatever their state.
         reassess: Also re-assess jobs whose assessment is stale (the resume or assessment inputs changed since).
             Only after the user confirmed the cost.
+        user_id: Whose jobs to assess. Accepted and not used yet: scoring becomes per user in user-auth-3.
 
     Returns:
         {"scored", "errors", "parse_errors", "prefiltered", "elapsed", "distribution", "mode"}, plus

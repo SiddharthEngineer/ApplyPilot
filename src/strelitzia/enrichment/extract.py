@@ -2,8 +2,8 @@
 
 Jobs are taken best-scored first (then newest). Every request shares the cached system prompt and asks for
 structured output (`posting_schema()`). In `batch` mode (the default) the requests go through the Message Batches
-API at half price, keyed by `job_id`; `sync` mode sends them one by one (small runs, the dashboard). Each result is
-committed as it arrives, so a stopped run keeps everything it already paid for. A failed job gets
+API at half price, keyed by `job_id` and the user (`_custom_id`); `sync` mode sends them one by one (small runs, the
+dashboard). Each result is committed as it arrives, so a stopped run keeps everything it already paid for. A failed job gets
 `extract_attempts += 1` and is picked up by a later run until MAX_EXTRACT_ATTEMPTS. A budget stop ends the stage
 cleanly, like scoring.
 """
@@ -67,29 +67,35 @@ def extract_one(job: dict, today: str | None = None) -> JobPosting:
     return parse_posting(response)
 
 
-def _save_posting(conn, url: str, posting: JobPosting) -> None:
+def _save_posting(conn, user_id: str, url: str, posting: JobPosting) -> None:
     loc = posting.locations[0] if posting.locations else None
     conn.execute(
         "UPDATE jobs SET details_json = ?, role_category = ?, seniority = ?, employment_type = ?, work_mode = ?, "
         "location_city = ?, location_state = ?, location_country = ?, salary_min = ?, salary_max = ?, "
         "salary_currency = ?, salary_period = ?, posted_date = ?, deadline = ?, "
         "company = COALESCE(company, ?), extracted_at = ?, extract_version = ?, extract_error = NULL, "
-        "category_source = 'llm' WHERE url = ?",
+        "category_source = 'llm' WHERE user_id = ? AND url = ?",
         (
             posting.to_json(), posting.role_category, posting.seniority, posting.employment_type,
             posting.work_mode, loc.city if loc else None, loc.state if loc else None,
             loc.country if loc else None, posting.salary_min, posting.salary_max, posting.salary_currency,
             posting.salary_period, posting.posted_date, posting.application_deadline, posting.company,
-            datetime.now(UTC).isoformat(), EXTRACT_VERSION, url,
+            datetime.now(UTC).isoformat(), EXTRACT_VERSION, user_id, url,
         ),
     )
 
 
-def _save_failure(conn, url: str, error: str) -> None:
+def _save_failure(conn, user_id: str, url: str, error: str) -> None:
     conn.execute(
-        "UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1, extract_error = ? WHERE url = ?",
-        (error[:500], url),
+        "UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1, extract_error = ? "
+        "WHERE user_id = ? AND url = ?",
+        (error[:500], user_id, url),
     )
+
+
+def _custom_id(job: dict) -> str:
+    """A job's batch custom_id: its job_id plus its user, since two users' rows for one posting share the job_id."""
+    return f"{job_id(job)}-{job['user_id']}"
 
 
 class _Results:
@@ -97,41 +103,44 @@ class _Results:
 
     def __init__(self, conn, jobs: list[dict]) -> None:
         self.conn = conn
-        self.by_id = {job_id(j): j["url"] for j in jobs}
+        self.by_id = {_custom_id(j): (j["user_id"], j["url"]) for j in jobs}
         self.extracted = self.errors = 0
 
-    def save(self, url: str, posting: JobPosting | None, error: str | None) -> None:
+    def save(self, user_id: str, url: str, posting: JobPosting | None, error: str | None) -> None:
         if posting is not None:
-            _save_posting(self.conn, url, posting)
+            _save_posting(self.conn, user_id, url, posting)
             self.extracted += 1
         else:
-            _save_failure(self.conn, url, error or "unknown error")
+            _save_failure(self.conn, user_id, url, error or "unknown error")
             self.errors += 1
         self.conn.commit()
 
     def on_batch_result(self, custom_id: str, text: str | None, error: str | None) -> None:
         """llm_batch callback. A batch resumed from an earlier run carries ids of jobs not in this run's list.
 
-        Those are found by job_key, and skipped if the job has been extracted since (a newer result wins).
+        Those are found by job_key and user, and skipped if the job has been extracted since (a newer result wins).
+        A custom_id from before user accounts is the bare job_key.
         """
-        url = self.by_id.get(custom_id)
-        if url is None:
-            row = self.conn.execute("SELECT url, extracted_at, extract_version FROM jobs WHERE job_key = ?",
-                                    (custom_id,)).fetchone()
+        target = self.by_id.get(custom_id)
+        if target is None:
+            key, _, user_id = custom_id.partition("-")
+            sql = "SELECT user_id, url, extracted_at, extract_version FROM jobs WHERE job_key = ?"
+            row = self.conn.execute(sql + (" AND user_id = ?" if user_id else ""),
+                                    (key, user_id) if user_id else (key,)).fetchone()
             if row is None:
                 log.warning("Batch result %s matches no job; skipped.", custom_id)
                 return
-            if row[1] and row[2] == EXTRACT_VERSION:
-                log.info("Batch result for %s skipped: extracted since.", row[0])
+            if row[2] and row[3] == EXTRACT_VERSION:
+                log.info("Batch result for %s skipped: extracted since.", row[1])
                 return
-            url = row[0]
+            target = (row[0], row[1])
         posting = None
         if text is not None:
             try:
                 posting = parse_posting(text)
             except ValueError as e:
                 error = f"invalid reply: {e}"
-        self.save(url, posting, None if posting else f"LLM error: {error}")
+        self.save(*target, posting, None if posting else f"LLM error: {error}")
 
 
 def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str]:
@@ -147,10 +156,10 @@ def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str
         except Exception as e:  # noqa: BLE001 -- one bad request must not lose the run
             consecutive_failures += 1
             log.error("Extraction failed for %s: %s", job["url"], e)
-            results.save(job["url"], None, f"LLM error: {e}")
+            results.save(job["user_id"], job["url"], None, f"LLM error: {e}")
         else:
             consecutive_failures = 0
-            results.save(job["url"], posting, None)
+            results.save(job["user_id"], job["url"], posting, None)
         log.info("[%d/%d] extracted %d, failed %d", i, len(jobs), results.extracted, results.errors)
         if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             log.error("Extraction stopped after %d failed requests in a row.", consecutive_failures)
@@ -162,7 +171,7 @@ def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: fl
                stats: dict) -> tuple[int, str]:
     """All jobs in Message Batches, after a cost estimate and budget check. Returns (requests, stopped)."""
     client = get_client("extract")
-    items = [(job_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
+    items = [(_custom_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
                                                schema=posting_schema())) for j in jobs]
     try:
         estimate = estimate_cost("extract", [params for _, params in items], batch=True)

@@ -20,7 +20,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from strelitzia import __version__, intake, tracking, workspace
+from strelitzia import __version__, intake, tracking, users, workspace
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend
@@ -42,6 +42,11 @@ log = logging.getLogger(__name__)
 def db_conn(request: Request) -> Connection:
     """This thread's connection to the app's database (each threadpool worker gets its own)."""
     return get_connection(request.app.state.db)
+
+
+def current_user(request: Request) -> users.User:
+    """The signed-in user. Until login exists every request acts as the owner."""
+    return users.owner(db_conn(request))
 
 
 @api.get("/health")
@@ -486,15 +491,16 @@ def add_job(body: AddJobBody, request: Request) -> JSONResponse:
     if not url and len(body.description.strip()) < MIN_PASTED_CHARS:
         raise HTTPException(status_code=422, detail=f"Paste the whole description (at least {MIN_PASTED_CHARS} characters)")
     conn = db_conn(request)
+    user = current_user(request)
     try:
-        existing = intake.find_existing(conn, url) if url else None
+        existing = intake.find_existing(conn, user.id, url) if url else None
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     if existing is None or intake.needs_intake(existing):
         budget_stop(conn)
     manual = intake.ManualFields(title=body.title, company=body.company, location=body.location,
                                  description=body.description)
-    row, created = intake.add_job(conn, url, manual)
+    row, created = intake.add_job(conn, user.id, url, manual)
     task = _queue_intake(conn, request, row["url"]) if created or intake.needs_intake(row) else None
     return JSONResponse({"key": row["job_key"], "created": created, "task": task},
                         status_code=201 if created else 200)
@@ -513,7 +519,7 @@ def put_description(key: str, body: PastedDescription, request: Request) -> dict
     conn = db_conn(request)
     job = job_by_key(conn, key)
     budget_stop(conn)
-    intake.save_pasted(conn, job["url"], intake.ManualFields(
+    intake.save_pasted(conn, job["user_id"], job["url"], intake.ManualFields(
         title=body.title, company=body.company, location=body.location, description=body.description))
     return {"task": _queue_intake(conn, request, job["url"]), "key": key}
 

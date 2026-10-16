@@ -38,7 +38,7 @@ class FakeGenerate:
         self.max_active = 0
         self._lock = threading.Lock()
 
-    def __call__(self, url, kind):
+    def __call__(self, user_id, url, kind):
         with self._lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
@@ -184,11 +184,11 @@ def test_stop_error_messages(db_path, reason):
 
 def test_generate_for_job_dispatches(monkeypatch):
     calls = []
-    monkeypatch.setattr("strelitzia.intake.run_intake", lambda url: calls.append(("intake", url)))
-    monkeypatch.setattr(tasks, "assess_task", lambda url, kind: calls.append((kind, url)))
-    tasks.generate_for_job(URLS[0], "intake")
-    tasks.generate_for_job(URLS[1], "rescore")
-    tasks.generate_for_job(None, "reassess_all")
+    monkeypatch.setattr("strelitzia.intake.run_intake", lambda user_id, url: calls.append(("intake", url)))
+    monkeypatch.setattr(tasks, "assess_task", lambda user_id, url, kind: calls.append((kind, url)))
+    tasks.generate_for_job("u1", URLS[0], "intake")
+    tasks.generate_for_job("u1", URLS[1], "rescore")
+    tasks.generate_for_job("u1", None, "reassess_all")
     assert calls == [("intake", URLS[0]), ("rescore", URLS[1]), ("reassess_all", None)]
 
 
@@ -203,9 +203,9 @@ def test_runner_stops_cleanly(db_path):
 @pytest.mark.parametrize("kind", ["resume", "cover", "both", "bogus"])
 def test_leftover_generation_tasks_fail_without_running_anything(monkeypatch, kind):
     """Rows queued by an older version must not fall through to a (paid) re-assessment of every job."""
-    monkeypatch.setattr(tasks, "assess_task", lambda url, kind: pytest.fail("assess_task ran"))
+    monkeypatch.setattr(tasks, "assess_task", lambda user_id, url, kind: pytest.fail("assess_task ran"))
     with pytest.raises(tasks.GenerationFailed):
-        tasks.generate_for_job(URLS[0], kind)
+        tasks.generate_for_job("u1", URLS[0], kind)
 
 
 def test_a_leftover_generation_task_errors_in_the_queue(db_path):

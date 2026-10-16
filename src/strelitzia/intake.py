@@ -91,8 +91,8 @@ def site_for(url: str) -> str:
     return board if board in JOB_BOARD_SITES else host
 
 
-def _row(conn: Connection, url: str) -> dict | None:
-    row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
+def _row(conn: Connection, user_id: str, url: str) -> dict | None:
+    row = conn.execute("SELECT * FROM jobs WHERE user_id = ? AND url = ?", (user_id, url)).fetchone()
     return dict(row) if row else None
 
 
@@ -101,23 +101,23 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
-def find_existing(conn: Connection, url: str) -> dict | None:
-    """The job row for a pasted link, matched as normalized or as given. Raises ValueError for a non-web link.
+def find_existing(conn: Connection, user_id: str, url: str) -> dict | None:
+    """The user's job row for a pasted link, matched as normalized or as given. Raises ValueError for a non-web link.
 
     A `manual://` url (a job added without a link) only matches exactly, and must exist.
     """
     url = url.strip()
     if url.startswith(MANUAL_URL_PREFIX):
-        row = _row(conn, url)
+        row = _row(conn, user_id, url)
         if row is None:
             raise ValueError("No job was added with that link")
         return row
     normalized = normalize_url(url)
-    return _row(conn, normalized) or _row(conn, url) or _same_posting(conn, normalized)
+    return _row(conn, user_id, normalized) or _row(conn, user_id, url) or _same_posting(conn, user_id, normalized)
 
 
-def _same_posting(conn: Connection, normalized: str) -> dict | None:
-    """A row stored under another form of the same link (tracking parameters, a LinkedIn slug)."""
+def _same_posting(conn: Connection, user_id: str, normalized: str) -> dict | None:
+    """The user's row stored under another form of the same link (tracking parameters, a LinkedIn slug)."""
     parts = urlsplit(normalized)
     host = (parts.hostname or "").removeprefix("www.")
     m = _LINKEDIN_VIEW.search(parts.path) if _on_host(host, "linkedin.com") else None
@@ -125,7 +125,8 @@ def _same_posting(conn: Connection, normalized: str) -> dict | None:
     escaped = needle.replace("!", "!!").replace("_", "!_")
     if not m:
         escaped = escaped.replace("%", "!%")
-    rows = conn.execute("SELECT * FROM jobs WHERE url LIKE ? ESCAPE '!' LIMIT 50", (f"%{escaped}%",)).fetchall()
+    rows = conn.execute("SELECT * FROM jobs WHERE user_id = ? AND url LIKE ? ESCAPE '!' LIMIT 50",
+                        (user_id, f"%{escaped}%")).fetchall()
     for row in rows:
         try:
             if normalize_url(row["url"]) == normalized:
@@ -135,10 +136,10 @@ def _same_posting(conn: Connection, normalized: str) -> dict | None:
     return None
 
 
-def add_job(conn: Connection, url: str | None, manual: ManualFields | None = None) -> tuple[dict, bool]:
+def add_job(conn: Connection, user_id: str, url: str | None, manual: ManualFields | None = None) -> tuple[dict, bool]:
     """Save a job the user added. Returns (row, created).
 
-    A link the database already has (as given or normalized) adds no row: the job is marked `source='manual'`
+    A link the user already has (as given or normalized) adds no row: the job is marked `source='manual'`
     (so the prefilter never hides it) and empty fields are filled from `manual`. Without a link, `manual.description`
     is required and the job gets the synthetic url `manual://<uuid4 hex>`. A given description is saved as the
     full description, so the intake task skips the scrape.
@@ -147,10 +148,10 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
     description = _clean(manual.description)
     now = _now()
     if url and url.strip():
-        existing = find_existing(conn, url)
+        existing = find_existing(conn, user_id, url)
         if existing:
             _mark_manual(conn, existing, manual, now)
-            return _row(conn, existing["url"]), False
+            return _row(conn, user_id, existing["url"]), False
         normalized = normalize_url(url)
     else:
         if not description:
@@ -158,7 +159,7 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
         normalized = MANUAL_URL_PREFIX + uuid.uuid4().hex
     is_web = not normalized.startswith(MANUAL_URL_PREFIX)
     values = {
-        "url": normalized, "job_key": job_key(normalized), "title": _clean(manual.title),
+        "user_id": user_id, "url": normalized, "job_key": job_key(normalized), "title": _clean(manual.title),
         "company": _clean(manual.company), "location": _clean(manual.location),
         "site": site_for(normalized) if is_web else None, "strategy": "manual", "source": "manual",
         "discovered_at": now, "added_at": now, "intake_status": "queued",
@@ -167,7 +168,7 @@ def add_job(conn: Connection, url: str | None, manual: ManualFields | None = Non
     names = ", ".join(values)
     conn.execute(f"INSERT INTO jobs ({names}) VALUES ({', '.join('?' * len(values))})", tuple(values.values()))
     conn.commit()
-    return _row(conn, normalized), True
+    return _row(conn, user_id, normalized), True
 
 
 def _mark_manual(conn: Connection, job: dict, manual: ManualFields, now: str) -> None:
@@ -180,12 +181,12 @@ def _mark_manual(conn: Connection, job: dict, manual: ManualFields, now: str) ->
     if not job.get("full_description") and _clean(manual.description):
         updates.update(full_description=_clean(manual.description), detail_scraped_at=now)
     if updates:
-        _set(conn, job["url"], **updates)
+        _set(conn, job["user_id"], job["url"], **updates)
 
 
-def _set(conn: Connection, url: str, **values) -> None:
+def _set(conn: Connection, user_id: str, url: str, **values) -> None:
     sets = ", ".join(f"{k} = ?" for k in values)
-    conn.execute(f"UPDATE jobs SET {sets} WHERE url = ?", (*values.values(), url))
+    conn.execute(f"UPDATE jobs SET {sets} WHERE user_id = ? AND url = ?", (*values.values(), user_id, url))
     conn.commit()
 
 
@@ -194,11 +195,11 @@ def needs_intake(job: dict) -> bool:
     return job.get("fit_score") is None or not job.get("details_json")
 
 
-def save_pasted(conn: Connection, url: str, manual: ManualFields) -> None:
+def save_pasted(conn: Connection, user_id: str, url: str, manual: ManualFields) -> None:
     """Save a pasted description (and any title/company/location given). The caller then queues `intake`."""
     values = {col: _clean(getattr(manual, col)) for col in ("title", "company", "location")}
     values = {k: v for k, v in values.items() if v}
-    _set(conn, url, **values, full_description=_clean(manual.description), detail_scraped_at=_now(),
+    _set(conn, user_id, url, **values, full_description=_clean(manual.description), detail_scraped_at=_now(),
          detail_error=None, intake_status="queued", intake_error=None)
 
 
@@ -238,59 +239,59 @@ def _location_text(posting) -> str | None:
     return ", ".join(p for p in (loc.city, loc.state, loc.country) if p) or None
 
 
-def _score(url: str) -> None:
+def _score(user_id: str, url: str) -> None:
     from strelitzia.web.tasks import assess_task
 
-    assess_task(url, "rescore")
+    assess_task(user_id, url, "rescore")
 
 
-def run_intake(url: str, conn: Connection | None = None) -> None:
-    """The `intake` task: scrape (unless there's a description), extract and score one job.
+def run_intake(user_id: str, url: str, conn: Connection | None = None) -> None:
+    """The `intake` task: scrape (unless there's a description), extract and score one of the user's jobs.
 
     Raises on failure after recording it in `intake_status` / `intake_error`, so the task shows failed.
     """
     from strelitzia.enrichment.extract import _save_posting, extract_one
 
     conn = conn or get_connection()
-    job = _row(conn, url)
+    job = _row(conn, user_id, url)
     if job is None:
         raise LookupError(f"No job with url {url}")
     try:
         if not job.get("full_description") and url.startswith(("http://", "https://")):
-            _set(conn, url, intake_status="scraping", intake_error=None)
+            _set(conn, user_id, url, intake_status="scraping", intake_error=None)
             result = _scrape(url)
             now = _now()
             reason = is_unreadable(result, url)
             if reason:
                 # Keep whatever was found, so the paste form can be prefilled with it.
-                _set(conn, url, detail_scraped_at=now, detail_error=result.get("error") or reason,
+                _set(conn, user_id, url, detail_scraped_at=now, detail_error=result.get("error") or reason,
                      application_url=job.get("application_url") or result.get("application_url"),
                      description=job.get("description") or result.get("full_description"),
                      intake_status="needs_paste", intake_error=reason)
                 return
-            _set(conn, url, full_description=result["full_description"],
+            _set(conn, user_id, url, full_description=result["full_description"],
                  application_url=result.get("application_url") or job.get("application_url"),
                  detail_scraped_at=now, detail_error=None)
         elif not job.get("full_description"):
-            _set(conn, url, intake_status="needs_paste", intake_error="There's no link to read; paste the description.")
+            _set(conn, user_id, url, intake_status="needs_paste", intake_error="There's no link to read; paste the description.")
             return
-        _set(conn, url, intake_status="scraping", intake_error=None)
-        job = _row(conn, url)
+        _set(conn, user_id, url, intake_status="scraping", intake_error=None)
+        job = _row(conn, user_id, url)
         posting = extract_one(job)
-        _save_posting(conn, url, posting)
+        _save_posting(conn, user_id, url, posting)
         fills = {"title": posting.title_normalized, "location": _location_text(posting)}
-        _set(conn, url, **{k: v for k, v in fills.items() if v and not job.get(k)}, extract_error=None)
-        _score(url)
-        _set(conn, url, intake_status="ok", intake_error=None)
+        _set(conn, user_id, url, **{k: v for k, v in fills.items() if v and not job.get(k)}, extract_error=None)
+        _score(user_id, url)
+        _set(conn, user_id, url, intake_status="ok", intake_error=None)
     except LLMStopRun as e:
         from strelitzia.web.tasks import STOP_MESSAGES
 
-        _set(conn, url, intake_status="error", intake_error=STOP_MESSAGES.get(e.reason, str(e)))
+        _set(conn, user_id, url, intake_status="error", intake_error=STOP_MESSAGES.get(e.reason, str(e)))
         raise
     except Exception as e:
         from strelitzia.web.tasks import GenerationFailed
 
         conn.rollback()
         message = str(e) if isinstance(e, GenerationFailed) else f"{type(e).__name__}: {e}"
-        _set(conn, url, intake_status="error", intake_error=message[:500])
+        _set(conn, user_id, url, intake_status="error", intake_error=message[:500])
         raise
