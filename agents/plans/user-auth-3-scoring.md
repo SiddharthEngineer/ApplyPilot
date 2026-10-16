@@ -48,7 +48,7 @@ global budget as today, plus the user's cap from `users.monthly_cap_usd` (None =
 with a message naming the user's cap. `budget_stop` in app.py passes the current user.
 **Validate:** `pytest tests/test_llm_usage.py tests/test_llm_stop.py -q` → passes: a user at $5.00 of a $5 cap is stopped;
 the owner with the same spend isn't.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (the `llm.py` code landed with Task 2; the user is set with the context-local `llm.acting_for(user_id)` (`LLMClient.user_id` reads it) by `run_scoring` and the dashboard task runner; a cap stop carries `LLMStopRun.user_id`, so extraction skips only that user; `users.py` needed no change)
 
 ## Validation
 - `scripts/validate.sh --full` passes.

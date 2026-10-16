@@ -244,3 +244,22 @@ def test_saving_preferences_reranks_none_of_another_users_jobs(client, conn):
         "SELECT prefs_json FROM user_preferences WHERE user_id = ?", (users.owner(conn).id,)).fetchone()[0])).salary \
         .importance == "dealbreaker"
     assert conn.execute("SELECT 1 FROM user_preferences WHERE user_id = ?", (other,)).fetchone() is None
+
+
+def test_budget_stop_holds_a_user_to_their_cap(conn):
+    from fastapi import HTTPException
+
+    from strelitzia import users
+    from strelitzia.web.app import budget_stop
+
+    alice = users.invite(conn, "alice@example.com").id  # $5 cap
+    _spend(conn, 5.0)  # the owner's spend (a NULL user)
+    budget_stop(conn, alice, 4.0)  # someone else's spend doesn't count
+    conn.execute("INSERT INTO llm_usage (id, ts, purpose, model, batch, cost_usd, user_id) VALUES ('a', ?, 'scoring', "
+                 "'claude-haiku-5-5', 0, 4.5, ?)", ("2099-01-01T00:00:00", alice))
+    conn.commit()
+    with pytest.raises(HTTPException) as e:
+        budget_stop(conn, alice, 1.0)
+    assert e.value.status_code == 402 and e.value.detail["month_spend"] == 4.5  # alice's own spend
+    assert "your cap of $5.00" in e.value.detail["message"]
+    budget_stop(conn, users.owner(conn).id, 1.0)  # the owner has no cap
