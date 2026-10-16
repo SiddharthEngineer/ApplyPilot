@@ -1,5 +1,5 @@
 # Plan: User accounts, part 5: Google sign-in and the invite allowlist
-**Status:** ❌ Not started
+**Status:** ✅ Done (2026-10-16)
 **Risk:** review (authentication)
 **Issue:** #47
 **Depends on:** user-auth-4-workspace
