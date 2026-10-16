@@ -1,5 +1,5 @@
 # Plan: User accounts, part 8: admin-only CLI
-**Status:** 🚧 In progress
+**Status:** ✅ Done (2026-10-16), PR open
 **Risk:** review (removes CLI commands)
 **Issue:** #47
 **Depends on:** user-auth-7-dashboard
@@ -27,7 +27,7 @@ per-user action now happens there under a signed-in user.
 **What:** `strelitzia users list`, `users invite <email> [--cap 5]`, `users disable <email>`, `users cap <email> <usd>`,
 using `users.py`. Output is a Rich table.
 **Validate:** `pytest tests/test_cli_users.py -q` → passes.
-**Status:** ✅ 2026-10-16 (Task 1 commit)
+**Status:** ✅ 2026-10-16 (93ec0a2)
 
 ### Task 2: remove per-user commands
 **Runs:** unattended
@@ -36,7 +36,7 @@ using `users.py`. Output is a Rich table.
 Keep library modules the dashboard uses (pipeline stage functions, scorer, intake). `doctor` checks the DB, the env keys
 for auth/Drive/Claude, and drops the profile.json check.
 **Validate:** `scripts/validate.sh` → green; `strelitzia --help` lists only serve, init, doctor, db, users.
-**Status:** ✅ 2026-10-16 (Task 2 commit). Also removed `discover`, `status`, `classify`, `template` and `drive links`
+**Status:** ✅ 2026-10-16 (47fcb1b). Also removed `discover`, `status`, `classify`, `template` and `drive links`
 so the help lists only the five admin commands. Kept `storage/sync.py` and `tests/test_drive_sync.py`: the dashboard's
 paste-a-draft endpoint uploads with `sync.sync_job` and the pdf stage reads `moved_pdf_paths`.
 
@@ -45,7 +45,7 @@ paste-a-draft endpoint uploads with `sync.sync_job` and the pdf stage reads `mov
 **Files:** README.md (modify), AGENTS.md (modify)
 **What:** Describe the multi-user dashboard and the admin CLI; AGENTS.md map line for `users.py` and `web/auth.py`.
 **Validate:** `grep -n "strelitzia run" README.md` → no output.
-**Status:** ✅ 2026-10-16 (Task 3 commit). Also a "Users and sign-in" README section, the Drive section rewritten for
+**Status:** ✅ 2026-10-16 (c50873a). Also a "Users and sign-in" README section, the Drive section rewritten for
 per-user connect, and the `drive sync` line in `agents/DEPLOY.md`.
 
 ## Validation

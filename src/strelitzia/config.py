@@ -200,9 +200,10 @@ TIER_LABELS = {
     2: "AI Scoring",
 }
 
+# What each tier unlocks: everything per-user is in the dashboard (`strelitzia serve`).
 TIER_COMMANDS: dict[int, list[str]] = {
-    1: ["init", "run discover", "run enrich", "status", "dashboard"],
-    2: ["run score", "run extract", "run pdf", "run"],
+    1: ["serve: Add job, tracking, contacts", "doctor", "users"],
+    2: ["serve: fit scores, extraction"],
 }
 
 

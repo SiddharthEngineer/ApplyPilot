@@ -87,7 +87,7 @@ location_accept:
 # JobSpy source boards (all available options shown).
 # glassdoor and zip_recruiter are skipped unless a proxy is set (PROXY env var or
 # `proxy:` below) because they answer HTTP 403 otherwise. google is skipped unless
-# defaults.allow_unsupported is true. Check boards with `strelitzia discover --probe`.
+# defaults.allow_unsupported is true. Check boards with strelitzia.discovery.jobspy.probe_boards.
 sites:
   - indeed
   - linkedin

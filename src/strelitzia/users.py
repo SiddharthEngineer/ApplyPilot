@@ -39,6 +39,13 @@ def _norm(email: str) -> str:
     return email.strip().lower()
 
 
+def looks_like_email(email: str) -> bool:
+    """A local part, a dotted domain and no whitespace: enough to catch typos before an invite nobody can use."""
+    email = _norm(email)
+    local, _, domain = email.partition("@")
+    return bool(local) and "." in domain and not any(c.isspace() for c in email)
+
+
 def _row(row) -> User | None:
     return User(*tuple(row)) if row else None
 

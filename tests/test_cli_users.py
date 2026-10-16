@@ -34,7 +34,7 @@ def _invoke(*args):
 
 def test_help_lists_commands():
     out = _plain(_invoke("--help").output)
-    for cmd in ("list", "invite", "disable", "cap"):
+    for cmd in ("list", "invite", "disable", "enable", "cap"):
         assert cmd in out
 
 
@@ -77,6 +77,28 @@ def test_disable(conn):
     assert result.exit_code == 0, result.output
     assert "disabled" in result.output
     assert users.by_email(conn, "bye@example.com").status == "disabled"
+
+
+@pytest.mark.parametrize("email", ["Bob Smith", "bob@gmail", "@example.com"])
+def test_invite_rejects_a_non_email(conn, email):
+    result = _invoke("invite", email)
+    assert result.exit_code == 1
+    assert "isn't an email address" in result.output
+    assert len(users.list_users(conn)) == 1  # only the owner
+
+
+def test_enable(conn):
+    users.invite(conn, "back@example.com")
+    _invoke("disable", "back@example.com")
+    result = _invoke("enable", "back@example.com")
+    assert result.exit_code == 0, result.output
+    assert users.by_email(conn, "back@example.com").status == "invited"  # never signed in: an invite again
+
+    users.activate(conn, "back@example.com", "Back")
+    _invoke("disable", "back@example.com")
+    assert _invoke("enable", "back@example.com").exit_code == 0
+    assert users.by_email(conn, "back@example.com").status == "active"
+    assert "isn't disabled" in _invoke("enable", "back@example.com").output
 
 
 def test_cap(conn):

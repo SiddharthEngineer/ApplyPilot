@@ -151,13 +151,10 @@ app.add_typer(users_app, name="users")
 
 
 def _users_conn():
-    _bootstrap()
-    from strelitzia import users
+    _bootstrap()  # init_db creates the owner row, so the list always shows it
     from strelitzia.database import get_connection
 
-    conn = get_connection()
-    users.owner(conn)  # created on first use, so the list always shows it
-    return conn
+    return get_connection()
 
 
 def _users_table(conn, accounts) -> Table:
@@ -200,6 +197,9 @@ def users_invite(
     """Let an email sign in to the dashboard (the account turns active on its first sign-in)."""
     from strelitzia import users
 
+    if not users.looks_like_email(email):
+        console.print(f"[red]{email!r} isn't an email address.[/red]")
+        raise typer.Exit(code=1)
     conn = _users_conn()
     if users.by_email(conn, email) is not None:
         console.print(f"[red]{email} already has an account.[/red]")
@@ -218,6 +218,21 @@ def users_disable(email: str = typer.Argument(..., help="The account's email."))
         console.print("[red]You can't disable the owner account.[/red]")
         raise typer.Exit(code=1)
     console.print(_users_table(conn, [users.set_status(conn, user.id, "disabled")]))
+
+
+@users_app.command("enable")
+def users_enable(email: str = typer.Argument(..., help="The account's email.")) -> None:
+    """Let a disabled account sign in again."""
+    from strelitzia import users
+
+    conn = _users_conn()
+    user = _account(conn, email)
+    if user.status != "disabled":
+        console.print(f"{user.email} isn't disabled ({user.status}).")
+        return
+    # Back to invited if it never signed in, so the first sign-in still activates it.
+    status = "active" if user.last_login_at else "invited"
+    console.print(_users_table(conn, [users.set_status(conn, user.id, status)]))
 
 
 @users_app.command("cap")
@@ -320,6 +335,23 @@ def _has_jobs_table(conn) -> bool:
     return bool(table_columns(conn))
 
 
+def _doctor_library_row(ok_mark: str, warn_mark: str) -> tuple[str, str, str]:
+    """The owner's content library, which the dashboard's Claude workbench reads from the data dir."""
+    from strelitzia.config import CONTENT_LIBRARY_PATH
+
+    if not CONTENT_LIBRARY_PATH.exists():
+        return ("content_library.md", warn_mark, "Run 'strelitzia init' and choose content library workflow")
+    try:
+        from strelitzia.scoring.content_library import parse_content_library
+
+        lib = parse_content_library(CONTENT_LIBRARY_PATH)
+    except Exception as exc:
+        return ("content_library.md", "[red]ERROR[/red]", f"File exists but cannot be parsed: {exc}")
+    n_projects = sum(len(r.projects) for r in lib.roles)
+    return ("content_library.md", ok_mark, f"{CONTENT_LIBRARY_PATH} — parsed: {len(lib.roles)} roles, "
+            f"{n_projects} projects, {len(lib.all_angles)} angle tags")
+
+
 def _doctor_auth_rows(ok_mark: str, fail_mark: str, warn_mark: str) -> list[tuple[str, str, str]]:
     """Google sign-in and Drive connect keys: presence only, never the values."""
     from strelitzia.config import env
@@ -362,6 +394,7 @@ def doctor() -> None:
     # Job store: SQLite file, or Postgres when STRELITZIA_DATABASE_URL is set
     results.append(_doctor_database_row(ok_mark))
     results.extend(_doctor_auth_rows(ok_mark, fail_mark, warn_mark))
+    results.append(_doctor_library_row(ok_mark, warn_mark))
 
     # Discovery: off by default; jobs come from the dashboard's Add job
     results.append(("Discovery", ok_mark, "off; add jobs with the dashboard's Add job"))
