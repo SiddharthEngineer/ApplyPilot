@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import * as api from '../api';
 import Flower from '../components/Flower';
 import { Group, TagInput } from '../components/FormParts';
 import TaskProgress from '../components/TaskProgress';
 import { humanize, IMPORTANCE_LABELS, IMPORTANCES, roleLabel, usd, WORK_MODE_LABELS } from '../labels';
 import type {
-  Criterion, Importance, Preferences, PreferencesResponse, ReassessPreview, ReassessScope, Task,
+  Criterion, Importance, Preferences, PreferencesResponse, ReassessPreview, RedFlagOption, ReassessScope, Task,
 } from '../types';
 
 type CriterionKey = { [K in keyof Preferences]: Preferences[K] extends Criterion ? K : never }[keyof Preferences];
@@ -87,6 +88,7 @@ export default function PreferencesPage() {
 
   const label = (key: string) => data.labels[key] ?? humanize(key);
   const options = (key: string) => (data.options[key] ?? []) as string[];
+  const redFlags = (data.options.red_flags ?? []) as RedFlagOption[];
   const dirty = JSON.stringify(prefs) !== saved;
 
   function setCriterion<K extends CriterionKey>(key: K, patch: Partial<Preferences[K]>) {
@@ -177,13 +179,17 @@ export default function PreferencesPage() {
   return (
     <article className="prefs-page">
       <h1>Preferences</h1>
+      <p className="muted">Your experience, education and skills are on your <Link to="/profile">Profile</Link>.</p>
       <p className="muted">
         Each job gets a fit score from 0 to 100. Set what matters and how much; a Dealbreaker hides the jobs that fail
         it (tick "Show flagged jobs" on the jobs list to see them). Changes here re-rank every job at once, for free.
-        Only the inputs under "What the AI judges" need Claude to re-assess your jobs, and you'll see the cost first.
+        Only Target roles and the skills and industries need Claude to re-assess your jobs, and you'll see the cost first.
       </p>
 
       <Group title="Basics">
+        {row('role_category', <Chips label="Job fields" options={options('role_category')}
+          selected={prefs.role_category.value} format={roleLabel} onChange={(v) => setValue('role_category', v)} />)}
+        {listRow('target_roles', 'Target roles', 'e.g. Data Engineer')}
         {row('salary', (
           <div className="inline-inputs">
             <input type="number" min={0} step={1000} aria-label="Minimum salary" placeholder="Minimum"
@@ -207,29 +213,15 @@ export default function PreferencesPage() {
             </label>
           </>
         ))}
-        {row('role_category', <Chips label="Job fields" options={options('role_category')}
-          selected={prefs.role_category.value} format={roleLabel} onChange={(v) => setValue('role_category', v)} />)}
-      </Group>
-
-      <Group title="What the AI judges" hint="Claude rates each job on these against your resume. Changing them makes
-        every assessment stale.">
-        {listRow('skills_want', 'Skills I want to use', 'e.g. Python; Enter to add')}
-        {listRow('skills_avoid', 'Skills I want to avoid', 'e.g. Excel macros')}
-        {listRow('industries_favor', 'Industries I like', 'e.g. healthcare')}
-        {listRow('industries_avoid', 'Industries to avoid', 'e.g. gambling')}
-        {listRow('target_roles', 'Target roles', 'e.g. Data Engineer')}
-      </Group>
-
-      <Group title="Role" advanced>
-        {row('seniority', <Chips label="Seniority levels" options={options('seniority')}
-          selected={prefs.seniority.value} onChange={(v) => setValue('seniority', v)} />)}
-        {row('employment_type', <Chips label="Employment types" options={options('employment_type')}
-          selected={prefs.employment_type.value} onChange={(v) => setValue('employment_type', v)} />)}
         {row('work_mode', <Chips label="Work modes" options={options('work_mode')} selected={prefs.work_mode.value}
           format={(m) => WORK_MODE_LABELS[m] ?? humanize(m)} onChange={(v) => setValue('work_mode', v)} />)}
       </Group>
 
-      <Group title="Eligibility" advanced>
+      <Group title="Role requirements" advanced>
+        {row('seniority', <Chips label="Seniority levels" options={options('seniority')}
+          selected={prefs.seniority.value} onChange={(v) => setValue('seniority', v)} />)}
+        {row('employment_type', <Chips label="Employment types" options={options('employment_type')}
+          selected={prefs.employment_type.value} onChange={(v) => setValue('employment_type', v)} />)}
         {row('visa', (
           <label className="check"><input type="checkbox" checked={prefs.visa.value}
             onChange={(e) => setValue('visa', e.target.checked)} />I need visa sponsorship</label>
@@ -245,6 +237,29 @@ export default function PreferencesPage() {
             <span className="muted">% travel at most</span>
           </span>
         ))}
+      </Group>
+
+      <Group title="Skills and industries" hint="Claude rates each job on these against your resume. Changing them
+        makes every assessment stale.">
+        {listRow('skills_want', 'Skills I want to use', 'e.g. Python; Enter to add')}
+        {listRow('skills_avoid', 'Skills to avoid', 'e.g. Excel macros')}
+        {listRow('industries_favor', 'Industries I like', 'e.g. healthcare')}
+        {listRow('industries_avoid', 'Industries to avoid', 'e.g. gambling')}
+      </Group>
+
+      <Group title="Red flags" advanced hint="Ticked flags count against a job when Claude finds them in the posting.">
+        <div className="flag-picks" role="group" aria-label="Red flags">
+          {redFlags.map((f) => (
+            <label key={f.value} className="check">
+              <input type="checkbox" checked={prefs.red_flags_counted.includes(f.value)}
+                onChange={(e) => setPrefs((p) => (p ? {
+                  ...p, red_flags_counted: e.target.checked
+                    ? [...p.red_flags_counted, f.value] : p.red_flags_counted.filter((v) => v !== f.value),
+                } : p))} />
+              <span>{f.label} <span className="muted">— {f.help}</span></span>
+            </label>
+          ))}
+        </div>
       </Group>
 
       <div className="save-bar">

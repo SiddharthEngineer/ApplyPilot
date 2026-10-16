@@ -1,5 +1,5 @@
 # Plan: Preferences cleanup, part 3: regrouped Preferences page
-**Status:** ❌ Not started
+**Status:** 🚧 In progress
 **Risk:** review (dashboard UI)
 **Issue:** #46
 **Depends on:** prefs-cleanup-2-roles
@@ -31,7 +31,7 @@ Profile page: "Your experience, education and skills are on your Profile."
 **Files:** dashboard/src/pages/PreferencesPage.tsx (modify), dashboard/src/types.ts (modify), dashboard/src/__tests__/PreferencesPage.test.tsx (modify)
 **What:** The layout in the Goal. The Basics and Skills groups are open by default; the others are collapsible as today.
 **Validate:** `cd dashboard && npm test -- --run` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 2: role picker
 **Runs:** unattended
