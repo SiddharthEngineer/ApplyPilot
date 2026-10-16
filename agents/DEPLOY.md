@@ -84,8 +84,8 @@ separate consent after sign-in). It needs login on and `STRELITZIA_TOKEN_KEY`, a
 (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) that encrypts the tokens
 in the `user_drive` table. Without the key (or with login off) the dashboard can't connect Drive, and the owner keeps
 using the CLI's `google_token.json`. With the key set, the next start imports that file into the owner's row once (the
-file stays). Disconnect revokes the token at Google and deletes the row; `strelitzia drive sync` only moves the owner's
-PDFs (it uses the CLI token).
+file stays). Disconnect revokes the token at Google and deletes the row. The CLI has no Drive commands any more
+(user-auth-8-cli), so `google_token.json` can't be created afresh: a new install connects Drive from the dashboard.
 Changing the key makes the stored tokens unreadable: everyone connects again. The web client must be in the same
 Google Cloud project as the Drive desktop client, since `drive.file` only sees files that project created.
 

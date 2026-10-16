@@ -45,7 +45,8 @@ paste-a-draft endpoint uploads with `sync.sync_job` and the pdf stage reads `mov
 **Files:** README.md (modify), AGENTS.md (modify)
 **What:** Describe the multi-user dashboard and the admin CLI; AGENTS.md map line for `users.py` and `web/auth.py`.
 **Validate:** `grep -n "strelitzia run" README.md` → no output.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (Task 3 commit). Also a "Users and sign-in" README section, the Drive section rewritten for
+per-user connect, and the `drive sync` line in `agents/DEPLOY.md`.
 
 ## Validation
 - `scripts/validate.sh --full` passes.
