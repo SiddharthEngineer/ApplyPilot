@@ -15,7 +15,7 @@ R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a t
 | R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | ✅ PR open | R25 |
 | R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ✅ PR open | R26 |
 | R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | ✅ PR open | R27 |
-| R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | ⏳ | R28 |
+| R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | ✅ PR open | R28 |
 | R30 | Users 6: connect Drive per user (#47) | [user-auth-6-drive](plans/user-auth-6-drive.md) | review | ⏳ | R29 |
 | R31 | Users 7: sign-in screens, Users admin page (#47) | [user-auth-7-dashboard](plans/user-auth-7-dashboard.md) | review | ⏳ | R30 |
 | R32 | Users 8: admin-only CLI (#47) | [user-auth-8-cli](plans/user-auth-8-cli.md) | review | ⏳ | R31 |
