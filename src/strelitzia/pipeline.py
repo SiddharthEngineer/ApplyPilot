@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from strelitzia import users
 from strelitzia.config import load_env, ensure_dirs
 from strelitzia.database import (
     PENDING_EXTRACT_WHERE,
@@ -162,11 +163,17 @@ def _stage_status(stats: dict | None) -> dict:
 
 
 def _run_score(prefilter: bool = True, limit: int | None = None, sync: bool = False) -> dict:
-    """Stage: LLM scoring — assign fit scores 1-10 (a Message Batch unless `sync` or a small run)."""
+    """Stage: LLM scoring, each user's jobs with their preferences (a Message Batch per user unless `sync` or a
+    small run). Stopped only when every user's run stopped: one user over their cap doesn't stop the others."""
     try:
         from strelitzia.scoring.scorer import run_scoring
         extra = ({"limit": limit} if limit else {}) | ({"mode": "sync"} if sync else {})
-        return _stage_status(run_scoring(prefilter=prefilter, **extra))
+        conn = get_connection()
+        owner_id = users.owner(conn).id
+        user_ids = sorted({r[0] for r in conn.execute("SELECT DISTINCT user_id FROM jobs").fetchall()} | {owner_id},
+                          key=lambda u: (u != owner_id, u))
+        statuses = [_stage_status(run_scoring(prefilter=prefilter, user_id=u, **extra)) for u in user_ids]
+        return next((s for s in statuses if s["status"] == "ok"), statuses[0])
     except Exception as e:
         log.error("Scoring failed: %s", e)
         return {"status": f"error: {e}"}

@@ -146,7 +146,8 @@ class _Results:
 def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str]:
     """One request per job, billed to the job's user. Returns (requests, stopped).
 
-    A user over their monthly cap keeps their remaining jobs pending; the other users' jobs go on.
+    A user over their monthly cap keeps their remaining jobs pending; the other users' jobs go on. Stopped is
+    "budget" when every request was refused that way.
     """
     requests = consecutive_failures = 0
     capped: set[str] = set()
@@ -176,7 +177,7 @@ def _run_sync(results: _Results, jobs: list[dict], today: str) -> tuple[int, str
         if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             log.error("Extraction stopped after %d failed requests in a row.", consecutive_failures)
             return requests, "errors"
-    return requests, ""
+    return requests, "budget" if capped and not requests else ""
 
 
 def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: float,
@@ -184,12 +185,13 @@ def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: fl
     """All jobs in Message Batches, one per user (billed to them), each after a cost estimate and budget check.
 
     Returns (requests, stopped). A user over their monthly cap keeps their jobs pending; the other users' go on.
+    Stopped is "budget" when every user was over their cap.
     """
     client = get_client("extract")
     by_user: dict[str, list[dict]] = {}
     for j in jobs:
         by_user.setdefault(j["user_id"], []).append(j)
-    requests = succeeded = errored = 0
+    requests = succeeded = errored = capped = 0
     stats["estimate_usd"] = 0.0
     for user_id, user_jobs in by_user.items():
         items = [(_custom_id(j), client.request_params(_messages(j, today), max_tokens=_MAX_OUTPUT_TOKENS,
@@ -205,6 +207,7 @@ def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: fl
         except LLMStopRun as e:
             if e.user_id:
                 log.warning("Extraction skips a user's %d job(s): %s", len(items), e)
+                capped += 1
                 continue
             log.warning("Extraction stopped: %s. The rest stay pending for the next run.", e)
             return requests, e.reason
@@ -214,7 +217,7 @@ def _run_batch(results: _Results, jobs: list[dict], today: str, poll_seconds: fl
     if requests and succeeded == 0 and errored >= _MAX_CONSECUTIVE_FAILURES:
         log.error("Every request in the extraction batch failed.")
         return requests, "errors"
-    return requests, ""
+    return requests, "budget" if capped and not requests else ""
 
 
 def run_extraction(limit: int | None = None, conn=None, mode: Literal["batch", "sync"] = "batch",
