@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from strelitzia import tracking
+from strelitzia import tracking, users
 from strelitzia.database import init_db
 from strelitzia.scoring import pdf as pdf_mod
 from strelitzia.scoring import workbench as wb
@@ -217,6 +217,21 @@ def test_still_overflowing_is_an_error(conn, tmp_path, monkeypatch):
 def test_submitted_records_draft_and_rules_version(conn, tmp_path):
     out = _import(conn, tmp_path, copy.deepcopy(good_result()))
     assert out.ok
-    tracking.set_status(conn, "https://example.com/jobs/42", "submitted")
+    tracking.set_status(conn, users.owner(conn).id, "https://example.com/jobs/42", "submitted")
     row = dict(conn.execute("SELECT * FROM jobs").fetchone())
     assert row["submitted_draft_version"] == 1 and row["submitted_rules_version"] == wb.RULES_VERSION
+
+
+def test_a_draft_is_the_jobs_users_only(conn, tmp_path):
+    mine = add_job_row(conn)
+    other = users.invite(conn, "b@example.com").id
+    conn.execute("INSERT INTO jobs (user_id, url, title, job_key) VALUES (?, ?, 'Theirs', 'theirs')",
+                 (other, mine["url"]))
+    conn.commit()
+    out = wb.import_result(conn, mine, reply(copy.deepcopy(good_result())), inputs=inputs(), out_dir=tmp_path / "out")
+    assert out.ok
+    assert [tuple(r) for r in conn.execute("SELECT user_id, version FROM drafts").fetchall()] == [(mine["user_id"], 1)]
+    theirs = dict(conn.execute("SELECT * FROM jobs WHERE user_id = ?", (other,)).fetchone())
+    assert theirs["draft_version"] is None and theirs["user_status"] is None
+    assert tracking.status_events(conn, other, mine["url"]) == []
+    assert len(tracking.status_events(conn, mine["user_id"], mine["url"])) == 1

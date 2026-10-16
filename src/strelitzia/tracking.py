@@ -93,9 +93,9 @@ def _normalize_date(value: str) -> str:
     return datetime.fromisoformat(value).isoformat()
 
 
-def set_status(conn, url: str, status: str | None, *, submitted_at: str | None = None,
+def set_status(conn, user_id: str, url: str, status: str | None, *, submitted_at: str | None = None,
                source: str = "dashboard") -> dict:
-    """Record a user status for a job (None resets to the derived Active/Inactive) and log the change.
+    """Record a user status for one of the user's jobs (None resets to the derived Active/Inactive) and log the change.
 
     submitted: sets submitted_at (default now, UTC ISO) and clears responded_at.
     rejected / heard_back: sets responded_at to now.
@@ -103,7 +103,7 @@ def set_status(conn, url: str, status: str | None, *, submitted_at: str | None =
     """
     if status is not None and status not in USER_STATUSES:
         raise ValueError(f"Unknown status {status!r}; expected one of {USER_STATUSES} or None")
-    row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
+    row = conn.execute("SELECT * FROM jobs WHERE user_id = ? AND url = ?", (user_id, url)).fetchone()
     if row is None:
         raise KeyError(url)
     job = dict(row)
@@ -121,29 +121,30 @@ def set_status(conn, url: str, status: str | None, *, submitted_at: str | None =
     elif status in RESPONSE_STATUSES:
         sets.append("responded_at = ?")
         params.append(now)
-    conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE url = ?", (*params, url))
+    conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE user_id = ? AND url = ?", (*params, user_id, url))
     job.update(user_status=status)
     after = effective_status(job, today)
     conn.execute(
-        "INSERT INTO status_events (id, url, from_status, to_status, at, source) VALUES (?, ?, ?, ?, ?, ?)",
-        (uuid.uuid4().hex, url, before, status if status is not None else after, now, source),
+        "INSERT INTO status_events (id, user_id, url, from_status, to_status, at, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (uuid.uuid4().hex, user_id, url, before, status if status is not None else after, now, source),
     )
     conn.commit()
     return {"url": url, "from_status": before, "to_status": after, "at": now}
 
 
-def set_submitted_at(conn, url: str, submitted_at: str) -> str:
-    """Edit the submitted date only (no status change, no event). Returns the stored value."""
+def set_submitted_at(conn, user_id: str, url: str, submitted_at: str) -> str:
+    """Edit the submitted date of one of the user's jobs only (no status change, no event). Returns the stored value."""
     value = _normalize_date(submitted_at)
-    conn.execute("UPDATE jobs SET submitted_at = ? WHERE url = ?", (value, url))
+    conn.execute("UPDATE jobs SET submitted_at = ? WHERE user_id = ? AND url = ?", (value, user_id, url))
     conn.commit()
     return value
 
 
-def status_events(conn, url: str) -> list[dict]:
-    """The job's status history, newest first."""
+def status_events(conn, user_id: str, url: str) -> list[dict]:
+    """The user's status history for a job, newest first."""
     rows = conn.execute(
-        "SELECT from_status, to_status, at, source FROM status_events WHERE url = ? ORDER BY at DESC, id",
-        (url,),
+        "SELECT from_status, to_status, at, source FROM status_events WHERE user_id = ? AND url = ? "
+        "ORDER BY at DESC, id",
+        (user_id, url),
     ).fetchall()
     return [dict(r) for r in rows]

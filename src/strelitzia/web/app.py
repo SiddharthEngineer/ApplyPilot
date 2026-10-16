@@ -132,7 +132,7 @@ def job_detail(conn: Connection, job: dict) -> dict:
         status_color=tracking.COLORS[status],
         days_since_submitted=tracking.days_since_submitted(job, day),
         submitted_date=tracking.submitted_date(job),
-        events=tracking.status_events(conn, job["url"]),
+        events=tracking.status_events(conn, job["user_id"], job["url"]),
         source=job.get("source") or "discovered",
         contacts=workspace.job_contacts(conn, job["user_id"], job["url"]),
         interviews=workspace.job_interviews(conn, job["user_id"], job["url"]),
@@ -202,7 +202,7 @@ def post_status(key: str, body: StatusUpdate, request: Request) -> dict:
     user = current_user(request)
     job = job_by_key(conn, user.id, key)
     submitted_at = body.submitted_at.isoformat() if body.submitted_at else None
-    tracking.set_status(conn, job["url"], body.status, submitted_at=submitted_at)
+    tracking.set_status(conn, user.id, job["url"], body.status, submitted_at=submitted_at)
     return job_detail(conn, job_by_key(conn, user.id, key))
 
 
@@ -220,7 +220,7 @@ def patch_job(key: str, body: JobPatch, request: Request) -> dict:
     if "submitted_at" in body.model_fields_set:
         if body.submitted_at is None:
             raise HTTPException(status_code=422, detail="submitted_at can't be cleared; set a status instead")
-        tracking.set_submitted_at(conn, job["url"], body.submitted_at.isoformat())
+        tracking.set_submitted_at(conn, user.id, job["url"], body.submitted_at.isoformat())
     if "notes" in body.model_fields_set:
         conn.execute("UPDATE jobs SET notes = ? WHERE user_id = ? AND url = ?", (body.notes, user.id, job["url"]))
         conn.commit()
@@ -263,7 +263,7 @@ def post_packet(key: str, request: Request) -> dict:
     try:
         client = _drive_client()
         if client is not None:
-            workbench.publish_static_docs(client, conn, inputs)
+            workbench.publish_static_docs(client, conn, user.id, inputs)
             _, url = workbench.publish_packet(client, conn, job, inputs)
             packet = workbench.packet_for(job, inputs, inline=False)
             return {"prompt": packet.prompt, "doc_url": url, "inline": False, "rules_version": workbench.RULES_VERSION}
@@ -311,7 +311,7 @@ def claude_setup(request: Request) -> dict:
     from strelitzia.storage.drive import drive_status
 
     state, detail = drive_status()
-    docs = workbench.published_static_docs(db_conn(request))
+    docs = workbench.published_static_docs(db_conn(request), current_user(request).id)
     return {
         "drive": state == "authorized", "drive_detail": detail,
         "rules_version": workbench.RULES_VERSION,
@@ -332,7 +332,8 @@ def publish_claude_docs(request: Request) -> dict:
         raise HTTPException(status_code=409, detail=str(e)) from e
     if client is None:
         raise HTTPException(status_code=409, detail="Google Drive isn't set up. Run `strelitzia drive auth`.")
-    workbench.publish_static_docs(client, db_conn(request), _workbench_inputs(), force=True)
+    workbench.publish_static_docs(client, db_conn(request), current_user(request).id, _workbench_inputs(),
+                                  force=True)
     return claude_setup(request)
 
 
@@ -342,12 +343,13 @@ def publish_claude_docs(request: Request) -> dict:
 def get_panel(request: Request) -> dict:
     """The Panel page: whether a panel is due, how many jobs can be compared, the runs, and the project setup."""
     conn = db_conn(request)
-    rubric = workbench.published_static_docs(conn).get("panel_rubric") or {}
+    user = current_user(request)
+    rubric = workbench.published_static_docs(conn, user.id).get("panel_rubric") or {}
     return {
-        "due": panel.panel_due(conn),
+        "due": panel.panel_due(conn, user.id),
         "needed": panel.DEFAULT_ITEMS,
-        "comparable": {mode: panel.comparable_count(conn, mode) for mode in panel.MODES},
-        "runs": panel.list_runs(conn),
+        "comparable": {mode: panel.comparable_count(conn, user.id, mode) for mode in panel.MODES},
+        "runs": panel.list_runs(conn, user.id),
         "project_name": panel.PROJECT_NAME,
         "project_instructions": panel.PROJECT_INSTRUCTIONS,
         "rubric": {"name": workbench.STATIC_DOCS["panel_rubric"], "url": rubric.get("url"),
@@ -360,14 +362,14 @@ class PanelRunCreate(BaseModel):
     mode: Literal["latest_vs_previous", "rules_a_vs_b"] = "latest_vs_previous"
 
 
-def _panel_run(conn: Connection, run_id: str) -> dict:
-    """A run for the page. The report (which un-blinds the items) is only sent once you've picked every item."""
+def _panel_run(conn: Connection, user_id: str, run_id: str) -> dict:
+    """The user's run for the page. The report (which un-blinds the items) is only sent once you've picked every item."""
     try:
-        run = panel.get_run(conn, run_id)
+        run = panel.get_run(conn, user_id, run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Panel run not found") from None
-    items = panel.run_items(conn, run_id)
-    graded = panel.grades(conn, run_id)
+    items = panel.run_items(conn, user_id, run_id)
+    graded = panel.grades(conn, user_id, run_id)
     yours = graded.get("you") or {}
     shown = []
     for item in items:
@@ -381,23 +383,24 @@ def _panel_run(conn: Connection, run_id: str) -> dict:
         "id": run["id"], "created_at": run["created_at"], "mode": run["mode"], "status": run["status"],
         "packets": panel.run_packets(run), "items": shown,
         "graded": {g: len(graded.get(g) or {}) for g in panel.GRADERS},
-        "report": panel.panel_report(conn, run_id) if picked_all else None,
+        "report": panel.panel_report(conn, user_id, run_id) if picked_all else None,
     }
 
 
 @api.post("/panel/runs", status_code=201)
 def create_panel_run(body: PanelRunCreate, request: Request) -> dict:
     conn = db_conn(request)
+    user = current_user(request)
     try:
-        run_id = panel.create_run(conn, body.n, body.mode)
+        run_id = panel.create_run(conn, user.id, body.n, body.mode)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
-    return _panel_run(conn, run_id)
+    return _panel_run(conn, user.id, run_id)
 
 
 @api.get("/panel/runs/{run_id}")
 def get_panel_run(run_id: str, request: Request) -> dict:
-    return _panel_run(db_conn(request), run_id)
+    return _panel_run(db_conn(request), current_user(request).id, run_id)
 
 
 class PanelGrade(BaseModel):
@@ -412,24 +415,25 @@ class PanelGrade(BaseModel):
 def post_panel_grades(run_id: str, body: PanelGrade, request: Request):
     """422 with the errors when a pasted reply doesn't fit the panel; otherwise the updated run."""
     conn = db_conn(request)
+    user = current_user(request)
     try:
-        panel.get_run(conn, run_id)
+        panel.get_run(conn, user.id, run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Panel run not found") from None
     if body.grader == "you":
         if body.item is None or body.winner is None:
             raise HTTPException(status_code=422, detail="Your pick needs an item and a winner.")
         try:
-            panel.record_pick(conn, run_id, body.item, body.winner)
+            panel.record_pick(conn, user.id, run_id, body.item, body.winner)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"Item {body.item} isn't in this panel") from None
         except panel.PicksLocked as e:
             raise HTTPException(status_code=409, detail=str(e)) from None
-        return {"graded": None, "run": _panel_run(conn, run_id)}
-    outcome = panel.import_grades(conn, run_id, body.grader, body.text or "")
+        return {"graded": None, "run": _panel_run(conn, user.id, run_id)}
+    outcome = panel.import_grades(conn, user.id, run_id, body.grader, body.text or "")
     if not outcome.ok:
         return JSONResponse({"detail": outcome.errors[0], "errors": outcome.errors}, status_code=422)
-    return {"graded": outcome.graded, "run": _panel_run(conn, run_id)}
+    return {"graded": outcome.graded, "run": _panel_run(conn, user.id, run_id)}
 
 
 def budget_stop(conn: Connection, user_id: str, estimated_usd: float = 0.0) -> None:

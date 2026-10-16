@@ -5,6 +5,7 @@ import json
 import pytest
 from web_helpers import add_job
 
+from strelitzia import users
 from strelitzia.scoring import panel
 
 N = 5
@@ -106,4 +107,4 @@ def test_reply_with_the_wrong_item_count_is_an_error(client, conn, run):
     assert client.post(url, json={"grader": "you", "item": 9, "winner": "tie"}).status_code == 404
     assert client.post(url, json={"grader": "gpt", "text": "x"}).status_code == 422
     assert client.post("/app/api/panel/runs/nope/grades", json={"grader": "sonnet", "text": "x"}).status_code == 404
-    assert panel.grades(conn, run["id"]) == {}
+    assert panel.grades(conn, users.owner(conn).id, run["id"]) == {}

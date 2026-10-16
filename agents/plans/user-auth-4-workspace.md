@@ -32,7 +32,7 @@ for other users' ids; inserts set it.
 **Files:** src/strelitzia/tracking.py (modify), src/strelitzia/scoring/workbench.py (modify), src/strelitzia/scoring/panel.py (modify), tests/test_panel.py (modify)
 **What:** Same pattern: a `user_id` parameter, filtered reads and writes. Panel sampling only picks that user's jobs.
 **Validate:** `pytest tests/test_panel.py tests/test_workbench_import.py tests/test_workbench_packet.py tests/web/test_tracking.py -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (functions that take a job row (`import_result`, `publish_packet`) use its `user_id`; static Doc ids are `<user_id>:claude_doc:<kind>`, and `migrate_users` gives the old app-wide keys to the owner; panel items/grades are scoped through their run; app.py callers and `scripts/seed_preprod.py` moved with it)
 
 ### Task 3: routes
 **Runs:** unattended

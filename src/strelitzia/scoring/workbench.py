@@ -554,7 +554,7 @@ def _coverage_warnings(resume: TailoredResume, ev: EvidenceMap) -> list[str]:
 
 def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None = None,
                   out_dir: Path | None = None, cover_dir: Path | None = None) -> ImportOutcome:
-    """Check a pasted reply; on success render the files and record a new draft version.
+    """Check a pasted reply; on success render the files and record a new draft version for the job's user.
 
     On any error nothing is saved, and the outcome carries a `fix_prompt` to paste back into the chat.
     """
@@ -581,7 +581,8 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
     ev = job_evidence(job, inputs.library, inputs.base_resume_text)
     cov = coverage(resume_to_text(resume, inputs.profile, inputs.fixed), ev.targets(), ev.pairs)
     unmet = [e.target.text for e in ev.unevidenced()]
-    row = conn.execute("SELECT draft_version FROM jobs WHERE url = ?", (job["url"],)).fetchone()
+    user_id = job["user_id"]
+    row = conn.execute("SELECT draft_version FROM jobs WHERE user_id = ? AND url = ?", (user_id, job["url"])).fetchone()
     version = ((row[0] if row else None) or 0) + 1
     now = datetime.now(UTC).isoformat()
     history = draft_history(job) + [{"version": version, "at": now, "rules_version": RULES_VERSION}]
@@ -597,23 +598,23 @@ def import_result(conn: Connection, job: dict, text: str, inputs: Inputs | None 
 
     conn.execute(
         "UPDATE jobs SET tailored_resume_path = ?, tailored_at = ?, draft_version = ?, draft_rules_version = ?, "
-        "tailor_report = ?, resume_docx_path = ? WHERE url = ?",
-        (files["resume"], now, version, RULES_VERSION, json.dumps(report), files["resume_docx"], job["url"]),
+        "tailor_report = ?, resume_docx_path = ? WHERE user_id = ? AND url = ?",
+        (files["resume"], now, version, RULES_VERSION, json.dumps(report), files["resume_docx"], user_id, job["url"]),
     )
     conn.execute(
-        "INSERT INTO drafts (id, job_url, version, rules_version, resume_json, resume_text, cover_json, "
-        "coverage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (uuid.uuid4().hex, job["url"], version, RULES_VERSION, json.dumps(resume.to_dict(), ensure_ascii=False),
+        "INSERT INTO drafts (id, user_id, job_url, version, rules_version, resume_json, resume_text, cover_json, "
+        "coverage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (uuid.uuid4().hex, user_id, job["url"], version, RULES_VERSION, json.dumps(resume.to_dict(), ensure_ascii=False),
          resume_to_text(resume, inputs.profile, inputs.fixed), json.dumps(data.get("cover_letter")),
          json.dumps(cov.to_dict()), now),
     )
     if files.get("cover_letter"):  # a resume-only draft keeps the last letter
-        conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = ? WHERE url = ?",
-                     (files["cover_letter"], now, job["url"]))
+        conn.execute("UPDATE jobs SET cover_letter_path = ?, cover_letter_at = ? WHERE user_id = ? AND url = ?",
+                     (files["cover_letter"], now, user_id, job["url"]))
     conn.commit()
     # A first draft starts the application: Active/Inactive become In progress (a status the user set stays).
     if tracking.effective_status(job, datetime.now(UTC).date()) in ("active", "inactive"):
-        tracking.set_status(conn, job["url"], "in_progress", source="workbench")
+        tracking.set_status(conn, user_id, job["url"], "in_progress", source="workbench")
     return ImportOutcome(ok=True, warnings=warnings, draft_version=version, coverage=cov.to_dict(), unmet=unmet,
                          files=files)
 
@@ -711,7 +712,7 @@ PROJECT_INSTRUCTIONS = (
 STATIC_DOCS = {"rules": "Strelitzia rules", "library": "Strelitzia content library",
                "panel_rubric": "Strelitzia panel rubric"}
 RESUME_DOCS = ("rules", "library")  # the ones the Strelitzia Resumes project holds
-_STATE_KEY = "claude_doc:{}"
+_STATE_KEY = "{}:claude_doc:{}"  # user id, kind
 
 
 def static_doc_html(kind: str, inputs: Inputs) -> str:
@@ -722,19 +723,20 @@ def static_doc_html(kind: str, inputs: Inputs) -> str:
     return rules_doc() if kind == "rules" else library_doc(inputs.library, inputs.base_resume_text)
 
 
-def published_static_docs(conn: Connection) -> dict[str, dict]:
-    """{kind: {"id", "url", "hash", "changed_at"}} for each static Doc published so far."""
+def published_static_docs(conn: Connection, user_id: str) -> dict[str, dict]:
+    """{kind: {"id", "url", "hash", "changed_at"}} for each static Doc the user has published so far."""
     from strelitzia.database import get_state
 
     out = {}
     for kind in STATIC_DOCS:
-        raw = get_state(conn, _STATE_KEY.format(kind))
+        raw = get_state(conn, _STATE_KEY.format(user_id, kind))
         if raw:
             out[kind] = json.loads(raw)
     return out
 
 
-def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, force: bool = False) -> dict[str, str]:
+def publish_static_docs(client, conn: Connection, user_id: str, inputs: Inputs | None = None,
+                        force: bool = False) -> dict[str, str]:
     """Write the rules, content-library and panel-rubric Docs into Strelitzia/_Claude/ when their content changed.
 
     Returns {kind: doc URL}. `force` rewrites them even when the stored hash matches (e.g. a Doc was deleted).
@@ -743,7 +745,7 @@ def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, 
     from strelitzia.storage.drive_layout import claude_folder_path
 
     inputs = inputs or Inputs.load()
-    known = published_static_docs(conn)
+    known = published_static_docs(conn, user_id)
     urls, folder_id = {}, None
     for kind, name in STATIC_DOCS.items():
         html = static_doc_html(kind, inputs)
@@ -755,7 +757,7 @@ def publish_static_docs(client, conn: Connection, inputs: Inputs | None = None, 
         folder_id = folder_id or client.ensure_folder_path(claude_folder_path())
         f = client.upsert_doc(folder_id, name, html, known_id=prev.get("id"))
         state = {"id": f.id, "url": f.url, "hash": digest, "changed_at": datetime.now(UTC).isoformat()}
-        set_state(conn, _STATE_KEY.format(kind), json.dumps(state))
+        set_state(conn, _STATE_KEY.format(user_id, kind), json.dumps(state))
         conn.commit()
         urls[kind] = f.url
     return urls
@@ -775,6 +777,7 @@ def publish_packet(client, conn: Connection, job: dict, inputs: Inputs | None = 
     packet = packet_for(job, inputs, inline=False)
     folder_id = client.ensure_folder_path(packet_folder_path(job))
     f = client.upsert_doc(folder_id, clean_name(packet.name, 160), packet.html, known_id=job.get("packet_doc_id"))
-    conn.execute("UPDATE jobs SET packet_doc_id = ?, packet_doc_url = ? WHERE url = ?", (f.id, f.url, job["url"]))
+    conn.execute("UPDATE jobs SET packet_doc_id = ?, packet_doc_url = ? WHERE user_id = ? AND url = ?",
+                 (f.id, f.url, job["user_id"], job["url"]))
     conn.commit()
     return f.id, f.url

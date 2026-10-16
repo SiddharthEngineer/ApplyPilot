@@ -402,6 +402,8 @@ def migrate_users(conn: Connection) -> None:
                          (owner_id, newest[0], newest[1]))
     for table in ("jobs", "llm_usage", *_OWNED_TABLES):
         conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+    # The Claude Project Doc ids (strelitzia.scoring.workbench) were app-wide; they're the owner's.
+    conn.execute("UPDATE app_state SET key = ? || key WHERE key LIKE 'claude_doc:%'", (f"{owner_id}:",))
 
     conn.execute("DROP INDEX IF EXISTS idx_jobs_job_key")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_user_job_key ON jobs (user_id, job_key)")

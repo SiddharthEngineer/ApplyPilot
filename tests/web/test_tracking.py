@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from strelitzia import users
 from strelitzia.database import init_db
 from strelitzia.tracking import (
     COLORS,
@@ -52,6 +53,10 @@ def _insert(conn, url=URL, **cols):
     names = ", ".join(cols)
     conn.execute(f"INSERT INTO jobs ({names}) VALUES ({', '.join('?' * len(cols))})", tuple(cols.values()))
     conn.commit()
+
+
+def _me(conn):
+    return users.owner(conn).id
 
 
 def _row(conn, url=URL):
@@ -103,7 +108,7 @@ def test_no_response():
 
 def test_set_submitted_defaults_to_now_and_clears_response(conn):
     _insert(conn, user_status="rejected", responded_at="2026-10-01T00:00:00")
-    result = set_status(conn, URL, "submitted")
+    result = set_status(conn, _me(conn), URL, "submitted")
     row = _row(conn)
     assert result["from_status"] == "rejected" and result["to_status"] == "submitted"
     assert row["user_status"] == "submitted"
@@ -114,17 +119,17 @@ def test_set_submitted_defaults_to_now_and_clears_response(conn):
 
 def test_set_submitted_with_a_date(conn):
     _insert(conn)
-    set_status(conn, URL, "submitted", submitted_at="2026-09-30")
+    set_status(conn, _me(conn), URL, "submitted", submitted_at="2026-09-30")
     assert _row(conn)["submitted_at"] == "2026-09-30"
     with pytest.raises(ValueError):
-        set_status(conn, URL, "submitted", submitted_at="last tuesday")
+        set_status(conn, _me(conn), URL, "submitted", submitted_at="last tuesday")
 
 
 @pytest.mark.parametrize("status", ["rejected", "heard_back"])
 def test_response_sets_responded_at(conn, status):
     _insert(conn)
-    set_status(conn, URL, "submitted", submitted_at="2026-09-30")
-    set_status(conn, URL, status)
+    set_status(conn, _me(conn), URL, "submitted", submitted_at="2026-09-30")
+    set_status(conn, _me(conn), URL, status)
     row = _row(conn)
     assert row["user_status"] == status
     assert row["responded_at"]
@@ -133,18 +138,18 @@ def test_response_sets_responded_at(conn, status):
 
 def test_reset_to_derived_status(conn):
     _insert(conn, deadline="2020-01-01")
-    set_status(conn, URL, "in_progress")
-    result = set_status(conn, URL, None)
+    set_status(conn, _me(conn), URL, "in_progress")
+    result = set_status(conn, _me(conn), URL, None)
     assert _row(conn)["user_status"] is None
     assert result["to_status"] == "inactive"
 
 
 def test_every_change_is_logged_newest_first(conn):
     _insert(conn)
-    set_status(conn, URL, "in_progress", source="generate")
-    set_status(conn, URL, "submitted")
-    set_status(conn, URL, "heard_back")
-    events = status_events(conn, URL)
+    set_status(conn, _me(conn), URL, "in_progress", source="generate")
+    set_status(conn, _me(conn), URL, "submitted")
+    set_status(conn, _me(conn), URL, "heard_back")
+    events = status_events(conn, _me(conn), URL)
     assert [e["to_status"] for e in events] == ["heard_back", "submitted", "in_progress"]
     assert [e["from_status"] for e in events] == ["submitted", "in_progress", "active"]
     assert events[-1]["source"] == "generate"
@@ -152,18 +157,29 @@ def test_every_change_is_logged_newest_first(conn):
 
 def test_unknown_job_and_status(conn):
     with pytest.raises(KeyError):
-        set_status(conn, "https://nope", "submitted")
+        set_status(conn, _me(conn), "https://nope", "submitted")
     _insert(conn)
     with pytest.raises(ValueError):
-        set_status(conn, URL, "active")  # derived statuses can't be set
+        set_status(conn, _me(conn), URL, "active")  # derived statuses can't be set
 
 
 def test_set_submitted_at_edits_without_an_event(conn):
     _insert(conn)
-    set_status(conn, URL, "submitted")
-    assert set_submitted_at(conn, URL, "2026-09-01") == "2026-09-01"
+    set_status(conn, _me(conn), URL, "submitted")
+    assert set_submitted_at(conn, _me(conn), URL, "2026-09-01") == "2026-09-01"
     assert _row(conn)["submitted_at"] == "2026-09-01"
-    assert len(status_events(conn, URL)) == 1
+    assert len(status_events(conn, _me(conn), URL)) == 1
+
+
+def test_another_users_job_is_unknown(conn):
+    _insert(conn)
+    other = users.invite(conn, "b@example.com").id
+    with pytest.raises(KeyError):
+        set_status(conn, other, URL, "submitted")
+    set_submitted_at(conn, other, URL, "2026-09-01")
+    assert _row(conn)["user_status"] is None and _row(conn)["submitted_at"] is None
+    set_status(conn, _me(conn), URL, "in_progress")
+    assert status_events(conn, other, URL) == [] and len(status_events(conn, _me(conn), URL)) == 1
 
 
 def test_init_db_is_idempotent(tmp_path):
