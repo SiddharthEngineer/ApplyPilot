@@ -20,22 +20,24 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from strelitzia import __version__, intake, tracking, users, workspace
+from strelitzia import profile as profile_store
 from strelitzia.config import env
 from strelitzia.database import Connection, backend_name, backfill_job_keys, get_connection, init_db, job_company
 from strelitzia.llm import LLMStopRun, check_budget, month_spend, user_month_spend
 from strelitzia.scoring import panel
 from strelitzia.scoring import preferences as prefs_mod
-from strelitzia.scoring import workbench
+from strelitzia.scoring import resume_parse, workbench
 from strelitzia.scoring.assessment import RED_FLAGS, current_assessment_key, recompute_fit
+from strelitzia.scoring.content_library import parse_content_library_text
 from strelitzia.web import admin, auth, queries, tasks
 
 PREFIX = "/app"
@@ -614,6 +616,24 @@ def put_description(key: str, body: PastedDescription, request: Request) -> dict
 
 # --- Contacts and interviews (strelitzia.workspace) ---
 
+def _check_email(value: str | None) -> str | None:
+    if value and "@" not in value:
+        raise ValueError("Email must contain @")
+    return value
+
+
+def _check_link(value: str | None, domain: str, label: str) -> str | None:
+    """`value` if it's an http(s) link on `domain` (or a subdomain), else a ValueError."""
+    if value:
+        # Strict on the shape (scheme, "//", no backslash or space) so browsers parse the same host as urlparse.
+        url = urlparse(value)
+        host = (url.hostname or "").lower()
+        shaped = re.match(r"https?://[^\\\s]+$", value, re.IGNORECASE) is not None
+        if not shaped or not (host == domain or host.endswith("." + domain)):
+            raise ValueError(f"{label} must be an http(s) link on {domain}")
+    return value
+
+
 class ContactPatch(BaseModel):
     name: str | None = None
     company: str | None = None
@@ -636,21 +656,12 @@ class ContactPatch(BaseModel):
     @field_validator("email")
     @classmethod
     def _email(cls, value: str | None) -> str | None:
-        if value and "@" not in value:
-            raise ValueError("Email must contain @")
-        return value
+        return _check_email(value)
 
     @field_validator("linkedin_url")
     @classmethod
     def _linkedin(cls, value: str | None) -> str | None:
-        if value:
-            # Strict on the shape (scheme, "//", no backslash or space) so browsers parse the same host as urlparse.
-            url = urlparse(value)
-            host = (url.hostname or "").lower()
-            shaped = re.match(r"https?://[^\\\s]+$", value, re.IGNORECASE) is not None
-            if not shaped or not (host == "linkedin.com" or host.endswith(".linkedin.com")):
-                raise ValueError("LinkedIn must be an http(s) link on linkedin.com")
-        return value
+        return _check_link(value, "linkedin.com", "LinkedIn")
 
 
 class ContactCreate(ContactPatch):
@@ -842,6 +853,153 @@ def put_preferences(body: PrefsSave, request: Request) -> dict:
         task = tasks.enqueue(conn, user.id, None, kind)
         _notify(request)
     return {"prefs": prefs.to_dict(), "rescored": rescored, "task": task}
+
+
+# --- Profile (strelitzia.profile): who the user is, their resume and content library ---
+
+MAX_RESUME_BYTES = 5 * 1024 * 1024
+PROFILE_FIELDS = ("first_name", "last_name", "phone", "email", "linkedin_url", "github_url", "location",
+                  "current_job_title", "years_experience", "education_level", "skills")
+
+
+def _content_library_error(text: str) -> str | None:
+    """Why the content library can't be used by the workbench, or None (also None when it's empty)."""
+    if not text.strip():
+        return None
+    try:
+        library = parse_content_library_text(text)
+    except Exception as e:  # the parser is lenient; anything it still trips on is shown, not a 500
+        return f"The content library couldn't be read: {e}"
+    if not library.roles:
+        return "No roles found: each role starts with a \"## CURRENT ROLE\" or \"## PRIOR ROLE\" heading."
+    return None
+
+
+def _profile_out(profile: profile_store.UserProfile) -> dict:
+    return {
+        "profile": {name: getattr(profile, name) for name in PROFILE_FIELDS},
+        "has_resume": bool(profile.resume_text.strip()),
+        "resume_file_name": profile.resume_file_name,
+        "content_library_md": profile.content_library_md,
+        "content_library_error": _content_library_error(profile.content_library_md),
+        "options": {"education_level": list(profile_store.PROFILE_EDUCATION_LEVELS)},
+    }
+
+
+@api.get("/profile")
+def get_profile(request: Request) -> dict:
+    return _profile_out(profile_store.load_profile(db_conn(request), current_user(request).id))
+
+
+class ProfileBody(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    phone: str = ""
+    email: str = ""
+    linkedin_url: str = ""
+    github_url: str = ""
+    location: str = ""
+    current_job_title: str = ""
+    years_experience: float | None = Field(default=None, ge=0, le=70)
+    education_level: Literal[profile_store.PROFILE_EDUCATION_LEVELS] | None = None
+    skills: list[str] = Field(default_factory=list, max_length=200)
+    content_library_md: str = Field(default="", max_length=500_000)
+
+    @field_validator("first_name", "last_name", "phone", "email", "linkedin_url", "github_url", "location",
+                     "current_job_title", mode="before")
+    @classmethod
+    def _trim(cls, value: str | None) -> str:
+        return (value or "").strip()
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, value: str) -> str:
+        return _check_email(value) or ""
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def _linkedin(cls, value: str) -> str:
+        return _check_link(value, "linkedin.com", "LinkedIn") or ""
+
+    @field_validator("github_url")
+    @classmethod
+    def _github(cls, value: str) -> str:
+        return _check_link(value, "github.com", "GitHub") or ""
+
+    @field_validator("skills")
+    @classmethod
+    def _skills(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for s in (s.strip() for s in value):
+            if s and s.lower() not in {x.lower() for x in out}:
+                out.append(s)
+        return out
+
+
+@api.put("/profile")
+def put_profile(body: ProfileBody, request: Request) -> dict:
+    """Save the profile fields and the content library. The resume and the profile's extras stay as they are."""
+    conn = db_conn(request)
+    user = current_user(request)
+    profile = profile_store.load_profile(conn, user.id)
+    for name, value in body.model_dump().items():
+        setattr(profile, name, value)
+    profile_store.save_profile(conn, user.id, profile)
+    return _profile_out(profile)
+
+
+def _is_empty(value) -> bool:
+    return value is None or value == "" or value == []
+
+
+@api.post("/profile/resume")
+def post_profile_resume(file: UploadFile, request: Request) -> dict:
+    """Store an uploaded PDF or DOCX resume and its text (scoring reads it; jobs assessed with the old one show as
+    stale), then return Claude's draft for the profile fields that are still empty. The draft isn't saved: the
+    user reviews it and saves the profile.
+
+    422 for a file that's too large, not a PDF or DOCX, or has no text. 402 when the user's cap (or the monthly
+    budget) is reached: the resume is stored, but not parsed. Without an API key (or on another LLM error) the
+    draft is empty and `parse_error` says why.
+    """
+    conn = db_conn(request)
+    user = current_user(request)
+    data = file.file.read(MAX_RESUME_BYTES + 1)
+    if len(data) > MAX_RESUME_BYTES:
+        raise HTTPException(status_code=422, detail="The resume is larger than 5 MB")
+    name = Path(file.filename or "resume").name
+    try:
+        text = resume_parse.extract_text(name, file.content_type, data)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    profile_store.save_resume_file(conn, user.id, name, resume_parse.file_mime(name, file.content_type), data, text)
+    profile = profile_store.load_profile(conn, user.id)
+    budget_stop(conn, user.id)
+    parse_error = None
+    try:
+        parsed = resume_parse.parse_resume(text, user.id, conn=conn)
+    except LLMStopRun as e:
+        if e.reason == "budget":
+            budget_stop(conn, user.id)  # raced past the check above: the same 402
+        parse_error = f"The resume was saved, but it couldn't be parsed: {e}"
+        parsed = {}
+    except Exception as e:  # an unusable answer or an API error: the upload itself still worked
+        log.warning("resume parse failed for user %s: %s", user.id, type(e).__name__)
+        parse_error = f"The resume was saved, but it couldn't be parsed ({type(e).__name__})."
+        parsed = {}
+    draft = {k: v for k, v in parsed.items() if k in PROFILE_FIELDS and _is_empty(getattr(profile, k))}
+    return {**_profile_out(profile), "draft": draft, "parse_error": parse_error}
+
+
+@api.get("/profile/resume")
+def get_profile_resume(request: Request) -> Response:
+    """The uploaded resume file."""
+    profile = profile_store.load_profile(db_conn(request), current_user(request).id, with_file=True)
+    if profile.resume_file is None:
+        raise HTTPException(status_code=404, detail="No resume file uploaded")
+    name = profile.resume_file_name or "resume"
+    return Response(profile.resume_file, media_type=profile.resume_mime or "application/octet-stream",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
 
 @api.get("/tasks/{task_id}")

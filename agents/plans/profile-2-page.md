@@ -41,7 +41,7 @@ Preferences is about the job you want."
 and text, then return `{draft}` from `parse_resume`, merged only into fields that are empty; nothing else is saved),
 `GET /app/api/profile/resume` (download). Saving a changed resume text or content library makes assessments stale, as today.
 **Validate:** `pytest tests/web/test_profile_api.py -q` → passes; a 6 MB or .txt upload is a 422; over the cap is a 402.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 3: Profile page
 **Runs:** unattended

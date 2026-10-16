@@ -37,7 +37,8 @@ dev = ["pytest>=7.0", "ruff>=0.1"]
 drive = ["google-api-python-client>=2.0", "google-auth-oauthlib>=1.0"]
 jobspy = ["python-jobspy==1.2.0"]
 postgres = ["psycopg[binary]>=3.2"]
-web = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "itsdangerous>=2.1", "google-auth[requests]>=2.20", "cryptography>=42"]
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "itsdangerous>=2.1", "google-auth[requests]>=2.20", "cryptography>=42",
+       "python-multipart>=0.0.9"]
 
 [project.scripts]
 strelitzia = "strelitzia.cli:app"

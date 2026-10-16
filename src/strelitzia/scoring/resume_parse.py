@@ -50,16 +50,26 @@ Copy names, contact details and titles as written.
 """
 
 
+def file_mime(name: str, mime: str | None) -> str | None:
+    """PDF_MIME or DOCX_MIME for a resume file, by its extension first and then its MIME type; None for others."""
+    lower = (name or "").lower()
+    if lower.endswith(".pdf"):
+        return PDF_MIME
+    if lower.endswith(".docx"):
+        return DOCX_MIME
+    return mime if mime in (PDF_MIME, DOCX_MIME) else None
+
+
 def extract_text(name: str, mime: str | None, data: bytes) -> str:
     """The text of a PDF or DOCX resume (picked by extension or MIME type).
 
     Raises:
         ValueError: Not a PDF or DOCX, a file that can't be read, or one with no text (a scanned PDF).
     """
-    lower = (name or "").lower()
-    if lower.endswith(".pdf") or mime == PDF_MIME:
+    kind = file_mime(name, mime)
+    if kind == PDF_MIME:
         text = _pdf_text(data)
-    elif lower.endswith(".docx") or mime == DOCX_MIME:
+    elif kind == DOCX_MIME:
         text = _docx_text(data)
     else:
         raise ValueError("Upload a PDF or DOCX resume")
