@@ -24,7 +24,7 @@ from strelitzia.scoring.assessment import (
     recompute_fit,
 )
 from strelitzia.scoring.preferences import Preferences, save_preferences
-from fit_helpers import POSTING, add_extracted_job, reply
+from fit_helpers import POSTING, add_extracted_job, default_fit, reply
 
 RESUME = "Synthetic resume: Python, SQL, five years building pipelines."
 
@@ -142,11 +142,6 @@ def _fit(conn, url):
     return row[0], json.loads(row[1]) if row[1] else None, json.loads(row[2]) if row[2] else []
 
 
-def _overall(skills: int, experience: int = 3) -> int:
-    """The fit score with default preferences: skills x4, experience match x2 and no red flags (1.0) x2."""
-    return round(100 * (4 * (skills - 1) / 4 + 2 * (experience - 1) / 4 + 2) / 8)
-
-
 def test_recompute_combines_both_layers(conn):
     add_extracted_job(conn, "https://e.com/1")
     _assess(conn, "https://e.com/1", reply(skills=4))
@@ -156,11 +151,12 @@ def test_recompute_combines_both_layers(conn):
     }))
     assert recompute_fit(conn) == 1
     score, breakdown, flags = _fit(conn, "https://e.com/1")
-    # salary 1.0 x2, work_mode 0.0 x2, skills 0.75 x4, experience match 0.5 x2, no red flags 1.0 x2 -> 8/12
-    assert score == round(100 * 8 / 12) and flags == []
+    # salary 1.0 x2, work_mode 0.0 x2, education and experience unknown 0.5 x4 each (no profile), skills 0.75 x4,
+    # experience match 0.5 x2, no red flags 1.0 x2 -> 12/20
+    assert score == round(100 * 12 / 20) and flags == []
     keys = [c["key"] for c in breakdown]
-    assert keys == ["salary", "locations", "work_mode", "role_category", "skills_match", "experience_match",
-                    "red_flags"]  # the non-dont_care ones
+    assert keys == ["salary", "locations", "work_mode", "role_category", "education", "experience", "skills_match",
+                    "experience_match", "red_flags"]  # the non-dont_care ones
 
 
 def test_salary_dealbreaker_flags_without_any_llm_call(conn):
@@ -172,7 +168,8 @@ def test_salary_dealbreaker_flags_without_any_llm_call(conn):
     assert flags == ["salary"]
     salary = next(c for c in breakdown if c["key"] == "salary")
     assert "salary below minimum" in salary["note"]
-    assert score == round(100 * 7 / 12)  # salary 0 x4, skills 1.0 x4, experience match 0.5 x2, no red flags 1.0 x2
+    # salary 0 x4, education and experience 0.5 x4 each, skills 1.0 x4, experience match 0.5 x2, no red flags 1.0 x2
+    assert score == round(100 * 11 / 20)
     assert get_jobs_by_stage(conn, "pending_tailor", min_score=0) == []  # flagged jobs aren't tailored
 
 
@@ -190,7 +187,7 @@ def test_recompute_only_the_given_urls(conn):
     _assess(conn, "https://e.com/1", reply(skills=5))
     _assess(conn, "https://e.com/2", reply(skills=5))
     assert recompute_fit(conn, urls=["https://e.com/2"]) == 1
-    assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == _overall(5)
+    assert _fit(conn, "https://e.com/1")[0] is None and _fit(conn, "https://e.com/2")[0] == default_fit(5)
     assert recompute_fit(conn, urls=[]) == 0
 
 
@@ -252,10 +249,10 @@ def test_stale_jobs_need_a_confirmed_reassess(conn, tmp_path):
     save_preferences(conn, Preferences(skills_want=["Rust"]))  # every assessment is stale now
     stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2))
     assert client.chat.call_count == 0  # a pipeline run doesn't pay for re-assessment on its own
-    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(4)}
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {default_fit(4)}
 
     stats, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
-    assert client.chat.call_count == 3 and {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(2)}
+    assert client.chat.call_count == 3 and {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {default_fit(2)}
     assert "Rust" in client.chat.call_args.args[0][1]["content"]
 
 
@@ -265,7 +262,7 @@ def test_rescore_one_job_by_url(conn, tmp_path):
     _run(conn, tmp_path, lambda *a, **k: reply(skills=3))
     stats, client = _run(conn, tmp_path, [reply(skills=5)], urls=["https://e.com/1"])
     assert client.chat.call_count == 1 and stats["scored"] == 1
-    assert _fit(conn, "https://e.com/1")[0] == _overall(5) and _fit(conn, "https://e.com/2")[0] == _overall(3)
+    assert _fit(conn, "https://e.com/1")[0] == default_fit(5) and _fit(conn, "https://e.com/2")[0] == default_fit(3)
 
 
 def test_breakdown_after_a_run(conn, tmp_path):
@@ -289,7 +286,7 @@ def test_old_scored_jobs_wait_for_a_confirmed_reassess(conn, tmp_path):
     assert client.chat.call_count == 1  # only the new job
     assert _fit(conn, "https://e.com/legacy")[0] == 80
     _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), reassess=True)
-    assert client.chat.call_count == 1 and _fit(conn, "https://e.com/legacy")[0] == _overall(2)
+    assert client.chat.call_count == 1 and _fit(conn, "https://e.com/legacy")[0] == default_fit(2)
 
 
 def test_preferences_saved_during_a_run_win(conn, tmp_path):
@@ -350,8 +347,8 @@ def test_active_scope_includes_current_assessments_and_excludes_rejected(conn, t
     assert client.chat.call_count == 0  # nothing is stale
     _, client = _run(conn, tmp_path, lambda *a, **k: reply(skills=2), scope="active")
     assert client.chat.call_count == 3
-    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {_overall(2)}
-    assert _fit(conn, "https://e.com/rejected")[0] == _overall(4)  # left alone
+    assert {_fit(conn, f"https://e.com/{i}")[0] for i in range(3)} == {default_fit(2)}
+    assert _fit(conn, "https://e.com/rejected")[0] == default_fit(4)  # left alone
 
     conn.execute("UPDATE jobs SET score_attempts = ? WHERE url = 'https://e.com/0'", (scorer.MAX_SCORE_ATTEMPTS,))
     conn.commit()

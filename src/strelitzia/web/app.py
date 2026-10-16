@@ -943,9 +943,12 @@ def put_profile(body: ProfileBody, request: Request) -> dict:
     conn = db_conn(request)
     user = current_user(request)
     profile = profile_store.load_profile(conn, user.id)
+    qualifications = (profile.education_level, profile.years_experience)
     for name, value in body.model_dump(exclude_unset=True).items():
         setattr(profile, name, value)
     profile_store.save_profile(conn, user.id, profile, with_resume=False)
+    if (profile.education_level, profile.years_experience) != qualifications:
+        recompute_fit(conn, user.id)  # the fit score's education and experience rules (code only, no LLM)
     return get_profile(request)
 
 

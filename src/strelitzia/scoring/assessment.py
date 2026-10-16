@@ -29,6 +29,7 @@ from strelitzia.scoring.preferences import (
     combine,
     load_preferences,
     score_preferences,
+    score_qualifications,
 )
 
 log = logging.getLogger(__name__)
@@ -216,13 +217,15 @@ def assessment_components(prefs: Preferences, assessment: dict) -> list[Componen
     return out
 
 
-def compute_fit(prefs: Preferences, job: dict) -> tuple[int | None, list[dict], list[str]]:
-    """(fit_score, breakdown, flags) for one job row from its stored assessment and the current preferences.
+def compute_fit(prefs: Preferences, job: dict, profile=None) -> tuple[int | None, list[dict], list[str]]:
+    """(fit_score, breakdown, flags) for one job row from its stored assessment, the current preferences and the
+    user's profile (education and years of experience; None scores them as unknown).
 
     A job with no assessment keeps its current fit_score (an old 1-10 score times 10, or NULL); its preference
     breakdown and dealbreaker flags are still filled in. A prefiltered job scores 0.
     """
-    components = score_preferences(prefs, _posting(job))
+    posting = _posting(job)
+    components = score_preferences(prefs, posting) + score_qualifications(profile, posting)
     assessment = _assessment(job)
     prefiltered = bool(assessment and assessment.get("prefiltered"))
     if assessment and not prefiltered:
@@ -248,10 +251,14 @@ def recompute_fit(conn, user_id: str | None = None, urls: list[str] | None = Non
                   prefs: Preferences | None = None) -> int:
     """Recompute fit_score, fit_breakdown and fit_flags for the user's extracted jobs (all, or `urls`). No LLM calls.
 
-    `user_id` defaults to the owner; `prefs` to the user's saved preferences. Returns the number of jobs updated.
+    `user_id` defaults to the owner; `prefs` to the user's saved preferences. Their profile is loaded once.
+    Returns the number of jobs updated.
     """
+    from strelitzia.profile import load_profile
+
     user_id = user_id or users.owner(conn).id
     prefs = prefs or load_preferences(conn, user_id)
+    profile = load_profile(conn, user_id)
     sql = ("SELECT url, title, company, site, strategy, details_json, fit_assessment, fit_score FROM jobs "
            "WHERE details_json IS NOT NULL AND user_id = ?")
     params: list = [user_id]
@@ -263,7 +270,7 @@ def recompute_fit(conn, user_id: str | None = None, urls: list[str] | None = Non
     updates = []
     for row in conn.execute(sql, params).fetchall():
         job = dict(row)
-        overall, breakdown, flags = compute_fit(prefs, job)
+        overall, breakdown, flags = compute_fit(prefs, job, profile)
         updates.append((overall, json.dumps(breakdown), json.dumps(flags) if flags else None, user_id, job["url"]))
     if updates:
         conn.executemany("UPDATE jobs SET fit_score = ?, fit_breakdown = ?, fit_flags = ? WHERE user_id = ? AND url = ?",

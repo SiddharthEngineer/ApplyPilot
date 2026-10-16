@@ -314,3 +314,71 @@ def test_preferences_reassess_scope_active(client, conn):
                                                         "reassess_scope": "active"}).json()["task"]
     assert task["kind"] == "rescore_all"
     assert client.put("/app/api/preferences", json={"prefs": prefs, "reassess_scope": "all"}).status_code == 422
+
+
+# ── Education and experience come from the Profile ────────────────────────
+
+def _breakdown(client, url) -> dict:
+    detail = client.get(f"/app/api/jobs/{job_key(url)}").json()
+    return {c["key"]: c for c in detail["fit_breakdown"]}, detail["fit_flags"] or []
+
+
+def test_profile_education_and_years_rescore_without_llm_calls(client, conn):
+    masters = "https://e.com/masters"
+    senior = "https://e.com/senior"
+    for url, posting in ((masters, {**POSTING, "education_level": "masters", "years_experience_min": 2}),
+                         (senior, {**POSTING, "years_experience_min": 5})):
+        add_extracted_job(conn, url, job_key=job_key(url), posting=posting,
+                          fit_assessment=json.dumps(parse_assessment(reply(skills=4))),
+                          assessment_hash=current_assessment_key(conn))
+    recompute_fit(conn)
+    comps, _ = _breakdown(client, masters)
+    assert comps["education"]["score"] == 0.5 and comps["experience"]["score"] == 0.5  # no profile values yet
+
+    r = client.put("/app/api/profile", json={"education_level": "bachelors", "years_experience": 2})
+    assert r.status_code == 200
+    comps, flags = _breakdown(client, masters)
+    assert comps["education"]["score"] == 0.4 and not comps["education"]["dealbreaker_hit"]  # weakened only
+    assert comps["experience"]["score"] == 1.0 and flags == []
+    comps, flags = _breakdown(client, senior)
+    assert comps["experience"]["dealbreaker_hit"] and flags == ["experience"]
+    assert _usage_rows(conn) == 0
+
+
+def test_profile_save_without_qualification_changes_skips_the_rescore(client, conn):
+    client.put("/app/api/profile", json={"education_level": "bachelors"})
+    with patch("strelitzia.web.app.recompute_fit") as rescore:
+        assert client.put("/app/api/profile", json={"first_name": "Ada", "education_level": "bachelors"}).status_code == 200
+        rescore.assert_not_called()
+        client.put("/app/api/profile", json={"years_experience": 4})
+        rescore.assert_called_once()
+
+
+def _store_old_prefs(conn, data: dict) -> None:
+    from strelitzia import users
+
+    conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (?, ?, ?) "
+                 "ON CONFLICT (user_id) DO UPDATE SET prefs_json = excluded.prefs_json",
+                 (users.owner(conn).id, json.dumps(data), "2026-10-01T00:00:00+00:00"))
+    conn.commit()
+
+
+def test_old_education_and_experience_move_to_the_profile(client, conn):
+    _store_old_prefs(conn, {"education": {"importance": "dealbreaker", "value": "masters"},
+                            "experience": {"importance": "nice", "value": 6},
+                            "salary": {"importance": "dealbreaker", "value": {"min": 120000}}})
+    prefs = client.get("/app/api/preferences").json()["prefs"]
+    assert "education" not in prefs and prefs["salary"]["value"]["min"] == 120000
+    profile = client.get("/app/api/profile").json()["profile"]
+    assert profile["education_level"] == "masters" and profile["years_experience"] == 6
+    stored = json.loads(conn.execute("SELECT prefs_json FROM user_preferences").fetchone()[0])
+    assert "education" not in stored and "experience" not in stored and stored["salary"]["importance"] == "dealbreaker"
+
+
+def test_old_values_never_overwrite_the_profile(client, conn):
+    client.put("/app/api/profile", json={"education_level": "phd", "years_experience": 10})
+    _store_old_prefs(conn, {"education": {"value": "bachelors"}, "experience": {"value": 1}})
+    client.get("/app/api/preferences")
+    profile = client.get("/app/api/profile").json()["profile"]
+    assert profile["education_level"] == "phd" and profile["years_experience"] == 10
+    assert "education" not in json.loads(conn.execute("SELECT prefs_json FROM user_preferences").fetchone()[0])
