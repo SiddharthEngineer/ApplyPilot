@@ -145,12 +145,17 @@ def load_profile(conn, user_id: str | None = None, with_file: bool = False) -> U
     return out
 
 
-def save_profile(conn, user_id: str | None, profile: UserProfile) -> None:
-    """Save the profile fields, the resume text and the content library (the uploaded file is left as it is)."""
+def save_profile(conn, user_id: str | None, profile: UserProfile, with_resume: bool = True) -> None:
+    """Save the profile fields, the resume text and the content library (the uploaded file is left as it is).
+
+    Not `with_resume` (the Profile page's Save), an existing row's resume text is left as it is too, so a save racing
+    a resume upload can't put the old text back.
+    """
+    resume_update = "resume_text = excluded.resume_text, " if with_resume else ""
     conn.execute(
         "INSERT INTO user_profiles (user_id, data_json, resume_text, content_library_md, updated_at) "
         "VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET data_json = excluded.data_json, "
-        "resume_text = excluded.resume_text, content_library_md = excluded.content_library_md, "
+        f"{resume_update}content_library_md = excluded.content_library_md, "
         "updated_at = excluded.updated_at",
         (_user(conn, user_id), json.dumps(profile.data(), ensure_ascii=False), profile.resume_text,
          profile.content_library_md, _now()),

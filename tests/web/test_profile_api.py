@@ -174,3 +174,35 @@ def test_mutations_need_the_header(app):
     with TestClient(app) as bare:
         assert bare.put("/app/api/profile", json={}).status_code == 403
         assert _upload(bare, make_pdf(LINES)).status_code == 403
+
+
+def test_a_put_leaves_the_fields_it_doesnt_send(client, conn):
+    client.put("/app/api/profile", json={"first_name": "Ada", "skills": ["Go"], "content_library_md": LIBRARY})
+    r = client.put("/app/api/profile", json={"phone": "555-000-0000"})
+    assert r.status_code == 200
+    saved = store.load_profile(conn, users.owner(conn).id)
+    assert (saved.first_name, saved.skills, saved.content_library_md) == ("Ada", ["Go"], LIBRARY)
+
+
+@pytest.mark.parametrize("body", [{"phone": 5551234}, {"first_name": []}, {"skills": "Python"}])
+def test_wrong_types_are_a_422(client, body):
+    assert client.put("/app/api/profile", json=body).status_code == 422
+
+
+def test_a_put_never_writes_the_resume_text_back(client, conn):
+    """A Save that loaded the profile before an upload committed mustn't put the old resume text back."""
+    owner = users.owner(conn).id
+    store.save_profile(conn, owner, store.UserProfile(resume_text="old resume"))
+    stale = store.load_profile(conn, owner)
+    store.save_resume_file(conn, owner, "cv.pdf", store.PDF_MIME, b"%PDF", "new resume")
+    with patch.object(store, "load_profile", return_value=stale):
+        assert client.put("/app/api/profile", json={"phone": "1"}).status_code == 200
+    assert store.load_profile(conn, owner).resume_text == "new resume"
+
+
+def test_drafted_links_the_put_would_reject_are_left_out(client):
+    with _llm({**PARSED, "linkedin_url": "linkedin.com/in/ada", "github_url": "https://github.com/ada",
+               "email": "ada at example"}):
+        draft = _upload(client, make_pdf(LINES)).json()["draft"]
+    assert "linkedin_url" not in draft and "email" not in draft
+    assert draft["github_url"] == "https://github.com/ada"

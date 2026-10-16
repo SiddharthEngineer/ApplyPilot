@@ -1,5 +1,5 @@
 # Plan: Profile, part 2: the Profile page and resume parsing
-**Status:** ❌ Not started
+**Status:** ✅ Done 2026-10-16 (PR open)
 **Risk:** review (new page, file upload, an LLM call)
 **Issue:** #48
 **Depends on:** profile-1-store
