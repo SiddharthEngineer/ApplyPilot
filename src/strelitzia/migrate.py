@@ -64,7 +64,8 @@ def migrate(src_sqlite: Path, dst_url: str, batch: int = 500, backup: bool = Tru
         dst: Connection = init_db(dst_url)
         src_cols = [r[1] for r in source.execute("PRAGMA table_info(jobs)").fetchall()]
         dst_cols = table_columns(dst)
-        cols = [c for c in src_cols if c in dst_cols]
+        # user_id is left to the destination's default (its owner): the source's user ids mean nothing there.
+        cols = [c for c in src_cols if c in dst_cols and c != "user_id"]
         missing = [c for c in src_cols if c not in dst_cols]
         if missing:
             log.warning("Source columns missing in the destination, not copied: %s", ", ".join(missing))
@@ -73,7 +74,7 @@ def migrate(src_sqlite: Path, dst_url: str, batch: int = 500, backup: bool = Tru
         col_list = ", ".join(cols)
         insert = (
             f"INSERT INTO jobs ({col_list}) VALUES ({', '.join('?' * len(cols))}) "
-            "ON CONFLICT (url) DO NOTHING"
+            "ON CONFLICT (user_id, url) DO NOTHING"
         )
         cur = source.execute(f"SELECT {col_list} FROM jobs ORDER BY url")
         n_source = 0

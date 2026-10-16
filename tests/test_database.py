@@ -165,3 +165,22 @@ def test_pending_extract_selection(tmp_path):
     conn.commit()
     urls = {j["url"] for j in get_jobs_by_stage(conn=conn, stage="pending_extract", limit=0)}
     assert urls == {"pending", "stale", "retry"}
+
+
+def test_users_migration_keeps_column_defaults(tmp_path):
+    """The SQLite rebuild re-declares each column, so defaults added by ensure_columns still apply."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE jobs (url TEXT PRIMARY KEY, title TEXT)")
+    conn.execute("INSERT INTO jobs VALUES ('u1', 'A')")
+    conn.commit()
+    conn.close()
+
+    conn = init_db(path)
+    conn.execute("INSERT INTO jobs (url) VALUES ('u2')")
+    conn.commit()
+    rows = conn.execute("SELECT url, title, tailor_attempts, user_id FROM jobs ORDER BY url").fetchall()
+    assert [(r[0], r[1], r[2]) for r in rows] == [("u1", "A", 0), ("u2", None, 0)]
+    assert len({r[3] for r in rows}) == 1 and rows[0][3]
+    pk = sorted((r[5], r[1]) for r in conn.execute("PRAGMA table_info(jobs)").fetchall() if r[5])
+    assert [name for _, name in pk] == ["user_id", "url"]

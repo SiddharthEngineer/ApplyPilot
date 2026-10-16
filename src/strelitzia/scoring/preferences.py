@@ -5,7 +5,7 @@ to Dealbreaker. `score_preferences` compares the criteria to the fields extracti
 call), and `combine` folds those components plus the assessment layer's (`scoring/assessment.py`) into one 0-100
 fit score. A posting value that is unknown scores 0.5 and never triggers a dealbreaker.
 
-Preferences live in the `user_preferences` table (one row; `user_id` stays NULL until there are users).
+Preferences live in the `user_preferences` table (one row per user; the owner's until the other parts thread a user).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from strelitzia import users
 from strelitzia.enrichment.posting_model import (
     EDUCATION_LEVELS,
     EMPLOYMENT_TYPES,
@@ -420,11 +421,14 @@ def combine(components: list[Component]) -> tuple[int | None, list[str]]:
 
 # ── Storage (user_preferences) ────────────────────────────────────────────
 
-def load_preferences(conn) -> Preferences:
-    """The saved preferences, or the defaults."""
-    # NULLs never clash under UNIQUE, so two racing first saves can leave two rows: the newest wins.
-    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id IS NULL "
-                       "ORDER BY updated_at DESC LIMIT 1").fetchone()
+def _user(conn, user_id: str | None) -> str:
+    return user_id or users.owner(conn).id
+
+
+def load_preferences(conn, user_id: str | None = None) -> Preferences:
+    """The user's saved preferences (the owner's by default), or the defaults."""
+    row = conn.execute("SELECT prefs_json FROM user_preferences WHERE user_id = ?",
+                       (_user(conn, user_id),)).fetchone()
     if row is None or not row[0]:
         return Preferences()
     try:
@@ -433,11 +437,11 @@ def load_preferences(conn) -> Preferences:
         return Preferences()
 
 
-def save_preferences(conn, prefs: Preferences) -> None:
+def save_preferences(conn, prefs: Preferences, user_id: str | None = None) -> None:
     now = datetime.now(UTC).isoformat(timespec="seconds")
-    cur = conn.execute("UPDATE user_preferences SET prefs_json = ?, updated_at = ? WHERE user_id IS NULL",
-                       (prefs.to_json(), now))
-    if cur.rowcount == 0:
-        conn.execute("INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (NULL, ?, ?)",
-                     (prefs.to_json(), now))
+    conn.execute(
+        "INSERT INTO user_preferences (user_id, prefs_json, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT (user_id) DO UPDATE SET prefs_json = excluded.prefs_json, updated_at = excluded.updated_at",
+        (_user(conn, user_id), prefs.to_json(), now),
+    )
     conn.commit()
