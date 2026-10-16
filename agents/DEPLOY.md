@@ -82,8 +82,10 @@ Authorized redirect URIs on the OAuth client (one per environment):
 Each user connects their own Drive on the Claude setup page (**Connect Google Drive**, scope `drive.file` only, a
 separate consent after sign-in). It needs login on and `STRELITZIA_TOKEN_KEY`, a Fernet key
 (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) that encrypts the tokens
-in the `user_drive` table. Without the key the app won't store tokens, and the owner keeps using the CLI's
-`google_token.json`. With the key set, the next start imports that file into the owner's row once (the file stays).
+in the `user_drive` table. Without the key (or with login off) the dashboard can't connect Drive, and the owner keeps
+using the CLI's `google_token.json`. With the key set, the next start imports that file into the owner's row once (the
+file stays). Disconnect revokes the token at Google and deletes the row; `strelitzia drive sync` only moves the owner's
+PDFs (it uses the CLI token).
 Changing the key makes the stored tokens unreadable: everyone connects again. The web client must be in the same
 Google Cloud project as the Drive desktop client, since `drive.file` only sees files that project created.
 

@@ -231,6 +231,7 @@ def test_revoked_user_token(conn, token_key, monkeypatch):
     save_user_token(conn, "u1", _creds(expired=True))
     with pytest.raises(DriveNotConfigured, match="Connect Google Drive"):
         load_user_credentials(conn, "u1")
+    assert _stored(conn, "u1") is None  # forgotten, so the setup page offers Connect again
 
 
 def test_wrong_token_key_asks_to_reconnect(conn, token_key, monkeypatch):
@@ -241,6 +242,8 @@ def test_wrong_token_key_asks_to_reconnect(conn, token_key, monkeypatch):
     monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
     with pytest.raises(DriveNotConfigured, match="TOKEN_KEY"):
         load_user_credentials(conn, "u1")
+    from strelitzia.storage.drive import user_drive_status
+    assert user_drive_status(conn, "u1")[0] == "not_authorized"  # Connect is offered again
 
 
 def test_disconnect(conn, token_key):

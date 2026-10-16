@@ -28,6 +28,7 @@ from strelitzia.storage import drive
 PREFIX = "/app/api/auth"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 SCOPES = "openid email profile"
 SESSION_COOKIE = "strelitzia_session"
 SESSION_MAX_AGE = 30 * 24 * 3600
@@ -242,7 +243,7 @@ def _setup_page(outcome: str) -> RedirectResponse:
 
 @drive_router.get("/connect")
 def drive_connect(request: Request):
-    current_user(request)
+    user = current_user(request)
     if not drive_connect_available():
         return _setup_page("unavailable")
     state = secrets.token_urlsafe(32)
@@ -257,6 +258,7 @@ def drive_connect(request: Request):
         "access_type": "offline",
         "prompt": "consent",
         "include_granted_scopes": "true",
+        "login_hint": user.email,  # the account picker starts on the signed-in account
     }
     return RedirectResponse(f"{GOOGLE_AUTH_URL}?{urlencode(params)}", status_code=303)
 
@@ -298,5 +300,15 @@ def drive_callback(request: Request, code: str | None = None, state: str | None 
 
 @drive_router.post("/disconnect")
 def drive_disconnect(request: Request) -> dict:
-    drive.disconnect(_conn(request), current_user(request).id)
+    """Forget the user's Drive token, revoking it at Google first (best effort: it's forgotten either way)."""
+    conn, user = _conn(request), current_user(request)
+    refresh = drive.stored_refresh_token(conn, user.id)
+    if refresh:
+        try:
+            resp = httpx.post(GOOGLE_REVOKE_URL, timeout=15, data={"token": refresh})
+            if resp.status_code != 200:
+                log.warning("Google didn't revoke the Drive token (HTTP %s)", resp.status_code)
+        except httpx.HTTPError as exc:
+            log.warning("Couldn't revoke the Drive token at Google: %s", type(exc).__name__)
+    drive.disconnect(conn, user.id)
     return {"ok": True}

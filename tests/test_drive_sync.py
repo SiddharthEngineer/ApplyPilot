@@ -228,3 +228,14 @@ def test_pdf_stage_does_not_rebuild_moved_pdfs(conn, client, tmp_path, monkeypat
     monkeypatch.setattr(sync, "get_connection", lambda: conn)
     pdf_mod.batch_convert()
     assert "1.txt" not in converted and "other.txt" in converted
+
+
+def test_sync_only_moves_the_owners_pdfs(conn, client, drive, tmp_path):
+    """The CLI's token is the owner's Drive: another user's PDFs stay put (user-auth-6-drive)."""
+    friend = users.invite(conn, "friend@example.com")
+    stem = _add_job(conn, tmp_path, url="https://example.com/jobs/9")
+    conn.execute("UPDATE jobs SET user_id = ? WHERE url = ?", (friend.id, "https://example.com/jobs/9"))
+    conn.commit()
+    assert run_drive_sync(conn, client)["uploaded"] == 0
+    assert stem.with_suffix(".pdf").exists() and not drive.pdfs()
+    assert run_drive_sync(conn, client, user_id=friend.id)["uploaded"] == 2

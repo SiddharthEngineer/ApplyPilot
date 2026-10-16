@@ -14,7 +14,7 @@ const DRIVE_OUTCOMES: Record<string, { text: string; error: boolean }> = {
 
 /** One-time setup: a Claude Project with the two Strelitzia Docs attached and the project instructions pasted in. */
 export default function ClaudeSetupPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const outcome = DRIVE_OUTCOMES[params.get('drive') ?? ''];
   const [setup, setSetup] = useState<ClaudeSetup | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +46,7 @@ export default function ClaudeSetupPage() {
     setError(null);
     try {
       await api.disconnectDrive();
+      setParams({}, { replace: true });  // the ?drive= outcome no longer applies
       setSetup(await api.getClaudeSetup());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -113,6 +114,7 @@ export default function ClaudeSetupPage() {
           {setup.drive_source === 'user' && (
             <p className="muted small">
               Drive connected: files go to a Strelitzia folder in your Drive ({setup.drive_detail}).{' '}
+              {setup.connect_url && <a href={setup.connect_url}>Reconnect</a>}{' '}
               <button type="button" disabled={busy} onClick={disconnect}>Disconnect</button>
             </p>
           )}

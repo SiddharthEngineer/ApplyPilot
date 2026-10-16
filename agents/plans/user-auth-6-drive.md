@@ -1,5 +1,5 @@
 # Plan: User accounts, part 6: connect Google Drive per user
-**Status:** ❌ Not started
+**Status:** ✅ Done 2026-10-16 (PR open; user steps: M25 adds `STRELITZIA_TOKEN_KEY` and the Drive redirect URI)
 **Risk:** review (OAuth tokens at rest)
 **Issue:** #47
 **Depends on:** user-auth-5-login

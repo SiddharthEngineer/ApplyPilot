@@ -265,8 +265,12 @@ def drive_google(google, monkeypatch):
         drive_token = {"access_token": "drive-access", "refresh_token": "drive-refresh", "expires_in": 3599,
                        "scope": f"openid {auth.DRIVE_SCOPE}", "token_type": "Bearer"}
         requests: list[dict] = []
+        revoked: list[str] = []
 
     def fake_post(url, data=None, timeout=None):
+        if url == auth.GOOGLE_REVOKE_URL:
+            DriveGoogle.revoked.append(data["token"])
+            return httpx.Response(200)
         if data and data.get("redirect_uri") == DRIVE_CALLBACK:
             DriveGoogle.requests.append(data)
             return httpx.Response(200, json=DriveGoogle.drive_token)
@@ -298,6 +302,7 @@ def test_drive_connect_asks_only_for_drive_file_offline(auth_on, token_key, clie
     assert query["access_type"] == "offline" and query["prompt"] == "consent"
     assert query["include_granted_scopes"] == "true"
     assert query["redirect_uri"] == DRIVE_CALLBACK and query["client_id"] == "client-123" and query["state"]
+    assert query["login_hint"] == OWNER
 
 
 def test_drive_connect_stores_a_token_for_the_session_user_only(auth_on, token_key, client, conn, google,
@@ -356,5 +361,22 @@ def test_drive_disconnect(auth_on, token_key, client, conn, google, drive_google
     sign_in(client)
     connect_drive(client)
     assert list(_token_rows(conn)) == [users.owner(conn).id]
+    assert client.post("/app/api/drive/disconnect").json() == {"ok": True}
+    assert _token_rows(conn) == {}
+    assert drive_google.revoked == ["drive-refresh"]
+
+
+def test_drive_disconnect_forgets_the_token_when_google_is_unreachable(auth_on, token_key, client, conn, google,
+                                                                       drive_google, monkeypatch):
+    sign_in(client)
+    connect_drive(client)
+    post = auth.httpx.post
+
+    def unreachable(url, data=None, timeout=None):
+        if url == auth.GOOGLE_REVOKE_URL:
+            raise httpx.ConnectError("no route")
+        return post(url, data=data, timeout=timeout)
+
+    monkeypatch.setattr(auth.httpx, "post", unreachable)
     assert client.post("/app/api/drive/disconnect").json() == {"ok": True}
     assert _token_rows(conn) == {}

@@ -255,14 +255,14 @@ def _workbench_inputs() -> workbench.Inputs:
 
 
 def _drive_state(conn, user: users.User) -> tuple[str, str, str | None]:
-    """(state, detail, source) of the user's Drive: source "user" (their connected token), "legacy" (the owner on a
-    server without TOKEN_KEY, using the CLI's token file) or None when it isn't authorized."""
+    """(state, detail, source) of the user's Drive: source "user" (their connected token), "legacy" (the owner, while
+    this server can't connect Drive from the dashboard: the CLI's token file) or None when it isn't authorized."""
     from strelitzia.storage.drive import drive_status, user_drive_status
 
     state, detail = user_drive_status(conn, user.id)
     if state == "authorized":
         return state, detail, "user"
-    if state == "not_configured" and user.role == "owner":
+    if user.role == "owner" and state != "not_installed" and not auth.drive_connect_available():
         legacy_state, legacy_detail = drive_status()
         if legacy_state == "authorized":
             return legacy_state, legacy_detail, "legacy"
