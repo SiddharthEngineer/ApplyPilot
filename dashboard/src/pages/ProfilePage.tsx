@@ -11,16 +11,13 @@ type TextKey = { [K in FieldKey]: ProfileFields[K] extends string ? K : never }[
 
 const isEmpty = (v: unknown) => v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
-/** The profile with `draft` filled into the fields that are still empty, and the keys it filled. */
-function withDraft(form: ProfileFields, draft: Partial<ProfileFields>): [ProfileFields, FieldKey[]] {
+/** The profile with `draft` filled into the fields that are still empty. */
+function withDraft(form: ProfileFields, draft: Partial<ProfileFields>): ProfileFields {
   const next = { ...form };
-  const filled: FieldKey[] = [];
   for (const [key, value] of Object.entries(draft) as [FieldKey, ProfileFields[FieldKey]][]) {
-    if (value === undefined || isEmpty(value) || !isEmpty(form[key])) continue;
-    (next as Record<FieldKey, unknown>)[key] = value;
-    filled.push(key);
+    if (value !== undefined && !isEmpty(value) && isEmpty(form[key])) (next as Record<FieldKey, unknown>)[key] = value;
   }
-  return [next, filled];
+  return next;
 }
 
 export default function ProfilePage() {
@@ -28,7 +25,8 @@ export default function ProfilePage() {
   const [form, setForm] = useState<ProfileFields | null>(null);
   const [library, setLibrary] = useState('');
   const [saved, setSaved] = useState('');
-  const [drafted, setDrafted] = useState<FieldKey[]>([]);
+  // The resume's draft (until Save or Discard); a field is highlighted while it still holds the drafted value.
+  const [draft, setDraft] = useState<Partial<ProfileFields>>({});
   const [busy, setBusy] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +60,8 @@ export default function ProfilePage() {
   }
 
   const dirty = JSON.stringify({ ...form, content_library_md: library }) !== saved;
+  const drafted = (Object.keys(draft) as FieldKey[]).filter(
+    (k) => JSON.stringify(form[k]) === JSON.stringify(draft[k]));
   const set = <K extends FieldKey>(key: K, value: ProfileFields[K]) => setForm((f) => (f ? { ...f, [key]: value } : f));
 
   const row = (key: FieldKey, name: string, control: ReactNode) => (
@@ -84,7 +84,7 @@ export default function ProfilePage() {
     try {
       const res = await api.saveProfile({ ...form, content_library_md: library });
       load(res);
-      setDrafted([]);
+      setDraft({});
       setMessage('Saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -98,7 +98,7 @@ export default function ProfilePage() {
     setLibrary(old.content_library_md);
     delete old.content_library_md;
     setForm(old);
-    setDrafted([]);
+    setDraft({});
   }
 
   async function onUpload(e: ChangeEvent<HTMLInputElement>) {
@@ -111,11 +111,10 @@ export default function ProfilePage() {
     try {
       const res = await api.uploadResume(file);
       setData((d) => (d ? { ...d, has_resume: res.has_resume, resume_file_name: res.resume_file_name } : d));
-      const [, filled] = withDraft(form!, res.draft);
-      setForm((f) => (f ? withDraft(f, res.draft)[0] : f)); // fields typed in meanwhile stay as typed
-      setDrafted((keys) => [...new Set([...keys, ...filled])]);
+      setForm((f) => (f ? withDraft(f, res.draft) : f)); // fields typed in meanwhile stay as typed
+      setDraft((d) => ({ ...d, ...res.draft }));
       if (res.parse_error) setResumeError(res.parse_error);
-      else if (filled.length) setResumeNote(`Filled ${filled.length} empty field${filled.length === 1 ? '' : 's'} from your resume. Check them, then Save.`);
+      else if (Object.keys(res.draft).length) setResumeNote('Resume saved. The highlighted fields are from it: check them, then Save.');
       else setResumeNote('Resume saved. Nothing new to fill in: your fields are already set.');
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : String(err));
@@ -167,8 +166,9 @@ export default function ProfilePage() {
         ))}
       </Group>
 
-      <Group title="Resume" hint="A PDF or DOCX, up to 5 MB. Claude reads it (about $0.002) and fills in the fields
-        above that are empty; nothing is kept until you Save. A new resume makes your jobs' assessments stale.">
+      <Group title="Resume" hint="A PDF or DOCX, up to 5 MB. Uploading saves it right away (scoring reads it, so your
+        jobs' assessments become stale), then Claude reads it (about $0.002) and fills in the fields above that are
+        empty. Those are kept only when you Save.">
         <div className="pref-row">
           <div className="pref-label">Current file</div>
           <div className="pref-value">

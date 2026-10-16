@@ -82,7 +82,7 @@ describe('ProfilePage', () => {
     expect(screen.getAllByText('From resume')).toHaveLength(5);
     expect(screen.getByLabelText('Last name').closest('.pref-row')).toHaveClass('drafted');
     expect(screen.getByRole('link', { name: 'cv.pdf' })).toBeInTheDocument();
-    expect(screen.getByText(/Filled 5 empty fields/)).toBeInTheDocument();
+    expect(screen.getByText(/The highlighted fields are from it/)).toBeInTheDocument();
     expect(api.saveProfile).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -91,6 +91,21 @@ describe('ProfilePage', () => {
       years_experience: 4, skills: ['Python', 'SQL'],
     }));
     await waitFor(() => expect(screen.queryAllByText('From resume')).toHaveLength(0));
+  });
+
+  it('a field typed while parsing keeps the typed value and no highlight', async () => {
+    let finish: (r: ResumeUploadResult) => void = () => {};
+    vi.mocked(api.uploadResume).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const user = renderPage();
+    await screen.findByLabelText('First name');
+    await user.upload(screen.getByLabelText('Upload resume'), pdf());
+    await user.type(screen.getByLabelText('Last name'), 'Typed');
+    finish({ ...RESPONSE, has_resume: true, resume_file_name: 'cv.pdf', parse_error: null,
+      draft: { last_name: 'Example', location: 'Springfield' } });
+    expect(await screen.findByLabelText('Location')).toHaveValue('Springfield');
+    await waitFor(() => expect(screen.getAllByText('From resume')).toHaveLength(1));
+    expect(screen.getByLabelText('Last name')).toHaveValue('Typed');
+    expect(screen.getByLabelText('Last name').closest('.pref-row')).not.toHaveClass('drafted');
   });
 
   it('discarding a draft puts the saved values back', async () => {

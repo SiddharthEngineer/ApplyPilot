@@ -908,8 +908,8 @@ class ProfileBody(BaseModel):
     @field_validator("first_name", "last_name", "phone", "email", "linkedin_url", "github_url", "location",
                      "current_job_title", mode="before")
     @classmethod
-    def _trim(cls, value: str | None) -> str:
-        return (value or "").strip()
+    def _trim(cls, value):
+        return (value or "").strip() if value is None or isinstance(value, str) else value  # others: a 422
 
     @field_validator("email")
     @classmethod
@@ -938,18 +938,33 @@ class ProfileBody(BaseModel):
 
 @api.put("/profile")
 def put_profile(body: ProfileBody, request: Request) -> dict:
-    """Save the profile fields and the content library. The resume and the profile's extras stay as they are."""
+    """Save the profile fields and the content library that are sent (the others stay as they are). The resume and
+    the profile's extras are never changed here."""
     conn = db_conn(request)
     user = current_user(request)
     profile = profile_store.load_profile(conn, user.id)
-    for name, value in body.model_dump().items():
+    for name, value in body.model_dump(exclude_unset=True).items():
         setattr(profile, name, value)
-    profile_store.save_profile(conn, user.id, profile)
-    return _profile_out(profile)
+    profile_store.save_profile(conn, user.id, profile, with_resume=False)
+    return get_profile(request)
 
 
 def _is_empty(value) -> bool:
     return value is None or value == "" or value == []
+
+
+def _valid_draft_value(name: str, value) -> bool:
+    """Whether PUT /profile would accept the drafted value (a bad link in the draft would block the user's Save)."""
+    try:
+        if name == "email":
+            _check_email(value)
+        elif name == "linkedin_url":
+            _check_link(value, "linkedin.com", "LinkedIn")
+        elif name == "github_url":
+            _check_link(value, "github.com", "GitHub")
+    except ValueError:
+        return False
+    return True
 
 
 @api.post("/profile/resume")
@@ -987,7 +1002,8 @@ def post_profile_resume(file: UploadFile, request: Request) -> dict:
         log.warning("resume parse failed for user %s: %s", user.id, type(e).__name__)
         parse_error = f"The resume was saved, but it couldn't be parsed ({type(e).__name__})."
         parsed = {}
-    draft = {k: v for k, v in parsed.items() if k in PROFILE_FIELDS and _is_empty(getattr(profile, k))}
+    draft = {k: v for k, v in parsed.items()
+             if k in PROFILE_FIELDS and _is_empty(getattr(profile, k)) and _valid_draft_value(k, v)}
     return {**_profile_out(profile), "draft": draft, "parse_error": parse_error}
 
 

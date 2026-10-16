@@ -109,3 +109,8 @@ class TestParseResume:
         with patch.object(resume_parse, "get_client", return_value=client):
             assert parse_resume("Bo", uid, conn=conn) == {}
         assert seen == [uid]
+
+
+def test_a_broken_pdf_of_any_kind_is_a_value_error():
+    with patch("pypdf.PdfReader", side_effect=IndexError("list index out of range")), pytest.raises(ValueError):
+        extract_text("cv.pdf", "application/pdf", b"%PDF-1.4")

@@ -81,12 +81,11 @@ def extract_text(name: str, mime: str | None, data: bytes) -> str:
 
 def _pdf_text(data: bytes) -> str:
     from pypdf import PdfReader
-    from pypdf.errors import PyPdfError
 
     try:
         reader = PdfReader(io.BytesIO(data))
         return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except (PyPdfError, ValueError, KeyError, TypeError, OSError) as e:
+    except Exception as e:  # a malformed PDF can raise almost anything from pypdf (IndexError, zlib.error, ...)
         raise ValueError(f"Couldn't read the PDF ({type(e).__name__})") from e
 
 
