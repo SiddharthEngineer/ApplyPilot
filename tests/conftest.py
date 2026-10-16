@@ -96,6 +96,27 @@ def _no_user_database_url(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("APPLYPILOT_DATABASE_URL", raising=False)  # legacy name
 
 
+_FD_DIR = next((d for d in ("/proc/self/fd", "/dev/fd") if os.path.isdir(d)), None)
+_FD_GROWTH = 128
+_fd_baseline = [0]
+
+
+@pytest.fixture(autouse=True)
+def _collect_leaked_connections():
+    """Close unreachable SQLite connections before they exhaust a 1024 open-file limit.
+
+    get_connection caches per thread, so connections opened on TestClient worker threads outlive the test and
+    sit in reference cycles until the cyclic GC runs: about one jobs.db fd per web test. Collecting once the fd
+    count has grown _FD_GROWTH past what the last collection left frees them without a gc.collect() per test.
+    """
+    yield
+    if _FD_DIR and len(os.listdir(_FD_DIR)) > _fd_baseline[0] + _FD_GROWTH:
+        import gc
+
+        gc.collect()
+        _fd_baseline[0] = len(os.listdir(_FD_DIR))
+
+
 def _test_database_url() -> str | None:
     return os.environ.get("STRELITZIA_TEST_DATABASE_URL") or os.environ.get("APPLYPILOT_TEST_DATABASE_URL") or None
 
