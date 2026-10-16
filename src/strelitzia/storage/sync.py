@@ -11,6 +11,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from strelitzia import users
 from strelitzia.database import Connection, get_connection
 from strelitzia.storage.drive import DriveClient, DriveNotConfigured, file_md5
 from strelitzia.storage.drive_layout import KINDS, drive_target
@@ -70,19 +71,22 @@ def sync_job(conn: Connection, client: DriveClient, job: dict, keep_local: bool 
     return counts
 
 
-def _jobs_with_files(conn: Connection) -> list[dict]:
+def _jobs_with_files(conn: Connection, user_id: str) -> list[dict]:
     cur = conn.execute(
-        "SELECT * FROM jobs WHERE tailored_resume_path IS NOT NULL "
-        "OR (cover_letter_path IS NOT NULL AND cover_letter_path != '') "
-        "ORDER BY tailored_at"
+        "SELECT * FROM jobs WHERE user_id = ? AND (tailored_resume_path IS NOT NULL "
+        "OR (cover_letter_path IS NOT NULL AND cover_letter_path != '')) "
+        "ORDER BY tailored_at",
+        (user_id,),
     )
     names = [d[0] for d in cur.description]
     return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
 def run_drive_sync(conn: Connection | None = None, client: DriveClient | None = None,
-                   limit: int | None = None, keep_local: bool = False) -> dict:
-    """Move every local tailored resume and cover letter PDF to Drive.
+                   limit: int | None = None, keep_local: bool = False, user_id: str | None = None) -> dict:
+    """Move one user's (default: the owner's) local tailored resume and cover letter PDFs to Drive.
+
+    The default client is the CLI's token, which is the owner's Drive: other users' files never go there.
 
     Returns counts: uploaded (new Drive files), updated (replaced content), moved (local copies
     deleted), missing (no local PDF and no Drive copy), errors. Raises DriveNotConfigured.
@@ -90,7 +94,7 @@ def run_drive_sync(conn: Connection | None = None, client: DriveClient | None = 
     conn = conn or get_connection()
     totals = {"uploaded": 0, "updated": 0, "moved": 0, "missing": 0, "errors": 0}
     pending = []
-    for job in _jobs_with_files(conn):
+    for job in _jobs_with_files(conn, user_id or users.owner(conn).id):
         has_local = False
         for kind in KINDS:
             pdf = local_pdf(job, kind)

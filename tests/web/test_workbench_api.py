@@ -239,3 +239,17 @@ def test_owner_without_a_token_key_keeps_the_cli_token(client, conn, tmp_path, m
     s = client.get("/app/api/claude/setup").json()
     assert s["drive"] is True and s["drive_source"] == "legacy"
     assert client.post("/app/api/claude/docs").status_code == 200
+
+
+def test_owner_keeps_the_cli_token_while_the_dashboard_cant_connect(client, conn, tmp_path, monkeypatch):
+    """Login off (no web OAuth client) with TOKEN_KEY set and nothing stored: the CLI's token still works."""
+    from cryptography.fernet import Fernet
+
+    from strelitzia.storage import drive as drive_mod
+    monkeypatch.setattr(drive_mod, "drive_libraries_installed", lambda: True)
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+    token_file = tmp_path / "google_token.json"
+    token_file.write_text("{}")
+    monkeypatch.setattr(config, "GOOGLE_TOKEN_PATH", token_file)
+    s = client.get("/app/api/claude/setup").json()
+    assert s["drive"] is True and s["drive_source"] == "legacy" and s["connect_url"] is None

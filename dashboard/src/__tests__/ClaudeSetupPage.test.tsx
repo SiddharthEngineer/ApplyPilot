@@ -86,10 +86,12 @@ describe('ClaudeSetupPage', () => {
     renderPage('/claude-setup?drive=connected');
     expect(await screen.findByText('Google Drive is connected.')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Connect Google Drive' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reconnect' })).toHaveAttribute('href', '/app/api/drive/connect');
     vi.mocked(api.getClaudeSetup).mockResolvedValue(setup({ drive: false, drive_source: null }));
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
     expect(api.disconnectDrive).toHaveBeenCalled();
     expect(await screen.findByRole('link', { name: 'Connect Google Drive' })).toBeInTheDocument();
+    expect(screen.queryByText('Google Drive is connected.')).not.toBeInTheDocument();
   });
 
   it('says why a connect failed', async () => {
