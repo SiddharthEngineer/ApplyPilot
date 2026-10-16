@@ -109,6 +109,11 @@ export function publishClaudeDocs(): Promise<ClaudeSetup> {
   return request<ClaudeSetup>('/claude/docs', { method: 'POST' });
 }
 
+/** Forget the user's Google Drive token (their files stay in their Drive). */
+export function disconnectDrive(): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/drive/disconnect', { method: 'POST' });
+}
+
 /** Copy text to the clipboard (with a fallback for browsers without the async clipboard API). */
 export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

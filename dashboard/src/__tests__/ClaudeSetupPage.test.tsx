@@ -10,7 +10,8 @@ vi.mock('../api');
 
 function setup(extra: Partial<ClaudeSetup> = {}): ClaudeSetup {
   return {
-    drive: true, drive_detail: '~/.strelitzia/google_token.json', rules_version: 'r1234567',
+    drive: true, drive_detail: 'Connected 2026-10-16', drive_source: 'user', connect_url: '/app/api/drive/connect',
+    rules_version: 'r1234567',
     docs: [
       { kind: 'rules', name: 'Strelitzia rules', url: 'https://docs.google.com/document/d/R/edit', changed_at: '2026-10-15T09:30:00+00:00' },
       { kind: 'library', name: 'Strelitzia content library', url: 'https://docs.google.com/document/d/L/edit', changed_at: '2026-10-14T08:00:00+00:00' },
@@ -21,7 +22,9 @@ function setup(extra: Partial<ClaudeSetup> = {}): ClaudeSetup {
   };
 }
 
-const renderPage = () => render(<MemoryRouter><ClaudeSetupPage /></MemoryRouter>);
+const renderPage = (path = '/claude-setup') => render(
+  <MemoryRouter initialEntries={[path]}><ClaudeSetupPage /></MemoryRouter>,
+);
 
 beforeEach(() => {
   vi.mocked(api.getClaudeSetup).mockResolvedValue(setup());
@@ -66,5 +69,31 @@ describe('ClaudeSetupPage', () => {
     expect(await screen.findByText(/Google Drive isn't set up/)).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Project Docs' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Docs/ })).toBeNull();
+  });
+
+  it('offers Connect Google Drive when Drive is not connected', async () => {
+    vi.mocked(api.getClaudeSetup).mockResolvedValue(setup({
+      drive: false, drive_source: null, drive_detail: 'Connect Google Drive on the Claude setup page',
+    }));
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Connect Google Drive' })).toHaveAttribute('href', '/app/api/drive/connect');
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+  });
+
+  it('shows the connect outcome and disconnects', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.disconnectDrive).mockResolvedValue({ ok: true });
+    renderPage('/claude-setup?drive=connected');
+    expect(await screen.findByText('Google Drive is connected.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Connect Google Drive' })).not.toBeInTheDocument();
+    vi.mocked(api.getClaudeSetup).mockResolvedValue(setup({ drive: false, drive_source: null }));
+    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    expect(api.disconnectDrive).toHaveBeenCalled();
+    expect(await screen.findByRole('link', { name: 'Connect Google Drive' })).toBeInTheDocument();
+  });
+
+  it('says why a connect failed', async () => {
+    renderPage('/claude-setup?drive=denied');
+    expect(await screen.findByText(/wasn't connected: allow access/)).toBeInTheDocument();
   });
 });

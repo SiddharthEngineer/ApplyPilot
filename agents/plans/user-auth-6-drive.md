@@ -43,7 +43,7 @@ The owner import of the legacy token file runs once.
 user's credentials; `/claude/setup` reports that user's status and a `connect_url`. The 409 message says
 "Connect Google Drive on the Claude setup page" instead of the CLI command.
 **Validate:** `pytest tests/web -q` → passes with Google mocked: connect stores a token for the session's user only.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit; also the setup page's Connect/Disconnect UI and DEPLOY.md/.env.example)
 
 ### Task 3: per-user root folder
 **Runs:** unattended

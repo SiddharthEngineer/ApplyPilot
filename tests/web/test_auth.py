@@ -63,6 +63,7 @@ def client(db):
     app = FastAPI()
     app.state.db = db
     app.include_router(auth.router)
+    app.include_router(auth.drive_router)
 
     @app.get("/app/api/whoami")
     def whoami(user: users.User = Depends(auth.current_user)):
@@ -242,3 +243,118 @@ def test_login_off_acts_as_owner(client, conn, monkeypatch):
         "enabled": False, "user": {"email": owner.email, "name": None, "role": "owner"}}
     assert client.get("/app/api/auth/login").headers["location"] == "/app/"
     assert client.get("/app/api/auth/callback", params={"code": "c", "state": "s"}).status_code == 404
+
+
+# --- Connect Google Drive (user-auth-6-drive) ---
+
+DRIVE_CALLBACK = "https://strelitzia.example.net/app/api/drive/callback"
+
+
+@pytest.fixture
+def token_key(monkeypatch):
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("STRELITZIA_TOKEN_KEY", Fernet.generate_key().decode())
+
+
+@pytest.fixture
+def drive_google(google, monkeypatch):
+    """The sign-in mock, plus Drive's token exchange: set `drive_google.drive_token` to Google's reply."""
+    sign_in_post = auth.httpx.post
+
+    class DriveGoogle:
+        drive_token = {"access_token": "drive-access", "refresh_token": "drive-refresh", "expires_in": 3599,
+                       "scope": f"openid {auth.DRIVE_SCOPE}", "token_type": "Bearer"}
+        requests: list[dict] = []
+
+    def fake_post(url, data=None, timeout=None):
+        if data and data.get("redirect_uri") == DRIVE_CALLBACK:
+            DriveGoogle.requests.append(data)
+            return httpx.Response(200, json=DriveGoogle.drive_token)
+        return sign_in_post(url, data=data, timeout=timeout)
+
+    monkeypatch.setattr(auth.httpx, "post", fake_post)
+    return DriveGoogle
+
+
+def connect_drive(client, state=None):
+    start = client.get("/app/api/drive/connect")
+    assert start.status_code == 303
+    query = parse_qs(urlparse(start.headers["location"]).query)
+    return client.get("/app/api/drive/callback", params={"code": "drive-c0de", "state": state or query["state"][0]})
+
+
+def _token_rows(conn):
+    return dict(conn.execute("SELECT user_id, token_enc FROM user_drive").fetchall())
+
+
+def test_drive_connect_asks_only_for_drive_file_offline(auth_on, token_key, client, google):
+    sign_in(client)
+    start = client.get("/app/api/drive/connect")
+    assert start.status_code == 303
+    url = urlparse(start.headers["location"])
+    query = {k: v[0] for k, v in parse_qs(url.query).items()}
+    assert f"{url.scheme}://{url.netloc}{url.path}" == auth.GOOGLE_AUTH_URL
+    assert query["scope"] == "https://www.googleapis.com/auth/drive.file"
+    assert query["access_type"] == "offline" and query["prompt"] == "consent"
+    assert query["include_granted_scopes"] == "true"
+    assert query["redirect_uri"] == DRIVE_CALLBACK and query["client_id"] == "client-123" and query["state"]
+
+
+def test_drive_connect_stores_a_token_for_the_session_user_only(auth_on, token_key, client, conn, google,
+                                                                drive_google, monkeypatch):
+    from strelitzia.storage import drive
+    monkeypatch.setattr(drive, "drive_libraries_installed", lambda: True)
+    friend = users.invite(conn, "friend@example.com")
+    google.claims = {"email": "friend@example.com", "email_verified": True}
+    sign_in(client)
+    done = connect_drive(client)
+    assert done.headers["location"] == "/app/claude-setup?drive=connected"
+    assert drive_google.requests[-1]["code"] == "drive-c0de"
+    rows = _token_rows(conn)
+    assert list(rows) == [friend.id]
+    assert "drive-refresh" not in rows[friend.id] and "refresh_token" not in rows[friend.id]
+    creds = drive.load_user_credentials(conn, friend.id)
+    assert creds.refresh_token == "drive-refresh" and creds.token == "drive-access" and creds.client_id == "client-123"
+    assert drive.user_drive_status(conn, users.owner(conn).id)[0] == "not_authorized"
+
+
+def test_drive_callback_with_a_wrong_state_stores_nothing(auth_on, token_key, client, conn, google, drive_google):
+    sign_in(client)
+    assert connect_drive(client, state="forged").headers["location"] == "/app/claude-setup?drive=error"
+    assert client.get("/app/api/drive/callback", params={"code": "c", "state": "s"}).headers["location"] == (
+        "/app/claude-setup?drive=error")
+    assert _token_rows(conn) == {}
+
+
+def test_drive_consent_without_the_drive_scope_is_denied(auth_on, token_key, client, conn, google, drive_google):
+    sign_in(client)
+    drive_google.drive_token = dict(drive_google.drive_token, scope="openid email")
+    assert connect_drive(client).headers["location"] == "/app/claude-setup?drive=denied"
+    start = client.get("/app/api/drive/connect")
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    denied = client.get("/app/api/drive/callback", params={"error": "access_denied", "state": state})
+    assert denied.headers["location"] == "/app/claude-setup?drive=denied"
+    assert _token_rows(conn) == {}
+
+
+def test_drive_token_without_a_refresh_token_is_an_error(auth_on, token_key, client, conn, google, drive_google):
+    sign_in(client)
+    drive_google.drive_token = {k: v for k, v in drive_google.drive_token.items() if k != "refresh_token"}
+    assert connect_drive(client).headers["location"] == "/app/claude-setup?drive=error"
+    assert _token_rows(conn) == {}
+
+
+def test_drive_connect_needs_a_session_and_the_token_key(auth_on, client, google, monkeypatch):
+    assert client.get("/app/api/drive/connect").status_code == 401
+    monkeypatch.delenv("STRELITZIA_TOKEN_KEY", raising=False)
+    monkeypatch.delenv("APPLYPILOT_TOKEN_KEY", raising=False)
+    sign_in(client)
+    assert client.get("/app/api/drive/connect").headers["location"] == "/app/claude-setup?drive=unavailable"
+
+
+def test_drive_disconnect(auth_on, token_key, client, conn, google, drive_google):
+    sign_in(client)
+    connect_drive(client)
+    assert list(_token_rows(conn)) == [users.owner(conn).id]
+    assert client.post("/app/api/drive/disconnect").json() == {"ok": True}
+    assert _token_rows(conn) == {}

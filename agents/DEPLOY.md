@@ -76,9 +76,19 @@ Authorized redirect URIs on the OAuth client (one per environment):
 - `https://strelitzia.engineerfamily.net/app/api/auth/callback`
 - `https://strelitzia-preprod.engineerfamily.net/app/api/auth/callback`
 - `http://localhost:8765/app/api/auth/callback` (local `strelitzia serve`, with `STRELITZIA_PUBLIC_URL=http://localhost:8765`)
+- the same three with `/app/api/drive/callback` instead of `/app/api/auth/callback` (Connect Google Drive, below)
+
+### Google Drive per user
+Each user connects their own Drive on the Claude setup page (**Connect Google Drive**, scope `drive.file` only, a
+separate consent after sign-in). It needs login on and `STRELITZIA_TOKEN_KEY`, a Fernet key
+(`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) that encrypts the tokens
+in the `user_drive` table. Without the key the app won't store tokens, and the owner keeps using the CLI's
+`google_token.json`. With the key set, the next start imports that file into the owner's row once (the file stays).
+Changing the key makes the stored tokens unreadable: everyone connects again. The web client must be in the same
+Google Cloud project as the Drive desktop client, since `drive.file` only sees files that project created.
 
 With login on, every `/app/api/*` route except `/app/api/health` and `/app/api/auth/*` returns 401 without a session
 (30 days, `HttpOnly`, `SameSite=Lax`); the UI routes stay public. Only the owner and invited emails get in; anyone else
 lands on `/app/?auth=not_invited`. The resume workbench (packet, result, Claude setup) stays owner-only until per-user
-content libraries (#48) and Drive (part 6) exist: it reads the owner's resume and Drive. nginx basic auth stays in front for now; dropping it on prod is a later manual step.
+content libraries (#48) exist: it reads the owner's resume (Drive is per user, below). nginx basic auth stays in front for now; dropping it on prod is a later manual step.
 Preprod's no-`.env` rule above is about LLM keys: an auth-only `.env` there is the user's call.

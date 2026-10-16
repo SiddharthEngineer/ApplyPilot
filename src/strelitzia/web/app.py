@@ -242,7 +242,7 @@ def get_job_file(key: str, kind: Literal["resume_pdf", "resume_docx", "cover_let
 
 
 def _owner_content(user: users.User) -> None:
-    """The workbench reads the owner's content library, resume and Drive; other accounts get them in #48 and part 6."""
+    """The workbench reads the owner's content library and resume; other accounts get them in #48."""
     if user.role != "owner":
         raise HTTPException(status_code=403, detail="The resume workbench isn't available for your account yet.")
 
@@ -254,13 +254,33 @@ def _workbench_inputs() -> workbench.Inputs:
         raise HTTPException(status_code=409, detail=f"{e}. Add your content library first (strelitzia init).") from e
 
 
-def _drive_client():
-    """A Drive client when Drive is authorized, else None (the workbench falls back to the clipboard)."""
-    from strelitzia.storage.drive import DriveClient, drive_status
+def _drive_state(conn, user: users.User) -> tuple[str, str, str | None]:
+    """(state, detail, source) of the user's Drive: source "user" (their connected token), "legacy" (the owner on a
+    server without TOKEN_KEY, using the CLI's token file) or None when it isn't authorized."""
+    from strelitzia.storage.drive import drive_status, user_drive_status
 
-    if drive_status()[0] != "authorized":
-        return None
-    return DriveClient.from_credentials()
+    state, detail = user_drive_status(conn, user.id)
+    if state == "authorized":
+        return state, detail, "user"
+    if state == "not_configured" and user.role == "owner":
+        legacy_state, legacy_detail = drive_status()
+        if legacy_state == "authorized":
+            return legacy_state, legacy_detail, "legacy"
+    return state, detail, None
+
+
+def _drive_client(request: Request):
+    """A client on the current user's Drive when they've connected it, else None (the workbench uses the clipboard)."""
+    from strelitzia.storage.drive import DriveClient
+
+    conn = db_conn(request)
+    user = current_user(request)
+    source = _drive_state(conn, user)[2]
+    if source == "user":
+        return DriveClient.for_user(conn, user.id)
+    if source == "legacy":
+        return DriveClient.from_credentials()
+    return None
 
 
 @api.post("/jobs/{key}/packet")
@@ -273,7 +293,7 @@ def post_packet(key: str, request: Request) -> dict:
     inputs = _workbench_inputs()
     drive_error = None
     try:
-        client = _drive_client()
+        client = _drive_client(request)
         if client is not None:
             workbench.publish_static_docs(client, conn, user.id, inputs)
             _, url = workbench.publish_packet(client, conn, job, inputs)
@@ -305,7 +325,7 @@ def post_result(key: str, body: PastedResult, request: Request):
                              "fix_prompt": outcome.fix_prompt}, status_code=422)
     warnings = list(outcome.warnings)
     try:
-        client = _drive_client()
+        client = _drive_client(request)
         if client is not None:
             from strelitzia.storage.sync import sync_job
 
@@ -321,14 +341,14 @@ def post_result(key: str, body: PastedResult, request: Request):
 @api.get("/claude/setup")
 def claude_setup(request: Request) -> dict:
     """What the Claude setup page shows: the Project Docs, the rules version, Drive status, the instructions."""
-    from strelitzia.storage.drive import drive_status
-
     user = current_user(request)
     _owner_content(user)
-    state, detail = drive_status()
-    docs = workbench.published_static_docs(db_conn(request), user.id)
+    conn = db_conn(request)
+    state, detail, source = _drive_state(conn, user)
+    docs = workbench.published_static_docs(conn, user.id)
     return {
-        "drive": state == "authorized", "drive_detail": detail,
+        "drive": state == "authorized", "drive_detail": detail, "drive_source": source,
+        "connect_url": f"{auth.DRIVE_PREFIX}/connect" if auth.drive_connect_available() else None,
         "rules_version": workbench.RULES_VERSION,
         "docs": [{"kind": kind, "name": name, "url": (docs.get(kind) or {}).get("url"),
                   "changed_at": (docs.get(kind) or {}).get("changed_at")}
@@ -344,11 +364,11 @@ def publish_claude_docs(request: Request) -> dict:
     user = current_user(request)
     _owner_content(user)
     try:
-        client = _drive_client()
+        client = _drive_client(request)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=409, detail=str(e)) from e
     if client is None:
-        raise HTTPException(status_code=409, detail="Google Drive isn't set up. Run `strelitzia drive auth`.")
+        raise HTTPException(status_code=409, detail="Google Drive isn't set up. Connect Google Drive on the Claude setup page.")
     workbench.publish_static_docs(client, db_conn(request), user.id, _workbench_inputs(), force=True)
     return claude_setup(request)
 
@@ -784,6 +804,17 @@ def _session_secret() -> str:
     return env("SESSION_SECRET") or secrets.token_urlsafe(32)
 
 
+def _import_legacy_drive_token(conn) -> None:
+    """Give the owner the CLI's Drive token once TOKEN_KEY is set (strelitzia.storage.drive.import_legacy_token)."""
+    from strelitzia.storage.drive import DriveNotConfigured, import_legacy_token
+
+    try:
+        if import_legacy_token(conn):
+            log.info("Imported the CLI's Google Drive token for the owner")
+    except DriveNotConfigured as e:
+        log.warning("Couldn't import the CLI's Google Drive token: %s", e)
+
+
 def create_app(static_dir: Path | str | None = None, db: Path | str | None = None,
                generate: tasks.Generator | None = None, run_tasks: bool = True) -> FastAPI:
     """The dashboard app.
@@ -810,7 +841,7 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
                   docs_url=f"{PREFIX}/api/docs", openapi_url=f"{PREFIX}/api/openapi.json", redoc_url=None)
     app.state.db = db
     app.state.runner = runner
-    init_db(db)
+    _import_legacy_drive_token(init_db(db))
 
     @app.middleware("http")
     async def csrf_guard(request: Request, call_next):
@@ -833,6 +864,7 @@ def create_app(static_dir: Path | str | None = None, db: Path | str | None = Non
     app.add_middleware(SessionMiddleware, secret_key=_session_secret(), session_cookie=auth.SESSION_COOKIE,
                        max_age=auth.SESSION_MAX_AGE, same_site="lax", https_only=auth.secure_cookie())
     app.include_router(auth.router)
+    app.include_router(auth.drive_router)
     app.include_router(api)
     _mount_ui(app, Path(static_dir) if static_dir else _default_static_dir())
     return app
