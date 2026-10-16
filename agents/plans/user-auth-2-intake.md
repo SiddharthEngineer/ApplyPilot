@@ -48,7 +48,7 @@ two-user test shows extraction writes only the targeted row.
 return the current user's tasks (404 otherwise). Add `current_user(request)` and use it in all job routes. `assess_task` passes
 `user_id` to `run_scoring`, which accepts and ignores it until part 3 (`user_id: str | None = None`).
 **Validate:** `pytest tests/web -q` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16
 
 ## Validation
 - `scripts/validate.sh --full` passes.

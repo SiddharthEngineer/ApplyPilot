@@ -46,38 +46,42 @@ def task_dict(row) -> dict:
                                 "error")}
 
 
-def get_task(conn: Connection, task_id: str) -> dict | None:
-    row = conn.execute("SELECT * FROM dashboard_tasks WHERE id = ?", (task_id,)).fetchone()
+def get_task(conn: Connection, task_id: str, user_id: str | None = None) -> dict | None:
+    """A task by id; with `user_id`, only if it's that user's."""
+    sql = "SELECT * FROM dashboard_tasks WHERE id = ?" + (" AND user_id = ?" if user_id else "")
+    row = conn.execute(sql, (task_id, user_id) if user_id else (task_id,)).fetchone()
     return task_dict(row) if row else None
 
 
-def job_tasks(conn: Connection, url: str) -> list[dict]:
+def job_tasks(conn: Connection, user_id: str, url: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT * FROM dashboard_tasks WHERE url = ? ORDER BY created_at DESC, id", (url,)
+        "SELECT * FROM dashboard_tasks WHERE user_id = ? AND url = ? ORDER BY created_at DESC, id", (user_id, url)
     ).fetchall()
     return [task_dict(r) for r in rows]
 
 
-def enqueue(conn: Connection, url: str | None, kind: str) -> dict:
-    """Queue a task (or return the identical one already waiting)."""
+def enqueue(conn: Connection, user_id: str, url: str | None, kind: str) -> dict:
+    """Queue a task for the user (or return the identical one already waiting for them)."""
     if kind not in KINDS:
         raise ValueError(f"Unknown task kind {kind!r}")
     if (url is None) != (kind == "reassess_all"):
         raise ValueError(f"Task kind {kind!r} {'takes no' if url is None else 'needs a'} job")
     if url is None:
         row = conn.execute(
-            "SELECT * FROM dashboard_tasks WHERE url IS NULL AND kind = ? AND state = 'queued'", (kind,)
+            "SELECT * FROM dashboard_tasks WHERE user_id = ? AND url IS NULL AND kind = ? AND state = 'queued'",
+            (user_id, kind),
         ).fetchone()
     else:
         row = conn.execute(
-            "SELECT * FROM dashboard_tasks WHERE url = ? AND kind = ? AND state = 'queued'", (url, kind)
+            "SELECT * FROM dashboard_tasks WHERE user_id = ? AND url = ? AND kind = ? AND state = 'queued'",
+            (user_id, url, kind),
         ).fetchone()
     if row:
         return task_dict(row)
     task_id = uuid.uuid4().hex
     conn.execute(
-        "INSERT INTO dashboard_tasks (id, url, kind, state, created_at) VALUES (?, ?, ?, 'queued', ?)",
-        (task_id, url, kind, _now()),
+        "INSERT INTO dashboard_tasks (id, user_id, url, kind, state, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
+        (task_id, user_id, url, kind, _now()),
     )
     conn.commit()
     return get_task(conn, task_id)

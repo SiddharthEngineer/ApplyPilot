@@ -198,9 +198,9 @@ def test_assess_task(kind, url, stats, error):
 
 def test_enqueue_checks_the_job_argument(conn):
     with pytest.raises(ValueError):
-        tasks.enqueue(conn, None, "rescore")
+        tasks.enqueue(conn, "u1", None, "rescore")
     with pytest.raises(ValueError):
-        tasks.enqueue(conn, URLS[0], "reassess_all")
+        tasks.enqueue(conn, "u1", URLS[0], "reassess_all")
 
 
 def test_stale_jobs_can_be_reassessed_from_any_save(client, conn):

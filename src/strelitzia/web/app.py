@@ -101,12 +101,13 @@ def facets(request: Request) -> dict:
 _RAW_COLUMNS = ("full_description", "description", "details_json", "fit_assessment")
 
 
-def job_by_key(conn: Connection, key: str) -> dict:
-    """The job row for a dashboard key, or 404."""
-    row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+def job_by_key(conn: Connection, user_id: str, key: str) -> dict:
+    """The user's job row for a dashboard key, or 404. Two users' rows for one posting share the key."""
+    sql = "SELECT * FROM jobs WHERE user_id = ? AND job_key = ?"
+    row = conn.execute(sql, (user_id, key)).fetchone()
     if row is None:
         backfill_job_keys(conn)  # a row discovered since the last list request
-        row = conn.execute("SELECT * FROM jobs WHERE job_key = ?", (key,)).fetchone()
+        row = conn.execute(sql, (user_id, key)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return dict(row)
@@ -186,7 +187,8 @@ def _draft_fields(job: dict) -> dict:
 @api.get("/jobs/{key}")
 def get_job(key: str, request: Request) -> dict:
     conn = db_conn(request)
-    return job_detail(conn, job_by_key(conn, key))
+    user = current_user(request)
+    return job_detail(conn, job_by_key(conn, user.id, key))
 
 
 class StatusUpdate(BaseModel):
@@ -197,10 +199,11 @@ class StatusUpdate(BaseModel):
 @api.post("/jobs/{key}/status")
 def post_status(key: str, body: StatusUpdate, request: Request) -> dict:
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     submitted_at = body.submitted_at.isoformat() if body.submitted_at else None
     tracking.set_status(conn, job["url"], body.status, submitted_at=submitted_at)
-    return job_detail(conn, job_by_key(conn, key))
+    return job_detail(conn, job_by_key(conn, user.id, key))
 
 
 class JobPatch(BaseModel):
@@ -212,20 +215,21 @@ class JobPatch(BaseModel):
 def patch_job(key: str, body: JobPatch, request: Request) -> dict:
     """Edit the submitted date and/or notes. Only the fields present in the body change."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     if "submitted_at" in body.model_fields_set:
         if body.submitted_at is None:
             raise HTTPException(status_code=422, detail="submitted_at can't be cleared; set a status instead")
         tracking.set_submitted_at(conn, job["url"], body.submitted_at.isoformat())
     if "notes" in body.model_fields_set:
-        conn.execute("UPDATE jobs SET notes = ? WHERE url = ?", (body.notes, job["url"]))
+        conn.execute("UPDATE jobs SET notes = ? WHERE user_id = ? AND url = ?", (body.notes, user.id, job["url"]))
         conn.commit()
-    return job_detail(conn, job_by_key(conn, key))
+    return job_detail(conn, job_by_key(conn, user.id, key))
 
 
 @api.get("/jobs/{key}/files/{kind}")
 def get_job_file(key: str, kind: Literal["resume_pdf", "resume_docx", "cover_letter_pdf"], request: Request):
-    job = job_by_key(db_conn(request), key)
+    job = job_by_key(db_conn(request), current_user(request).id, key)
     path = _local_file(job, kind)
     if path is None:
         raise HTTPException(status_code=404, detail="No such file on this server")
@@ -252,7 +256,8 @@ def _drive_client():
 def post_packet(key: str, request: Request) -> dict:
     """Write the job's Claude packet (a Drive Doc when Drive is set up) and return the prompt to paste in Claude."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     inputs = _workbench_inputs()
     drive_error = None
     try:
@@ -278,7 +283,8 @@ class PastedResult(BaseModel):
 def post_result(key: str, body: PastedResult, request: Request):
     """Check a pasted Claude reply. 422 with errors and a fix message, or 200 with the saved draft and the job."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     outcome = workbench.import_result(conn, job, body.text, _workbench_inputs())
     if not outcome.ok:
         return JSONResponse({"detail": outcome.errors[0] if outcome.errors else "The result didn't pass the checks",
@@ -290,13 +296,13 @@ def post_result(key: str, body: PastedResult, request: Request):
         if client is not None:
             from strelitzia.storage.sync import sync_job
 
-            sync_job(conn, client, job_by_key(conn, key))
+            sync_job(conn, client, job_by_key(conn, user.id, key))
     except Exception as e:  # noqa: BLE001 -- the files are saved locally
         log.warning("Drive upload failed for %s: %s", key, e)
         warnings.append(f"Saved, but the Drive upload failed: {e}")
     return {"outcome": {"draft_version": outcome.draft_version, "warnings": warnings,
                         "coverage": outcome.coverage, "unmet": outcome.unmet},
-            "job": job_detail(conn, job_by_key(conn, key))}
+            "job": job_detail(conn, job_by_key(conn, user.id, key))}
 
 
 @api.get("/claude/setup")
@@ -446,9 +452,10 @@ def _notify(request: Request) -> None:
 def rescore(key: str, request: Request) -> dict:
     """Queue a sync assessment of one job (whatever its state). Poll GET /app/api/tasks/{id}."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     budget_stop(conn)
-    task = tasks.enqueue(conn, job["url"], "rescore")
+    task = tasks.enqueue(conn, user.id, job["url"], "rescore")
     _notify(request)
     return {**task, "key": key}
 
@@ -464,16 +471,17 @@ class AddJobBody(BaseModel):
     description: str | None = None
 
 
-def _queue_intake(conn: Connection, request: Request, url: str) -> dict:
-    """Queue the intake task for a job, or return the one already queued or running for it."""
+def _queue_intake(conn: Connection, request: Request, user_id: str, url: str) -> dict:
+    """Queue the intake task for the user's job, or return the one already queued or running for it."""
     active = conn.execute(
-        "SELECT * FROM dashboard_tasks WHERE url = ? AND kind = 'intake' AND state IN ('queued', 'running') "
-        "ORDER BY created_at DESC LIMIT 1", (url,)).fetchone()
+        "SELECT * FROM dashboard_tasks WHERE user_id = ? AND url = ? AND kind = 'intake' "
+        "AND state IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1", (user_id, url)).fetchone()
     if active:
         return tasks.task_dict(active)
-    conn.execute("UPDATE jobs SET intake_status = 'queued', intake_error = NULL WHERE url = ?", (url,))
+    conn.execute("UPDATE jobs SET intake_status = 'queued', intake_error = NULL WHERE user_id = ? AND url = ?",
+                 (user_id, url))
     conn.commit()
-    task = tasks.enqueue(conn, url, "intake")
+    task = tasks.enqueue(conn, user_id, url, "intake")
     _notify(request)
     return task
 
@@ -501,7 +509,7 @@ def add_job(body: AddJobBody, request: Request) -> JSONResponse:
     manual = intake.ManualFields(title=body.title, company=body.company, location=body.location,
                                  description=body.description)
     row, created = intake.add_job(conn, user.id, url, manual)
-    task = _queue_intake(conn, request, row["url"]) if created or intake.needs_intake(row) else None
+    task = _queue_intake(conn, request, user.id, row["url"]) if created or intake.needs_intake(row) else None
     return JSONResponse({"key": row["job_key"], "created": created, "task": task},
                         status_code=201 if created else 200)
 
@@ -517,11 +525,12 @@ class PastedDescription(BaseModel):
 def put_description(key: str, body: PastedDescription, request: Request) -> dict:
     """Save a pasted description (when the posting couldn't be read), then extract and score it."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     budget_stop(conn)
-    intake.save_pasted(conn, job["user_id"], job["url"], intake.ManualFields(
+    intake.save_pasted(conn, user.id, job["url"], intake.ManualFields(
         title=body.title, company=body.company, location=body.location, description=body.description))
-    return {"task": _queue_intake(conn, request, job["url"]), "key": key}
+    return {"task": _queue_intake(conn, request, user.id, job["url"]), "key": key}
 
 
 # --- Contacts and interviews (strelitzia.workspace) ---
@@ -617,7 +626,8 @@ def delete_contact(contact_id: str, request: Request) -> dict:
 def link_job_contact(key: str, body: JobContactLink, request: Request) -> dict:
     """Link a contact to the job: an existing one (`contact_id`) or a new one (`contact`). Returns the job."""
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     if (body.contact_id is None) == (body.contact is None):
         raise HTTPException(status_code=422, detail="Give either contact_id or a new contact")
     if body.contact is None:
@@ -629,21 +639,23 @@ def link_job_contact(key: str, body: JobContactLink, request: Request) -> dict:
         except Exception:
             workspace.delete_contact(conn, contact_id)  # don't leave a contact behind that the user never saw
             raise
-    return job_detail(conn, job_by_key(conn, key))
+    return job_detail(conn, job_by_key(conn, user.id, key))
 
 
 @api.delete("/jobs/{key}/contacts/{contact_id}")
 def unlink_job_contact(key: str, contact_id: str, request: Request) -> dict:
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     workspace.unlink_contact(conn, job["url"], contact_id)
-    return job_detail(conn, job_by_key(conn, key))
+    return job_detail(conn, job_by_key(conn, user.id, key))
 
 
 @api.post("/jobs/{key}/interviews", status_code=201)
 def create_interview(key: str, body: InterviewPatch, request: Request) -> dict:
     conn = db_conn(request)
-    job = job_by_key(conn, key)
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
     return _workspace_call(workspace.create_interview, conn, job["url"], **body.model_dump(exclude_unset=True))
 
 
@@ -705,7 +717,7 @@ def put_preferences(body: PrefsSave, request: Request) -> dict:
     rescored = recompute_fit(conn, prefs=prefs)
     task = None
     if reassess:
-        task = tasks.enqueue(conn, None, "reassess_all")
+        task = tasks.enqueue(conn, current_user(request).id, None, "reassess_all")
         _notify(request)
     return {"prefs": prefs.to_dict(), "rescored": rescored, "task": task}
 
@@ -713,18 +725,20 @@ def put_preferences(body: PrefsSave, request: Request) -> dict:
 @api.get("/tasks/{task_id}")
 def get_task(task_id: str, request: Request) -> dict:
     conn = db_conn(request)
-    task = tasks.get_task(conn, task_id)
+    user = current_user(request)
+    task = tasks.get_task(conn, task_id, user.id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    row = conn.execute("SELECT job_key FROM jobs WHERE url = ?", (task["url"],)).fetchone()
+    row = conn.execute("SELECT job_key FROM jobs WHERE user_id = ? AND url = ?", (user.id, task["url"])).fetchone()
     return {**task, "key": row[0] if row else None}
 
 
 @api.get("/jobs/{key}/tasks")
 def list_job_tasks(key: str, request: Request) -> list[dict]:
     conn = db_conn(request)
-    job = job_by_key(conn, key)
-    return [{**t, "key": key} for t in tasks.job_tasks(conn, job["url"])]
+    user = current_user(request)
+    job = job_by_key(conn, user.id, key)
+    return [{**t, "key": key} for t in tasks.job_tasks(conn, user.id, job["url"])]
 
 
 # The built UI ships inside the package (dashboard/ builds into it), so pip installs need no Node.

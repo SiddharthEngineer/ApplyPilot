@@ -229,7 +229,7 @@ def test_other_errors_are_recorded_and_raised(conn, uid, fakes):
 def test_intake_is_a_task_kind(conn, monkeypatch):
     calls = []
     monkeypatch.setattr(intake, "run_intake", lambda user_id, url: calls.append(url))
-    task = tasks.enqueue(conn, "https://example.com/1", "intake")
+    task = tasks.enqueue(conn, users.owner(conn).id, "https://example.com/1", "intake")
     assert task["kind"] == "intake" and task["state"] == "queued"
     tasks.generate_for_job("u1", "https://example.com/1", "intake")
     assert calls == ["https://example.com/1"]
