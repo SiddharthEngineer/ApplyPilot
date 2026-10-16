@@ -25,9 +25,9 @@ def _rx(*patterns: str) -> re.Pattern:
 # is product_program_management, "Software Engineer, Machine Learning" is ml_ai_engineering.
 _TITLE_RULES: list[tuple[str, re.Pattern]] = [
     # Sales and customer-facing roles that mention a tech word ("Account Executive, Tableau").
-    ("other", _rx(
-        "sales", "account executive", "account manager", "business development", "recruiter", "recruiting",
-        "customer success")),
+    ("sales", _rx("sales", "account executive", "business development")),
+    ("customer_success", _rx("account manager", "customer success")),
+    ("hr_recruiting", _rx("recruiter", "recruiting", "talent acquisition")),
     ("quant_finance", _rx("quant", "quants", "quantitative", "trader", "trading", "actuar*", "portfolio manager")),
     ("data_science", _rx("data scien*", "decision scien*")),
     ("research_science", _rx("research scien*", "applied scien*", "research engineer", "scientist", "researcher")),
@@ -41,6 +41,9 @@ _TITLE_RULES: list[tuple[str, re.Pattern]] = [
     ("ml_ai_engineering", _rx(
         "machine learning", "ml", "mlops", "ai", "a.i", "llm*", "deep learning", "computer vision", "nlp",
         "genai", "generative", "prompt engineer", "artificial intelligence", "perception", "applied ai", "agent*")),
+    ("cybersecurity", _rx(
+        "security engineer", "security analyst", "security architect", "cybersecurity", "cyber", "infosec",
+        "information security", "application security", "appsec", "penetration tester", "soc analyst")),
     ("data_analytics_bi", _rx(
         "analyst", "analytics", "business intelligence", "bi", "power bi", "tableau", "reporting", "insights")),
     ("hardware_electrical", _rx(
@@ -50,7 +53,7 @@ _TITLE_RULES: list[tuple[str, re.Pattern]] = [
     ("it_infra_devops", _rx(
         "devops", "devsecops", "sre", "site reliability", "infrastructure", "cloud engineer", "cloud architect",
         "platform engineer", "network*", "systems engineer", "system administrator", "sysadmin", "it support",
-        "help desk", "helpdesk", "security engineer", "cybersecurity", "cyber", "dba", "database administrator",
+        "help desk", "helpdesk", "dba", "database administrator",
         "administrator", "admin")),
     ("software_engineering", _rx(
         "software", "developer", "swe", "sde", "backend", "back-end", "back end", "frontend", "front-end",

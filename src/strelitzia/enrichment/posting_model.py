@@ -54,11 +54,15 @@ ENUMS: dict[str, tuple[str, ...]] = {
 }
 
 
-
 @cache
+def _role_map_text() -> str:
+    return (config.CONFIG_DIR / "roles.json").read_text(encoding="utf-8")
+
+
 def role_map() -> dict[str, list[str]]:
-    """Common role titles per role_category (`config/roles.json`), for picking target roles. "other" has none."""
-    return json.loads((config.CONFIG_DIR / "roles.json").read_text(encoding="utf-8"))
+    """Common role titles per role_category (`config/roles.json`), for picking target roles. "other" has none.
+    A fresh copy each call, so a caller can't change it for everyone else."""
+    return json.loads(_role_map_text())
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

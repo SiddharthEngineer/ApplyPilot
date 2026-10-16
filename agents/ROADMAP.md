@@ -24,7 +24,7 @@ R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a t
 | R35 | Profile 1: per-user profile in the DB (#48) | [profile-1-store](plans/profile-1-store.md) | review | ✅ PR open | R34 |
 | R36 | Profile 2: Profile page, resume parsing (#48) | [profile-2-page](plans/profile-2-page.md) | review | ✅ PR open | R35 |
 | R37 | Prefs cleanup 1: qualification rules, fixed weights (#46) | [prefs-cleanup-1-scoring](plans/prefs-cleanup-1-scoring.md) | review | ✅ | R36 |
-| R38 | Prefs cleanup 2: job fields and role map (#46) | [prefs-cleanup-2-roles](plans/prefs-cleanup-2-roles.md) | review | ⏳ | R37 |
+| R38 | Prefs cleanup 2: job fields and role map (#46) | [prefs-cleanup-2-roles](plans/prefs-cleanup-2-roles.md) | review | ✅ | R37 |
 | R39 | Prefs cleanup 3: regrouped Preferences page (#46) | [prefs-cleanup-3-page](plans/prefs-cleanup-3-page.md) | review | ⏳ | R38 |
 
 ## Manual steps (you)
