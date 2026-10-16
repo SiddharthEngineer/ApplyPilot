@@ -65,14 +65,25 @@ describe('PreferencesPage', () => {
       expect(row(name)).not.toHaveClass('quiet');
     }
     expect(row('Travel')).toHaveClass('quiet');
-    // The AI-judged weights, Education, Experience and Companies to skip are no longer preferences.
-    for (const name of ['Skills', 'Red flags', 'Education', 'Experience', 'Company']) {
+    // Education, Experience, Companies to skip and the AI-judged weights are no longer preferences.
+    for (const name of ['Skills', 'Education', 'Experience', 'Company']) {
       expect(screen.queryByText(name, { selector: '.pref-label' })).not.toBeInTheDocument();
     }
-    // Advanced groups start collapsed.
-    for (const title of ['Role', 'Eligibility']) {
+    for (const title of ['What the AI judges', 'Companies to skip', 'Role', 'Eligibility']) {
+      expect(screen.queryByRole('heading', { name: title })).toBeNull();
+    }
+    expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/profile');
+    // Basics holds the job field and target roles first; it and Skills and industries are open, the rest fold.
+    const basics = screen.getByRole('heading', { name: 'Basics' }).closest('section') as HTMLElement;
+    expect([...basics.querySelectorAll('.pref-label')].map((e) => e.textContent))
+      .toEqual(['Job field', 'Target roles', 'Salary', 'Location', 'Work mode']);
+    expect(screen.getByRole('heading', { name: 'Skills and industries' }).closest('section')).not.toBeNull();
+    for (const title of ['Role requirements', 'Red flags']) {
       expect(screen.getByRole('heading', { name: title }).closest('details')).not.toHaveAttribute('open');
     }
+    const requirements = screen.getByRole('heading', { name: 'Role requirements' }).closest('details') as HTMLElement;
+    expect([...requirements.querySelectorAll('.pref-label')].map((e) => e.textContent))
+      .toEqual(['Seniority', 'Employment type', 'Visa sponsorship', 'Security clearance', 'Travel']);
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled(); // nothing changed yet
   });
 
@@ -161,9 +172,8 @@ describe('PreferencesPage', () => {
   it('chips and toggles edit set values', async () => {
     const user = renderPage();
     await user.click(await screen.findByRole('button', { name: 'Data Engineering' }));
-    await user.click(screen.getByText('Role'));
     await user.click(within(screen.getByRole('group', { name: 'Work modes' })).getByRole('button', { name: 'Remote' }));
-    await user.click(screen.getByText('Eligibility'));
+    await user.click(screen.getByText('Role requirements'));
     await user.click(screen.getByRole('checkbox', { name: 'I need visa sponsorship' }));
     vi.mocked(api.previewPreferences).mockResolvedValue({ reassess_needed: false, jobs_to_reassess: 0, estimated_usd: 0 });
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -171,6 +181,19 @@ describe('PreferencesPage', () => {
     expect(sent.role_category.value).toEqual(['data_engineering']);
     expect(sent.work_mode.value).toEqual(['remote']);
     expect(sent.visa.value).toBe(true);
+  });
+
+  it('red flags are checkboxes with a one-line explanation', async () => {
+    const user = renderPage();
+    await user.click(await screen.findByText('Red flags'));
+    const flags = screen.getByRole('group', { name: 'Red flags' });
+    const box = within(flags).getByRole('checkbox', { name: /Mostly sales/ });
+    expect(box).toBeChecked();
+    expect(flags).toHaveTextContent('the role is mainly selling despite its title');
+    await user.click(box);
+    vi.mocked(api.previewPreferences).mockResolvedValue({ reassess_needed: false, jobs_to_reassess: 0, estimated_usd: 0 });
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(vi.mocked(api.previewPreferences).mock.calls[0][0].red_flags_counted).toEqual(['vague_posting']);
   });
 
   it('formats the estimate', () => {
