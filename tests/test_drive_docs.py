@@ -3,7 +3,8 @@
 import pytest
 from fake_drive import FakeDrive, fake_media
 
-from strelitzia.database import init_db
+from strelitzia import users
+from strelitzia.database import init_db, migrate_users, set_state
 from strelitzia.scoring import workbench as wb
 from strelitzia.storage.drive import DOC_MIME, DriveClient
 from workbench_helpers import add_job_row, inputs
@@ -62,7 +63,7 @@ def test_upsert_doc_prefers_the_known_id_and_skips_trashed(drive, client):
 
 
 def test_static_docs_are_written_once_and_skip_unchanged(drive, client, conn):
-    urls = wb.publish_static_docs(client, conn, inputs())
+    urls = wb.publish_static_docs(client, conn, users.owner(conn).id, inputs())
     assert set(urls) == {"rules", "library", "panel_rubric"} and all(urls.values())
     docs = {d["name"]: d for d in _docs(drive)}
     assert set(docs) == {"Strelitzia rules", "Strelitzia content library", "Strelitzia panel rubric"}
@@ -73,23 +74,36 @@ def test_static_docs_are_written_once_and_skip_unchanged(drive, client, conn):
     assert b"not_met" in docs["Strelitzia panel rubric"]["content"]
 
     calls = dict(drive.calls)
-    assert wb.publish_static_docs(client, conn, inputs()) == urls
+    assert wb.publish_static_docs(client, conn, users.owner(conn).id, inputs()) == urls
     assert drive.calls["create"] == calls["create"] and drive.calls["update"] == calls.get("update", 0)
 
-    state = wb.published_static_docs(conn)
+    state = wb.published_static_docs(conn, users.owner(conn).id)
     assert state["rules"]["url"] == urls["rules"] and state["rules"]["changed_at"]
 
 
+def test_static_docs_are_per_user_and_the_old_ones_are_the_owners(drive, client, conn):
+    set_state(conn, "claude_doc:rules", '{"id": "old", "url": "u", "hash": "h"}')
+    conn.commit()
+    migrate_users(conn)
+    migrate_users(conn)  # idempotent
+    me, other = users.owner(conn).id, users.invite(conn, "b@example.com").id
+    assert wb.published_static_docs(conn, me) == {"rules": {"id": "old", "url": "u", "hash": "h"}}
+    assert wb.published_static_docs(conn, other) == {}
+    wb.publish_static_docs(client, conn, other, inputs())
+    assert set(wb.published_static_docs(conn, other)) == {"rules", "library", "panel_rubric"}
+    assert wb.published_static_docs(conn, me)["rules"]["id"] == "old"
+
+
 def test_static_docs_update_only_the_changed_one(drive, client, conn):
-    wb.publish_static_docs(client, conn, inputs())
+    wb.publish_static_docs(client, conn, users.owner(conn).id, inputs())
     changed = inputs()
     changed.base_resume_text += "\nCertifications: none\n"
-    wb.publish_static_docs(client, conn, changed)
+    wb.publish_static_docs(client, conn, users.owner(conn).id, changed)
     assert drive.calls["update"] == 1 and len(_docs(drive)) == 3
     lib = next(d for d in _docs(drive) if d["name"] == "Strelitzia content library")
     assert b"Certifications" in lib["content"]
 
-    wb.publish_static_docs(client, conn, changed, force=True)
+    wb.publish_static_docs(client, conn, users.owner(conn).id, changed, force=True)
     assert drive.calls["update"] == 4 and len(_docs(drive)) == 3
 
 

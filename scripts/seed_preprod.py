@@ -143,10 +143,10 @@ def seed(conn, jobs: list[dict]) -> int:
         if status is None:
             continue
         if status in tracking.RESPONSE_STATUSES:  # a response follows a submission
-            tracking.set_status(conn, job["url"], "submitted", submitted_at=job["_submitted_at"], source="seed")
-            tracking.set_status(conn, job["url"], status, source="seed")
+            tracking.set_status(conn, owner_id, job["url"], "submitted", submitted_at=job["_submitted_at"], source="seed")
+            tracking.set_status(conn, owner_id, job["url"], status, source="seed")
         else:
-            tracking.set_status(conn, job["url"], status, submitted_at=job.get("_submitted_at"), source="seed")
+            tracking.set_status(conn, owner_id, job["url"], status, submitted_at=job.get("_submitted_at"), source="seed")
     conn.commit()
     return len(jobs)
 
