@@ -36,7 +36,7 @@ typed name and the job's company, instead of creating a name-only contact straig
 required, client-side checks matching the API, the API's 422 message shown inline. Contacts page: "New contact" button
 → form → created contact selected in the editor. Empty-state text: "No contacts yet. Add one with New contact."
 **Validate:** `cd dashboard && npm test -- --run` → passes.
-**Status:** ❌
+**Status:** ✅ 2026-10-16 (this commit)
 
 ### Task 3: create-from-job uses the form
 **Runs:** unattended
