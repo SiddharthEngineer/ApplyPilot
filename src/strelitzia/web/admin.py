@@ -53,11 +53,9 @@ class Invite(BaseModel):
     @field_validator("email")
     @classmethod
     def _looks_like_an_email(cls, v: str) -> str:
-        v = v.strip().lower()
-        local, _, domain = v.partition("@")
-        if not local or "." not in domain or any(c.isspace() for c in v):
+        if not users.looks_like_email(v):
             raise ValueError("Enter an email address")
-        return v
+        return v.strip().lower()
 
 
 class UserPatch(BaseModel):

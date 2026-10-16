@@ -36,6 +36,9 @@ _FILE_FIELDS = "id, name, mimeType, parents, trashed, md5Checksum, webViewLink, 
 # appProperties key prefix. Kept from before the rename (legacy): files already in Drive are tagged with it.
 PROP_PREFIX = "applypilot_"
 INSTALL_HINT = 'Install the Drive extra: pip install -e ".[drive]"'
+# The CLI's `drive auth` is gone (user-auth-8-cli): a token now comes only from the dashboard's Connect Google Drive.
+LEGACY_CONNECT_HINT = ("Turn on Google sign-in and set STRELITZIA_TOKEN_KEY, then use Connect Google Drive on "
+                "/app/claude-setup (README: Google Drive file library).")
 
 
 class DriveNotConfigured(RuntimeError):
@@ -100,10 +103,9 @@ def load_credentials():
 
     token_path = config.GOOGLE_TOKEN_PATH
     if not token_path.exists():
-        raise DriveNotConfigured(f"No Google token at {token_path}. "
-                                 "Connect Google Drive on the dashboard's Claude setup page (/app/claude-setup).")
+        raise DriveNotConfigured(f"No Google token at {token_path}. {LEGACY_CONNECT_HINT}")
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-    return _refreshed(creds, _save_token, "Connect Google Drive again on /app/claude-setup.")
+    return _refreshed(creds, _save_token, f"The Google token was revoked or expired. {LEGACY_CONNECT_HINT}")
 
 
 def _save_token(creds) -> None:
@@ -464,5 +466,5 @@ def drive_status() -> tuple[str, str]:
     if not drive_libraries_installed():
         return "not_installed", INSTALL_HINT
     if not config.GOOGLE_TOKEN_PATH.exists():
-        return "not_authorized", "Connect Google Drive on the dashboard's Claude setup page (/app/claude-setup) (see README: Google Drive)"
+        return "not_authorized", LEGACY_CONNECT_HINT
     return "authorized", str(config.GOOGLE_TOKEN_PATH)

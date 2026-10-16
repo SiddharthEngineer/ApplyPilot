@@ -218,7 +218,7 @@ Add `<PUBLIC_URL>/app/api/auth/callback` and `<PUBLIC_URL>/app/api/drive/callbac
 the client id set, the server refuses to start unless the other three keys are set too.
 
 Only the owner and invited emails can sign in. The owner manages accounts on the dashboard's **Users** page or with the
-CLI: `strelitzia users invite <email> [--cap 5]`, `users list`, `users cap <email> <usd>` and `users disable <email>`.
+CLI: `strelitzia users invite <email> [--cap 5]`, `users list`, `users cap <email> <usd>`, `users disable <email>` and `users enable <email>`.
 An invite turns active on that person's first sign-in. Each invited user's Claude spend stops at their monthly cap;
 the owner has no cap, and `LLM_MONTHLY_BUDGET_USD` limits the whole server.
 
@@ -317,6 +317,7 @@ strelitzia users list                    # Every account: role, status, cap, spe
 strelitzia users invite <email> [--cap 5]  # Let an email sign in (monthly Claude cap in USD, default 5)
 strelitzia users cap <email> <usd>       # Change an account's monthly cap (the owner has none)
 strelitzia users disable <email>         # Stop an account from signing in (its data stays)
+strelitzia users enable <email>          # Let a disabled account sign in again
 ```
 
 ---
