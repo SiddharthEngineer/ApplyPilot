@@ -17,7 +17,7 @@ FALLBACK_OWNER_EMAIL = "owner@localhost"
 
 ROLES = ("owner", "user")
 STATUSES = ("invited", "active", "disabled")
-_COLUMNS = "id, email, name, role, status, monthly_cap_usd"
+_COLUMNS = "id, email, name, role, status, monthly_cap_usd, last_login_at"
 
 
 @dataclass
@@ -28,6 +28,7 @@ class User:
     role: str
     status: str
     monthly_cap_usd: float | None
+    last_login_at: str | None = None
 
 
 def _now() -> str:
@@ -88,13 +89,14 @@ def invite(conn, email: str, cap: float | None = DEFAULT_CAP_USD) -> User:
     existing = by_email(conn, email)
     if existing:
         return existing
-    user = User(uuid.uuid4().hex, _norm(email), None, "user", "invited", cap)
+    # Two invites of one email at once: the second insert is a no-op and both return the same account.
     conn.execute(
-        "INSERT INTO users (id, email, name, role, status, monthly_cap_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user.id, user.email, user.name, user.role, user.status, user.monthly_cap_usd, _now()),
+        "INSERT INTO users (id, email, name, role, status, monthly_cap_usd, created_at) "
+        "VALUES (?, ?, NULL, 'user', 'invited', ?, ?) ON CONFLICT (email) DO NOTHING",
+        (uuid.uuid4().hex, _norm(email), cap, _now()),
     )
     conn.commit()
-    return user
+    return by_email(conn, email)
 
 
 def activate(conn, email: str, name: str | None) -> User | None:

@@ -46,7 +46,8 @@ describe('UsersPage', () => {
     expect(row.getByText('2026-10-15 09:30')).toBeInTheDocument();
     // The owner can't be disabled.
     expect(within(rowFor('owner@example.com')).queryByRole('button')).toBeNull();
-    expect(within(rowFor('owner@example.com')).getByLabelText(/Monthly cap/)).toHaveValue(null);
+    expect(within(rowFor('owner@example.com')).getByText('No cap')).toBeInTheDocument();
+    expect(within(rowFor('owner@example.com')).queryByLabelText(/Monthly cap/)).toBeNull();
   });
 
   it('invites an email', async () => {
@@ -126,6 +127,14 @@ describe('Users nav link', () => {
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(await within(nav).findByRole('link', { name: 'Users' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+  });
+
+  it('waits for the account instead of showing Page not found', async () => {
+    vi.mocked(api.getMe).mockReturnValue(new Promise(() => {}));
+    vi.mocked(api.getPanel).mockResolvedValue({ due: null } as Awaited<ReturnType<typeof api.getPanel>>);
+    render(<MemoryRouter initialEntries={['/users']}><App /></MemoryRouter>);
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByText(/Page not found/)).toBeNull();
   });
 
   it('is hidden for other users, and the route is not found', async () => {

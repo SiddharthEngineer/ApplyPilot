@@ -32,11 +32,10 @@ def _owner(request: Request) -> users.User:
 
 
 def _user_out(conn: Connection, user: users.User) -> dict:
-    row = conn.execute("SELECT last_login_at FROM users WHERE id = ?", (user.id,)).fetchone()
     return {
         "id": user.id, "email": user.email, "name": user.name, "role": user.role, "status": user.status,
         "monthly_cap_usd": user.monthly_cap_usd, "month_spend_usd": round(user_month_spend(conn, user.id), 4),
-        "last_login_at": row[0] if row else None,
+        "last_login_at": user.last_login_at,
     }
 
 
@@ -88,8 +87,7 @@ def _set_status(conn: Connection, me: users.User, target: users.User, status: st
                             else "You can't disable your own account")
     if status == "active" and target.status == "disabled":
         # Re-enabling: an account that never signed in goes back to being an invite.
-        signed_in = conn.execute("SELECT last_login_at FROM users WHERE id = ?", (target.id,)).fetchone()[0]
-        status = "active" if signed_in else "invited"
+        status = "active" if target.last_login_at else "invited"
     elif status == "active":
         return target  # already active or invited: nothing to do
     return users.set_status(conn, target.id, status)
@@ -103,6 +101,8 @@ def update_user(user_id: str, body: UserPatch, request: Request) -> dict:
     if body.status is not None:
         target = _set_status(conn, me, target, body.status)
     if "monthly_cap_usd" in body.model_fields_set:  # an explicit null means no cap
+        if target.role == "owner":
+            raise HTTPException(400, "The owner has no cap (LLM_MONTHLY_BUDGET_USD limits the whole server)")
         target = users.set_cap(conn, target.id, body.monthly_cap_usd)
     return _user_out(conn, target)
 

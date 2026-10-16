@@ -124,3 +124,15 @@ def test_mutations_need_the_csrf_header(app, conn):
     with TestClient(app) as bare:
         assert bare.post(URL, json={"email": "f@example.com"}).status_code == 403
     assert users.by_email(conn, "f@example.com") is None
+
+
+def test_owner_has_no_cap(client, conn):
+    owner = _owner(conn)
+    assert client.patch(f"{URL}/{owner.id}", json={"monthly_cap_usd": 5}).status_code == 400
+    assert users.get(conn, owner.id).monthly_cap_usd is None
+
+
+def test_invite_twice_is_one_account(conn):
+    first = users.invite(conn, "g@example.com")
+    assert users.invite(conn, "G@example.com").id == first.id
+    assert len([u for u in users.list_users(conn) if u.email == "g@example.com"]) == 1

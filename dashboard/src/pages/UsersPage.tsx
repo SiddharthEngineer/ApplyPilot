@@ -113,7 +113,9 @@ export default function UsersPage() {
                 <td>{STATUS_LABELS[u.status]}</td>
                 <td className="num">{usd(u.month_spend_usd)}</td>
                 <td>
-                  <CapField user={u} onSave={(cap) => run(async () => replace(await api.updateUser(u.id, { monthly_cap_usd: cap })))} />
+                  {u.role === 'owner' ? <span className="muted" title="LLM_MONTHLY_BUDGET_USD limits the whole server">No cap</span> : (
+                    <CapField user={u} onSave={(cap) => run(async () => replace(await api.updateUser(u.id, { monthly_cap_usd: cap })))} />
+                  )}
                 </td>
                 <td>{u.last_login_at ? u.last_login_at.slice(0, 16).replace('T', ' ') : <span className="muted">Never</span>}</td>
                 <td>

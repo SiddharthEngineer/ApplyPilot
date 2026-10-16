@@ -1,5 +1,5 @@
 # Plan: User accounts, part 7: sign-in screens and the Users admin page
-**Status:** ❌ Not started
+**Status:** ✅ Done 2026-10-16 (PR open)
 **Risk:** review (new pages and owner-only admin API)
 **Issue:** #47
 **Depends on:** user-auth-6-drive
@@ -43,7 +43,7 @@ The top bar shows the name and Sign out (POST logout, then reload). When auth is
 **What:** Setup page: "Connect Google Drive" (link to `connect_url`) or "Connected · Disconnect". Users page at `/users`,
 in the nav only for the owner: a table of users with spend and cap (editable inline), an invite form, Disable/Enable.
 **Validate:** `cd dashboard && npm test -- --run && npm run build` → passes and writes the bundle.
-**Status:** ✅ 2026-10-16 (Task 3 commit)
+**Status:** ✅ 2026-10-16 (40b8ecb)
 
 ## Validation
 - `scripts/validate.sh --full` passes.
