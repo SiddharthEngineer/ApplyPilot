@@ -7,25 +7,25 @@ Status: ⏳ queued · 🔄 in progress · 🟡 code done, user steps pending · 
 
 ## Active
 
-R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a time, merging after green CI (`AGENT_MERGE_POLICY=all`, user 2026-10-16). #19 is the user's, after the chain.
+R25-R39 (issues #47, #49, #45, #48, #46) ran as one unattended chain and all merged on 2026-10-16 (#57-#71); they are on preprod and wait for the prod deploy and human test steps in M27. #19 is the user's, after the chain.
 
 | ID | Initiative | Plan | Risk | Status | Depends on |
 |---|---|---|---|---|---|
-| R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | ✅ PR open | - |
-| R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | ✅ PR open | R25 |
-| R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | ✅ PR open | R26 |
-| R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | ✅ PR open | R27 |
-| R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | ✅ PR open | R28 |
-| R30 | Users 6: connect Drive per user (#47) | [user-auth-6-drive](plans/user-auth-6-drive.md) | review | ✅ PR open | R29 |
-| R31 | Users 7: sign-in screens, Users admin page (#47) | [user-auth-7-dashboard](plans/user-auth-7-dashboard.md) | review | ✅ PR open | R30 |
-| R32 | Users 8: admin-only CLI (#47) | [user-auth-8-cli](plans/user-auth-8-cli.md) | review | ✅ PR open | R31 |
-| R33 | Contact form with separate fields (#49) | [contact-form](plans/contact-form.md) | review | ✅ PR open | R32 |
-| R34 | Rescore all jobs (#45) | [rescore-all](plans/rescore-all.md) | review | ✅ PR open | R33 |
-| R35 | Profile 1: per-user profile in the DB (#48) | [profile-1-store](plans/profile-1-store.md) | review | ✅ PR open | R34 |
-| R36 | Profile 2: Profile page, resume parsing (#48) | [profile-2-page](plans/profile-2-page.md) | review | ✅ PR open | R35 |
-| R37 | Prefs cleanup 1: qualification rules, fixed weights (#46) | [prefs-cleanup-1-scoring](plans/prefs-cleanup-1-scoring.md) | review | ✅ | R36 |
-| R38 | Prefs cleanup 2: job fields and role map (#46) | [prefs-cleanup-2-roles](plans/prefs-cleanup-2-roles.md) | review | ✅ | R37 |
-| R39 | Prefs cleanup 3: regrouped Preferences page (#46) | [prefs-cleanup-3-page](plans/prefs-cleanup-3-page.md) | review | ✅ PR open | R38 |
+| R25 | Users 1: users table, per-user rows (#47) | [user-auth-1-schema](plans/user-auth-1-schema.md) | review | 🟡 merged #57 | - |
+| R26 | Users 2: intake and tasks per user (#47) | [user-auth-2-intake](plans/user-auth-2-intake.md) | review | 🟡 merged #58 | R25 |
+| R27 | Users 3: preferences, scoring, spend caps (#47) | [user-auth-3-scoring](plans/user-auth-3-scoring.md) | review | 🟡 merged #59 | R26 |
+| R28 | Users 4: contacts, tracking, workbench, panel (#47) | [user-auth-4-workspace](plans/user-auth-4-workspace.md) | review | 🟡 merged #60 | R27 |
+| R29 | Users 5: Google sign-in, allowlist (#47) | [user-auth-5-login](plans/user-auth-5-login.md) | review | 🟡 merged #61 | R28 |
+| R30 | Users 6: connect Drive per user (#47) | [user-auth-6-drive](plans/user-auth-6-drive.md) | review | 🟡 merged #62 | R29 |
+| R31 | Users 7: sign-in screens, Users admin page (#47) | [user-auth-7-dashboard](plans/user-auth-7-dashboard.md) | review | 🟡 merged #63 | R30 |
+| R32 | Users 8: admin-only CLI (#47) | [user-auth-8-cli](plans/user-auth-8-cli.md) | review | 🟡 merged #64 | R31 |
+| R33 | Contact form with separate fields (#49) | [contact-form](plans/contact-form.md) | review | 🟡 merged #65 | R32 |
+| R34 | Rescore all jobs (#45) | [rescore-all](plans/rescore-all.md) | review | 🟡 merged #66 | R33 |
+| R35 | Profile 1: per-user profile in the DB (#48) | [profile-1-store](plans/profile-1-store.md) | review | 🟡 merged #67 | R34 |
+| R36 | Profile 2: Profile page, resume parsing (#48) | [profile-2-page](plans/profile-2-page.md) | review | 🟡 merged #68 | R35 |
+| R37 | Prefs cleanup 1: qualification rules, fixed weights (#46) | [prefs-cleanup-1-scoring](plans/prefs-cleanup-1-scoring.md) | review | 🟡 merged #69 | R36 |
+| R38 | Prefs cleanup 2: job fields and role map (#46) | [prefs-cleanup-2-roles](plans/prefs-cleanup-2-roles.md) | review | 🟡 merged #70 | R37 |
+| R39 | Prefs cleanup 3: regrouped Preferences page (#46) | [prefs-cleanup-3-page](plans/prefs-cleanup-3-page.md) | review | 🟡 merged #71 | R38 |
 
 ## Manual steps (you)
 
@@ -43,9 +43,9 @@ R25-R39 (issues #47, #49, #45, #48, #46) run as one unattended chain, one at a t
 | M14 | Before R18 runs: GitHub Settings → Danger Zone → **Leave fork network** on SiddharthEngineer/ApplyPilot, then rename it to **Strelitzia**. In Cloudflare, add `strelitzia` and `strelitzia-preprod` DNS records (proxied, copy of the `applypilot*` ones). | ☑ |
 | M15 | After R18 merges: `scripts/migrate_to_strelitzia.sh` (dry run), then `--apply`, then run the `sudo` lines it prints for `/srv` and `/var/log`. Done 2026-10-13 (plus `safe.directory` for the new `/srv` paths, now step 8 of the script). | ☑ |
 | M16 | After M15: engineerfamily PR (nginx `strelitzia*` server_names + 301 from `applypilot*`, compose service/context/mounts/`STRELITZIA_DATABASE_URL`, Makefile `strelitzia-*` targets, restyled homepage/privacy page), then `make deploy-prod`, then `make strelitzia-deploy`. Done 2026-10-13: engineerfamily v1.1.0 (#26) on preprod and prod, runner env updated, prod dashboard at d05aecb. | ☑ |
-| M17 | After M16: Google Cloud OAuth consent screen: app name "Strelitzia", homepage and privacy URLs on `strelitzia.engineerfamily.net`. Before commercializing: USPTO search for "Strelitzia" (classes 9/35/42). | ☐ |
+| M17 | After M16: Google Cloud OAuth consent screen: app name "Strelitzia", homepage and privacy URLs on `strelitzia.engineerfamily.net`. Before commercializing: USPTO search for "Strelitzia" (classes 9/35/42).  2026-10-17: consent-screen part folded into M25; trademark search dropped (not commercializing). | ☐ |
 | M13 | After R16 merges: VPS `.env` cleanup and prod redeploy (checklist in [llm-limits-config](plans/done/llm-limits-config.md), "After merge"). Done 2026-10-12: engineerfamily v1.0.3 (PR #25) dropped the `/app/.env` mount, the OAuth token left `~/.applypilot/.env`, ApplyPilot prod at f5fae69. | ☑ |
-| M18 | Before R20 runs: Anthropic Console account + API key, set a monthly spend limit in the Console, put `ANTHROPIC_API_KEY` and `LLM_MONTHLY_BUDGET_USD` in `~/.strelitzia/.env` on the VPS. **Never** in `~/.config/strelitzia-agent/env`: `claude -p` would bill the API instead of the subscription. 2026-10-13: key added (Default Workspace); still to do: Console spend limit, `LLM_MONTHLY_BUDGET_USD`. | ☐ |
+| M18 | Before R20 runs: Anthropic Console account + API key, set a monthly spend limit in the Console, put `ANTHROPIC_API_KEY` and `LLM_MONTHLY_BUDGET_USD` in `~/.strelitzia/.env` on the VPS. **Never** in `~/.config/strelitzia-agent/env`: `claude -p` would bill the API instead of the subscription. 2026-10-13: key added (Default Workspace). Done 2026-10-17: Console spend limit set (user) and `LLM_MONTHLY_BUDGET_USD` in both `.env` files. | ☑ |
 | M19 | After R20 merges: delete `GEMINI_API_KEY` and the `LLM_*_MODEL` lines from `~/.strelitzia/.env`. Run the skipped interactive Task 7 (`pytest -m llm --run-llm tests/test_live_scoring_tailoring_cover.py`, ~$0.05), then `strelitzia doctor` and `strelitzia run extract` to clear the backlog. Deploy prod when happy. Replaces M3 and M11. Done 2026-10-15: `.env` cleaned (backup `.env.bak-20261015-m19`). Task 7: 6/7 passed; extraction hit the 16-union schema limit, fixed in #43 and passed on rerun. `doctor` OK. Instead of a full backlog extract, 3,126 discovered jobs were deleted (dump in `~/backups/applypilot-before-prune-20261015.dump`) and 10 of the 21 kept jobs extracted as a sample ($0.005). Prod not deployed. | ☑ |
 | M20 | Deferred until about 30 extracted jobs exist (the 2026-10-15 prune left about 10; `sample` only picks extracted jobs). Scoring stays on Haiku until then. R21 Task 5 merged (#52): label ~30 jobs with `scripts/eval_fit.py sample`, run `scripts/eval_fit.py run` (~$1 of API), pick the scoring model in `llm_models.yaml`, and record the numbers in the plan's Decisions. | ☐ |
 | M21 | R22 merged (#44). Live check on real postings. Add one link each from Greenhouse, Lever, Ashby, a Workday portal, a company careers page, LinkedIn and Indeed; note `intake_status`, seconds until scored, and whether the paste fallback appeared. Greenhouse/Lever/Ashby should reach `ok`; LinkedIn/Indeed reach `ok` or show the paste panel, never a stuck spinner. | ☐ |
