@@ -1,7 +1,7 @@
 """Core database behavior on both backends: SQLite (always) and Postgres (with STRELITZIA_TEST_DATABASE_URL).
 
 Run the Postgres half with:
-    STRELITZIA_TEST_DATABASE_URL=postgresql://applypilot:$PW@127.0.0.1:5432/applypilot_test pytest -m pg -q
+    STRELITZIA_TEST_DATABASE_URL=postgresql://strelitzia:$PW@127.0.0.1:5432/strelitzia_test pytest -m pg -q
 """
 
 import pytest

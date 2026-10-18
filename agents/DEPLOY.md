@@ -2,8 +2,10 @@
 
 Strelitzia runs inside the engineerfamily Docker stack (`SiddharthEngineer/engineerfamily`) as the compose service `strelitzia`,
 served at `https://strelitzia.engineerfamily.net/app/` behind nginx basic auth. `applypilot.engineerfamily.net` (and `-preprod`) 301 to the
-new names, keeping the path. The Postgres DBs `applypilot` / `applypilot_preprod`, their role, the engineerfamily `.env` keys
-`APPLYPILOT_DB_PASSWORD*` and `services/nginx/.htpasswd-applypilot` keep their old names for good.
+new names, keeping the path. Postgres runs in the compose service `postgres-db` (formerly `analytics-db`), which holds the DBs
+`strelitzia` / `strelitzia_test` (prod) and `strelitzia_preprod` (preprod), owned by the role `strelitzia`, with passwords in the
+engineerfamily `.env` keys `STRELITZIA_DB_PASSWORD*`. Until 2026-10 they were all named `applypilot`;
+`services/nginx/.htpasswd-applypilot` keeps its old name.
 For running a deploy step by step, Claude has the `engineerfamily-deploy` skill (`~/.claude/skills/`).
 
 ## Layout
@@ -47,10 +49,11 @@ Check from outside, through Cloudflare. A loopback check doesn't prove the hostn
 `make -C /srv/engineerfamily-preprod preprod-strelitzia-up`, and health-checks `http://127.0.0.1:8080/app/api/health`
 (credentials in `~/.config/strelitzia-agent/preprod.netrc`). Merging or closing the PR frees the lock, and the next tick resets preprod to trunk.
 Test at `https://strelitzia-preprod.engineerfamily.net/app/` with the preprod login.
-Preprod uses its own disposable `applypilot_preprod` DB (preprod analytics-db) and app dir (`~/.strelitzia-preprod`), never prod data.
+Preprod uses its own disposable `strelitzia_preprod` DB (preprod postgres-db) and app dir (`~/.strelitzia-preprod`), never prod data.
 **Preprod data is wiped and reseeded on every deploy** (a PR deploy or the reset to trunk): after the deploy command, `preprod.sh` runs
 `PREPROD_SEED_CMD`, which runs `scripts/seed_preprod.py` in a one-off container of the preprod image with the checkout mounted at `/seed`.
-It leaves 18 fake jobs across every pipeline stage and user status, and refuses any DB not named exactly `applypilot_preprod`.
+It leaves 18 fake jobs across every pipeline stage and user status, and refuses any DB not named exactly `strelitzia_preprod`
+(or `applypilot_preprod`, its name before the rename).
 A PR branched before the script existed deploys with `seed skipped` in `runs.log`.
 ```
 PREPROD_SEED_CMD="docker compose -p engineerfamily-preprod --project-directory /srv/engineerfamily-preprod -f /srv/engineerfamily-preprod/docker-compose.base.yml -f /srv/engineerfamily-preprod/docker-compose.preprod.yml run --rm --no-deps -T -v /srv/Strelitzia-preprod:/seed:ro strelitzia python /seed/scripts/seed_preprod.py"

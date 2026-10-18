@@ -185,7 +185,7 @@ def test_nul_bytes_are_stripped_from_params():
 
 
 def test_describe_url_hides_password():
-    assert describe_url("postgresql://applypilot:secret@127.0.0.1:5432/applypilot") == "applypilot@127.0.0.1"
+    assert describe_url("postgresql://strelitzia:secret@127.0.0.1:5432/strelitzia") == "strelitzia@127.0.0.1"
 
 
 def test_database_imports_without_psycopg():

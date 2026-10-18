@@ -136,7 +136,7 @@ def _reset_pg_schema(url: str) -> None:
 
 @pytest.fixture
 def pg_db():
-    """A fresh `jobs` table in STRELITZIA_TEST_DATABASE_URL (a throwaway DB such as applypilot_test).
+    """A fresh `jobs` table in STRELITZIA_TEST_DATABASE_URL (a throwaway DB such as strelitzia_test).
 
     Yields the URL; `init_db(url)` / `get_connection(url)` open it. Skips when the variable is unset.
     """

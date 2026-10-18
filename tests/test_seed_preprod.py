@@ -88,9 +88,11 @@ def test_seed_twice_wipes_first(seed_mod, db):
 @pytest.mark.parametrize("url", [
     "postgresql://u:p@h/applypilot",
     "postgresql://u:p@h:5432/applypilot_test",
+    "postgresql://u:p@h/strelitzia_preprod_old",
     "postgresql://u:p@h/applypilot_preprod_old",
-    "mysql://u:p@h/applypilot_preprod",
-    "sqlite:////tmp/applypilot_preprod",
+    "postgresql://u:p@h/strelitzia",
+    "mysql://u:p@h/strelitzia_preprod",
+    "sqlite:////tmp/strelitzia_preprod",
     None,
 ])
 def test_guard_refuses_anything_but_preprod(seed_mod, monkeypatch, capsys, tmp_path, url):
@@ -106,5 +108,7 @@ def test_guard_refuses_anything_but_preprod(seed_mod, monkeypatch, capsys, tmp_p
 
 
 def test_guard_accepts_preprod_name(seed_mod):
+    assert seed_mod._preprod_db_name("postgresql://u:p@postgres-db:5432/strelitzia_preprod") == "strelitzia_preprod"
+    assert seed_mod._preprod_db_name("postgres://u:p@h/strelitzia_preprod?sslmode=disable") == "strelitzia_preprod"
+    # The pre-rename name, until preprod is switched.
     assert seed_mod._preprod_db_name("postgresql://u:p@analytics-db:5432/applypilot_preprod") == "applypilot_preprod"
-    assert seed_mod._preprod_db_name("postgres://u:p@h/applypilot_preprod?sslmode=disable") == "applypilot_preprod"

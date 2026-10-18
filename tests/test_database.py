@@ -84,7 +84,7 @@ class TestBackendDispatch:
 
     def test_env_url_selects_postgres(self, monkeypatch):
         database = self._patch_pg(monkeypatch)
-        url = "postgresql://applypilot:pw@127.0.0.1:5432/applypilot"
+        url = "postgresql://strelitzia:pw@127.0.0.1:5432/strelitzia"
         monkeypatch.setenv("STRELITZIA_DATABASE_URL", url)
         conn = database.get_connection()
         try:
